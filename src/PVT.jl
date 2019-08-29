@@ -1,44 +1,34 @@
 module PVT
 
-    using DocStringExtensions, Parameters, FixedPointNumbers
+    using DocStringExtensions, Parameters, FixedPointNumbers, GNSSDecoder
 
     #export init_decode,
 
-    abstract type GNSSData end
-
-    @with_kw mutable struct GPSData <: GNSSData
-        IODC::Union{Nothing, String} = nothing
-    end
-
-    function calcSinglePosition(decRes,selPRN,tRXref,msInterpol)
-        #decRes: decoding results for navigation data
-        #selPRN: struct containing the ids of the selected satellite
-        #tRXref: receiver reference time
-        #msInterpol: interpolation time for the PVT
+    function calcSinglePosition(decRes,tRXref)
+        #decRes: decoding results for navigation data. Hay que pasarle decode.data
+        #decRes es un array. Cada elemento del array es del tipo ::GPSData
+        #tRXref: receiver time
 
         #preallocation
-        xSat = [NaN for i=1:length(selPRN)]
-        ySat = [NaN for i=1:length(selPRN)]
-        zSat = [NaN for i=1:length(selPRN)]
-        prMat = [NaN for i=1:length(selPRN)]
+        xSat = [NaN for i=1:length(decRes)]
+        ySat = [NaN for i=1:length(decRes)]
+        zSat = [NaN for i=1:length(decRes)]
+        prMat = [NaN for i=1:length(decRes)]
 
         #calculate satellite position and pseudorange
         satInd = 0
         for decInd = 1:length(decRes)
         #calculate satellite position
-                tTX = (decRes{decInd}.navigationData.tow - 1)*6 + 1e-3*msInterpol
+                tTX = (decRes[decInd].tow - 1)*6 #seconds since the transmission of the previous week
                 #calculate Ek with uncorrected satellite clock
-                a,b,c,Ek = satPosition(decRes{decInd}.data, tTX)
+                a,b,c,Ek = satPosition(decRes[decInd], tTX)
                 #correct satellite clock with Ek
-                tTXcorr = correctSatTime(tTX, decRes{decInd}.data, Ek)
+                tTXcorr = correctSatTime(tTX, decRes[decInd], Ek)
                 #calculate ECEF coordinates
-                xSatTmp,ySatTmp,zSatTmp,d = satPosition(decRes{decInd}.data, tTXcorr)
+                xSatTmp,ySatTmp,zSatTmp,d = satPosition(decRes[decInd], tTXcorr)
 
                 #Pseudorange Estimation
-                #tRX = calcUserTime(decRes{decInd}, msInterpol)
-
-                #use first preamble time for first estimation of pseudorange
-                pseudorange = (tRX - tRXref - tTXcorr)*299792458
+                pseudorange = ((deltaT)*299792458) / 1e3
 
                 #store variables
                 satInd = satInd + 1
@@ -48,17 +38,11 @@ module PVT
                 prMat[satInd,1] = pseudorange
         end
 
-        ecef.xSat = xSat'
-        ecef.ySat = ySat'
-        ecef.zSat = zSat'
-        ecef.pseudorange = prMat'
-
         #calculate user position
-        ecef.uPos, ecef.dop = userPosition(xSat, ySat, zSat, prMat)
+        uPos, dop = userPosition(xSat, ySat, zSat, prMat)
     end
 
     include("satPosition.jl")
-    include("calcDOP")
     include("correctSatTime.jl")
     include("userPosition.jl")
 
