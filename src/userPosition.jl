@@ -27,7 +27,7 @@ for k = 1:10 #number of iterations
     e[:,n] = (rEst-rSat[:,n]) ./ norm(rEst - rSat[:,n])
     end
 
-    H = transpose(e)
+    global H = transpose(e)
     H= [H [1,1,1,1]]
 
     # Space-time vector
@@ -37,7 +37,7 @@ for k = 1:10 #number of iterations
     rhoXi[n] = norm(xi[1:end-1] - rSat[:,n])
     end
 
-    dXi = (transpose(H) * H)^-1 * transpose(H) * transpose((rhoT' - [dT dT dT dT] - rhoXi)) 
+    dXi = (transpose(H) * H)^-1 * transpose(H) * transpose((rhoT' - [dT dT dT dT] - rhoXi))
     # Update
     rEst = rEst + dXi[1:end-1]
     dT = dT + dXi[end]

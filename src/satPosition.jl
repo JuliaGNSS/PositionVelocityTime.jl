@@ -1,5 +1,5 @@
 #=
-This functions provide the satellite's antenna phase centre position in the WGS-84 ECEF
+These functions provide the satellite's antenna phase centre position in the WGS-84 ECEF
 =#
 function satPosition(data, tc)
 #tc is the satellite time of transmission corrected for transit
