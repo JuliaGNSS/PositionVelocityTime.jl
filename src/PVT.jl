@@ -6,8 +6,7 @@ module PVT
     satPosition
 
     function calcSinglePosition(decRes,tRXref)
-        #decRes: decoding results for navigation data. Hay que pasarle decode.data
-        #decRes es un array. Cada elemento del array es del tipo ::GPSData
+        #decRes: decoding results for navigation data.
         #tRXref: receiver time
 
         #preallocation

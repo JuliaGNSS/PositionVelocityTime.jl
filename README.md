@@ -5,21 +5,4 @@
 
 # Usage
 
-decode = init_decode()
-
-i = 1;
-
-while true
-
-       read!(stream,signal)
-       global track, track_res = track(signal)
-       decode(track_res.data_bits, track_res.num_bits)
-
-       if i == 1500 + decode.found_preambles.preamble_pos
-          break
-       end
-
-       if track_res.num_bits != 0
-          global i +=1
-       end
-end
+decRes is an array containing elements of type ::GPSData
