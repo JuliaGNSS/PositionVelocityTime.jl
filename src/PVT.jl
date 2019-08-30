@@ -5,7 +5,7 @@ module PVT
     export calcSinglePosition,
     satPosition
 
-    function calcSinglePosition(decRes,tRXref)
+    function calcSinglePosition(decRes)
         #decRes: decoding results for navigation data.
         #tRXref: receiver time
 
@@ -26,15 +26,15 @@ module PVT
                 #calculate ECEF coordinates
                 xSatTmp,ySatTmp,zSatTmp,d = satPosition(decRes[decInd], tTXcorr)
 
+#TODO
                 #Pseudorange Estimation
-                #pseudorange = ((deltaT)*299792458)
 
                 #store variables
 
                 xSat[decInd,1] = xSatTmp
                 ySat[decInd,1] = ySatTmp
                 zSat[decInd,1] = zSatTmp
-                #prMat[satInd,1] = pseudorange
+                #prMat[decInd,1] = pseudorange
         end
 
         #calculate user position
