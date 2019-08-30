@@ -7,7 +7,11 @@ module PVT
 
     function calcSinglePosition(decRes)
         #decRes: decoding results for navigation data.
-        #tRXref: receiver time
+
+        preamble_offset = [NaN for i=1:length(decRes)]
+        for decInd = 1:length(decRes)
+            preamble_offset[decInd,1] = decRes[decInd].found_preambles.preamble_pos
+        end
 
         #preallocation
         xSat = [NaN for i=1:length(decRes)]
@@ -18,13 +22,13 @@ module PVT
         #calculate satellite position and pseudorange
         for decInd = 1:length(decRes)
         #calculate satellite position
-                tTX = (decRes[decInd].tow - 1)*6 #seconds since the transmission of the previous week
+                tTX = (decRes[decInd].data.tow - 1)*6 #seconds since the transmission of the previous week
                 #calculate Ek with uncorrected satellite clock
-                a,b,c,Ek = satPosition(decRes[decInd], tTX)
+                a,b,c,Ek = satPosition(decRes[decInd].data, tTX)
                 #correct satellite clock with Ek
-                tTXcorr = correctSatTime(tTX, decRes[decInd], Ek)
+                tTXcorr = correctSatTime(tTX, decRes[decInd].data, Ek)
                 #calculate ECEF coordinates
-                xSatTmp,ySatTmp,zSatTmp,d = satPosition(decRes[decInd], tTXcorr)
+                xSatTmp,ySatTmp,zSatTmp,d = satPosition(decRes[decInd].data, tTXcorr)
 
 #TODO
                 #Pseudorange Estimation

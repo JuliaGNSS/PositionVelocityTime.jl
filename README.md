@@ -5,4 +5,4 @@
 
 # Usage
 
-decRes is an array containing elements of type ::GPSData
+decRes is an array containing decoding results for navigation data
