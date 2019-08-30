@@ -1,3 +1,4 @@
+#=
 @testset "Bin 2 Dec" begin
     test_signal_pos_1 = BitArray([1;0;0;0;1;0;0;0;1;1;0;1;0;0])
     test_signal_pos_2 = BitArray([1;0;1;0;0;1;1;0;0;1])
@@ -18,3 +19,4 @@ end
     @test @inferred(GNSSDecoder.bin2dec_twoscomp(test_signal_pos_16_bits)) == 971
 
 end
+#=
