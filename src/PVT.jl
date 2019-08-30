@@ -13,6 +13,8 @@ module PVT
         for decInd = 1:length(decRes)
             preamble_offset[decInd,1] = decRes[decInd].found_preambles.preamble_pos
         end
+#       min_offset = minimum(preamble_offset)
+#       pos_min = findall(x -> x == min_offset, preamble_offset)
 
         #preallocation
         xSat = [NaN for i=1:length(decRes)]
