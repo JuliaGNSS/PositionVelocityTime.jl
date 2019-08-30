@@ -5,8 +5,9 @@ module PVT
     export calcSinglePosition,
     satPosition
 
-    function calcSinglePosition(decRes,code_phase)
+    function calcSinglePosition(decRes,tRXref,code_phase)
         #decRes: decoding results for navigation data.
+        #tRXref: receiver reference time
         #code_phase: code phases from tracking
 
         preamble_offset = [NaN for i=1:length(decRes)]
