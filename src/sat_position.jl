@@ -98,8 +98,7 @@ function sat_position_ECEF(dc::GNSSDecoderState, code_phase, carrier_phase = 0)
     satPositions_y = cos(u)*r * sin(Omega) + sin(u)*r * cos(i)*cos(Omega)
     satPositions_z = sin(u)*r * sin(i)
     
-   # satClkCorr = (dc.data.a_f2 * dt + dc.data.a_f1) * dt + 
-   #     dc.data.a_f0 - dc.data.T_GD + dtr
+    
     
     return [satPositions_x, satPositions_y, satPositions_z]
 end

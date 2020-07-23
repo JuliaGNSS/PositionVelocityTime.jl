@@ -1,8 +1,13 @@
-struct incompatibleDataset <: Exception
+struct IncompatibleData <: Exception
     msg::String
 end
 
 
-struct SmallDataset <: Exception
+struct SmallData <: Exception
+    msg::String
+end
+
+
+struct InvalidData <: Exception
     msg::String
 end
