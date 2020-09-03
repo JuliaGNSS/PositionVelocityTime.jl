@@ -1,19 +1,28 @@
 ITERATIONS = 20
 
-function user_position(pos, p_ranges)
+"""
+Computes user position
+
+$SIGNATURES
+´pos´: Array of Satellite positions
+´p_ranges´: Array of pseudo ranges 
+
+Calculates the user position by least squares method. The algorithm is based on the common reception method. 
+"""
+function user_position(sv_pos, p_ranges)
         
         
-        sizes = [length(pos), length(p_ranges)]
+        sizes = [length(sv_pos), length(p_ranges)]
         nSat = minimum(sizes)[1]
         
         nSat >= 4 || throw(SmallData("At least 4 Satellites needed for position computing"))
-        (length(pos) == length(p_ranges)) || throw(IncompatibleData("Length of Input Arrays must be equal"))
-        size(pos)[2] == 3 || throw(InvalidData("Position Matrix needs 3 values per satellite (xyz), size must be (3, N)"))
+        (length(sv_pos) == length(p_ranges)) || throw(IncompatibleData("Length of Input Arrays must be equal"))
+        size(sv_pos)[2] == 3 || throw(InvalidData("Position Matrix needs 3 values per satellite (xyz), size must be (3, N)"))
         
         ξ = [0, 0, 0, 0]
         H = zeros(nSat, 4) # initialization of Geometry Matrix
         
-        Δpos(nr) = [ξ[1] - pos[nr][1], ξ[2] - pos[nr][2], ξ[3] - pos[nr][3]]  # Computes the Distance between estimated user position and Satellite
+        Δpos(nr) = [ξ[1] - sv_pos[nr][1], ξ[2] - sv_pos[nr][2], ξ[3] - sv_pos[nr][3]]  # Computes the Distance between estimated user position and Satellite
         e(nr) = Δpos(nr) ./ norm(Δpos(nr)) 
         
         
@@ -33,11 +42,22 @@ function user_position(pos, p_ranges)
             ξ = ξ + Δξ
     end
     
-    return ξ ,calc_DOP(H)
+    return ξ, calc_DOP(H)
 end
 
 
+"""
+Computes user position
 
+$SIGNATURES
+´x_sat´: Array of x positions of sat positions
+´y_sat´: Array of y positions of sat positions
+´z_sat´: Array of z positions of sat positions
+´p_ranges´: Array of pseudo ranges 
+
+Calculates the user position by least squares method. 
+The algorithm is based on the common reception method. 
+"""
 function user_position(x_sat, y_sat, z_sat, p_ranges)
         
         
@@ -70,7 +90,7 @@ function user_position(x_sat, y_sat, z_sat, p_ranges)
 
         ξ = ξ + Δξ
     end
-    return ξ
+    return ξ, calc_DOP(H)
 end
 
 

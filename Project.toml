@@ -1,0 +1,10 @@
+name = "PVT"
+uuid = "52ec0b5e-ee36-11ea-211c-3d844fc5682d"
+authors = ["Erik Deinzer <erik.deinzer@rwth-aachen.de"]
+version = "0.1.0"
+
+[deps]
+DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
+GNSSSignals = "52c80523-2a4e-5c38-8979-05588f836870"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"

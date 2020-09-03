@@ -1,15 +1,53 @@
-[![pipeline status](https://git.rwth-aachen.de/nav/PVT.jl/badges/master/pipeline.svg)](https://git.rwth-aachen.de/nav/PVT.jl/commits/master)
-[![coverage report](https://git.rwth-aachen.de/nav/PVT.jl/badges/master/coverage.svg)](https://git.rwth-aachen.de/nav/PVT.jl/commits/master)
 
-# Decode GNSS signals.
+# PVT.jl
+Calculates Positions by using GPS Data
 
-# Usage
-From GNSSDecoder.jl to PVT.jl:
+## Features
+* User Position calculation
+* Satellite Position calculation
+* Precision estimation (GDOP)
 
-We need decoding results from at least 4 satellites (e.g. decode1, decode2, decode3, decode4)
+## Usage
 
-decRes is an array containing decoding results for navigation data (i.e. decRes = [decode1, decode2, decode3, decode4])
+### Install
+```julia
+julia> ]add PVT
+```
 
-tRXref is the user time when the first preamble was found (not sure if this parameter will be needed)
+### Preparing
+```julia
+julia> using PVT, GNSSDecoder
+julia> #decode Signals here
+```
 
-code_phase is the code phase from tracking results
+
+The decoding using the GNSSDecoder module must be completed before beginning. For user position computation at least 4 decoded satellites must be handed over. 
+
+
+If using single functions, please check `can_get_sat_position` prior to computing.
+
+```julia
+#´dc´: Decoder
+julia> can_get_sat_position(dc)
+true
+```
+
+For automated position calculating, the function 
+
+`calc_PVT(dcs::Vector{GNSSDecoderState}, code_phases::Vector{Float64}, carrier_phases = -1)`
+
+is provided. Since this function checks the input arguments for usability, all data can be passed. Note that the input arguments needs to have the same size to prevent assignment errors. The input argument `carrier_phases` is optional due to its small effect on position calculation.
+
+```julia
+julia> calc_PVT(dcs, code_phases, carrier_phases)
+```
+
+Output:
+```julia
+([4.0188794844854493e6, 426955.64428302745, 4.918459570283906e6, -2.0419758225928288e7], 1.7019567876997732)
+```
+
+The first 3 values represent the user position in ECEF coordinates, the fourth the calculated travel time correction. The last value represents the GDOP (Geometric Dilution of Precision).  
+
+
+

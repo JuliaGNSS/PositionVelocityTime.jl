@@ -1,5 +1,19 @@
-function pseudo_range(dcs::Array{GNSSDecoderState,1},code_phases::Array{Float64, 1}, carrier_phases = -1)
-    
+
+"""
+Computes psuedo ranges 
+
+$SIGNATURES
+´dc´: Decoder containing ephemeris data of satellite
+´code_phase´: Code phase of signal at time of measure
+´carrier_phase´: Center frequency of carrier signal
+
+Computes relative pseudo ranges of satellite vehicles.
+The algorithm is based on the common reception method. 
+"""
+function pseudo_range(dcs::Vector{GNSSDecoderState} ,code_phases::Vector{Float64}, carrier_phases = -1)
+    for i in 1:length(dcs)
+        can_get_sat_position(dcs[i]) || throw(BadData("SV not decoded properly, #dc: " * string(i)))
+    end
     N_sats = length(dcs)
     c = dcs[1].constants.c
     if carrier_phases == -1
@@ -9,19 +23,10 @@ function pseudo_range(dcs::Array{GNSSDecoderState,1},code_phases::Array{Float64,
         (length(dcs) == length(code_phases) == length(carrier_phases)) || throw(IncompatibleData("Length of Arrays of Decoder, Code Phases and Carrier Phases must be equal"))
     end
 
-    times = map(i -> calc_corrected_time(dcs[i], code_phases[i], carrier_phases), 1:N_sats)
-    t_ref = max(times)
+    times = map(i -> calc_corrected_time(dcs[i], code_phases[i], carrier_phases[i]), 1:N_sats)
+    t_ref = maximum(times)
 
     τ = map(i -> t_ref - times[i], 1:N_sats)
     pseudoranges = τ .* c
-    return pseudoranges
-end
-
-function pseudo_range(dc::GNSSDecoderState, dc_ref::GNSSDecoderState, code_phase::Float64, code_phase_ref::Float64, carrier_phase::Float64 = 0.0, carrier_phase_ref::Float64 = 0.0)
-    c = dc.constants.c
-    t = calc_corrected_time(dc, code_phase, carrier_phase)
-    t_ref = calc_corrected_time(dc_ref, code_phase_ref, carrier_phase_ref)
-    τ = t_ref - t 
-    pseudorange = τ * c 
-    return pseudorange
+    return Vector(pseudoranges)
 end
