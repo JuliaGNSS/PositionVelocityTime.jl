@@ -32,13 +32,13 @@ julia> can_get_sat_position(dc)
 true
 ```
 
-For automated position calculating, the function 
-
-`calc_PVT(dcs::Vector{GNSSDecoderState}, code_phases::Vector{Float64}, carrier_phases = -1)`
-
-is provided. Since this function checks the input arguments for usability, all data can be passed. Note that the input arguments needs to have the same size to prevent assignment errors. The input argument `carrier_phases` is optional due to its small effect on position calculation.
+### Position Calculation
+The function `calc_PVT(dcs::Vector{GNSSDecoderState}, code_phases::Vector{Float64}, carrier_phases = -1)` provides a complete position calculation. Since this function checks the input arguments for usability, all data can be passed. Note that the input arguments needs to have the same size to prevent assignment errors. The input argument `carrier_phases` is optional due to its small effect on position calculation.
 
 ```julia
+#´dcs´: Array of decoder
+#´code_phases´: Array of code phases
+#´carrier phases´: Array of carrier phases
 julia> calc_PVT(dcs, code_phases, carrier_phases)
 ```
 
