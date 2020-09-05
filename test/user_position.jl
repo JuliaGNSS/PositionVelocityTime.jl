@@ -8,6 +8,27 @@ projected_position_ECI2ECEF = (
     out = user_position(positions, pseudo_ranges)
     @test out == projected_position_ECI2ECEF
 
+
+    out = false
+    try 
+        calc_PVT(test_dcs[1:3], test_cops[1:3], test_caps[1:3])
+    catch e
+        if typeof(e) == PVT.SmallData
+            out = true
+        end
+    end
+    @test out == true
+
+
+    out = false
+    try 
+        calc_PVT(test_dcs, zeros(5), test_caps)
+    catch e
+        if typeof(e) == PVT.IncompatibleData
+            out = true
+        end
+    end
+    @test out == true
 end
 
 
@@ -19,5 +40,29 @@ projected_position_ECEF = (
     pseudo_ranges = PVT.pseudo_ranges(test_dcs, test_cops, test_caps) #pseudo_range(dcs, cps)
     out = user_position(positions, pseudo_ranges)
     @test out == projected_position_ECEF
+
+
+    
+
+    out = false
+    try 
+        calc_PVT(test_dcs[1:3], test_cops[1:3], test_caps[1:3])
+    catch e
+        if typeof(e) == PVT.SmallData
+            out = true
+        end
+    end
+    @test out == true
+
+
+    out = false
+    try 
+        calc_PVT(test_dcs, zeros(5), test_caps)
+    catch e
+        if typeof(e) == PVT.IncompatibleData
+            out = true
+        end
+    end
+    @test out == true
 end
 

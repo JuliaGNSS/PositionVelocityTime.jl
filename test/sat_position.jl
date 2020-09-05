@@ -9,6 +9,27 @@ projected_positions_ECI2ECEF = [
         out = sat_position_ECI_2_ECEF(test_dcs[i], test_cops[i], test_caps[i])
         @test out == projected_positions_ECI2ECEF[i]
     end
+
+    sv_bad = deepcopy(sv1_struct)
+    sv_bad.subframes_decoded = [0,1,1,1,1]
+
+    out = false
+    
+    dcs = deepcopy(test_dcs)
+    dcs[1].subframes_decoded = [0,0,0,0,0]
+    out = false
+    try 
+        sat_position_ECEF(dcs[1], test_cops[1], test_caps[1])
+    catch e
+        if typeof(e) == PVT.BadData
+            out = true
+        end
+    end
+    @test out == true
+
+    
+
+    @test out == true
 end
 
 
@@ -23,4 +44,20 @@ projected_positions_ECEF = [
         out = sat_position_ECEF(test_dcs[i], test_cops[i], test_caps[i])
         @test out == projected_positions_ECEF[i]
     end
+
+    
+    
+    dcs = deepcopy(test_dcs)
+    dcs[1].subframes_decoded = [0,0,0,0,0]
+    out = false
+    try 
+        sat_position_ECEF(dcs[1], test_cops[1], test_caps[1])
+    catch e
+        if typeof(e) == PVT.BadData
+            out = true
+        end
+    end
+    @test out == true
+
+
 end

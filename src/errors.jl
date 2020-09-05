@@ -12,6 +12,8 @@ struct InvalidData <: Exception # Size of position array wrong
     msg::String
 end
 
-struct BrokenData <: Exception #Decoder errored or warned during decoding, position unsafe
+
+#Decoder errored or warned during decoding or did not decoded properly, position unsafe
+struct BadData <: Exception     
     msg::String
 end
