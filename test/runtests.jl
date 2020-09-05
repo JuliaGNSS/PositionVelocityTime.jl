@@ -2,7 +2,7 @@
 include("..//..//gnssdecoder.jl//src//GNSSDecoder.jl")
 
 using Test, PVT, .GNSSDecoder
-using .GNSSDecoder: GNSSDecoderState, GPSData, GPSL1Constants
+import .PVT: GNSSDecoderState, GPSData, GPSL1Constants
 
 
 include("test_data.jl")

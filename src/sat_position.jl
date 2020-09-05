@@ -18,7 +18,7 @@ function sat_position_ECI(dc::GNSSDecoderState, code_phase, carrier_phase = 0)
     
     # Excentric and true anomaly
     t_sv = calc_uncorrected_time(dc, code_phase, carrier_phase)
-    dt_sv = calc_time_corr(dc, t_sv)
+    dt_sv = code_phase_offset(dc, t_sv)
     Ek = calc_eccentric_anomaly( dc, t, dt_sv )
     
     
@@ -73,7 +73,7 @@ end
     The implementation follows IS-GPS-200K
 """
 function sat_position_ECI_2_ECEF( dc::GNSSDecoderState, code_phase, carrier_phase = 0)
-    pos_ECI = satellite_position_ECI( dc, code_phase, carrier_phase)
+    pos_ECI = sat_position_ECI( dc, code_phase, carrier_phase)
             
     tk = calc_corrected_time(dc, code_phase, carrier_phase)
     tk = tk - dc.data.t_oe
@@ -117,7 +117,7 @@ function sat_position_ECEF(dc::GNSSDecoderState, code_phase, carrier_phase)
     
     # Excentric and true anomaly
     t_sv = calc_uncorrected_time(dc, code_phase, carrier_phase)
-    dt_sv = calc_time_corr(dc, t_sv)
+    dt_sv = code_phase_offset(dc, t_sv)
     E = calc_eccentric_anomaly( dc, t, dt_sv )
     
     vk = 2 * atan(sqrt( (1+e) / (1-e) ) * tan(E / 2) )
@@ -142,7 +142,7 @@ function sat_position_ECEF(dc::GNSSDecoderState, code_phase, carrier_phase)
     zk = yks * sin(ik)
     
     position = Vector([xk, yk, zk])
-    return position, tk
+    return position
 end
 
 """

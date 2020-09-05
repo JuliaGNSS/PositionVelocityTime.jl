@@ -10,7 +10,7 @@ $SIGNATURES
 Computes relative pseudo ranges of satellite vehicles.
 The algorithm is based on the common reception method. 
 """
-function pseudo_range(dcs::Vector{GNSSDecoderState} ,code_phases::Vector{Float64}, carrier_phases = -1)
+function pseudo_ranges(dcs::Vector{GNSSDecoderState} ,code_phases::Vector{Float64}, carrier_phases = -1)
     for i in 1:length(dcs)
         can_get_sat_position(dcs[i]) || throw(BadData("SV not decoded properly, #dc: " * string(i)))
     end

@@ -17,7 +17,7 @@ function user_position(sv_pos, p_ranges)
         
         nSat >= 4 || throw(SmallData("At least 4 Satellites needed for position computing"))
         (length(sv_pos) == length(p_ranges)) || throw(IncompatibleData("Length of Input Arrays must be equal"))
-        size(sv_pos)[2] == 3 || throw(InvalidData("Position Matrix needs 3 values per satellite (xyz), size must be (3, N)"))
+        #size(sv_pos)[2] == 3 || throw(InvalidData("Position Matrix needs 3 values per satellite (xyz), size must be (3, N)"))
         
         ξ = [0, 0, 0, 0]
         H = zeros(nSat, 4) # initialization of Geometry Matrix

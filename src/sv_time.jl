@@ -123,7 +123,7 @@ function calc_eccentric_anomaly( dc, t_sv, dt_sv = 0 )
     t = t_sv - dt_sv
     
     tk = check_crossover(t - dc.data.t_oe)
-    
+    μ = dc.constants.μ
     A = dc.data.sqrt_A^2
 
     n_0 = sqrt(μ / (A^3))
@@ -135,7 +135,7 @@ function calc_eccentric_anomaly( dc, t_sv, dt_sv = 0 )
     E = M
     for k = 1:30
         Et = E
-        E = M + e * sin(Ek)
+        E = M + e * sin(E)
         if abs( E - Et ) <= 1e-12 
             break;
         end
