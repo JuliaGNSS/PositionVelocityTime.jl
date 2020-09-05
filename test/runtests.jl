@@ -1,5 +1,12 @@
-using Test, GNSSDecoder, LinearAlgebra, DataStructures, StaticArrays
+#include("..//src//PVT.jl")
+include("..//..//gnssdecoder.jl//src//GNSSDecoder.jl")
 
-include("bin2dec.jl")
-include("GNSSDecoder.jl")
-include("decodeword.jl")
+using Test, PVT, .GNSSDecoder
+using .GNSSDecoder: GNSSDecoderState, GPSData, GPSL1Constants
+
+
+include("test_data.jl")
+include("sat_position.jl")
+include("user_position.jl")
+include("PVT.jl")
+include("sv_time.jl")

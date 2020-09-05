@@ -4,7 +4,7 @@ ITERATIONS = 20
 Computes user position
 
 $SIGNATURES
-´pos´: Array of Satellite positions
+´pos´: Array of Satellite positions. needs 3 values per satellite (xyz), size must be (3, N)")
 ´p_ranges´: Array of pseudo ranges 
 
 Calculates the user position by least squares method. The algorithm is based on the common reception method. 

@@ -1,9 +1,14 @@
 module PVT
 
-    using DocStringExtensions, LinearAlgebra, GNSSDecoder, GNSSSignals
+    include("..//..//gnssdecoder.jl//src//GNSSDecoder.jl")
+    using DocStringExtensions, LinearAlgebra, .GNSSDecoder, GNSSSignals
     using Unitful: s, Hz
     
-
+    export  calc_PVT,
+            sat_position_ECI_2_ECEF, 
+            sat_position_ECEF,
+            user_position,
+            can_get_sat_position
     """
     Calculates ECEF position of user
 
@@ -34,7 +39,7 @@ module PVT
                 push!(usable_carr_phases, carrier_phases[i])
             end
         end
-        length(usable_sv) > 4 || throw(TinyData("Not enough usable SV Data"))
+        length(usable_sv) >= 4 || throw(SmallData("Not enough usable SV Data"))
 
         sv_positions = map( (dcs, cps, caps) -> sat_position_ECEF(dcs, cps, caps), usable_sv, usable_code_phases, usable_carr_phases)
         pseudoranges = pseudo_ranges(usable_sv, usable_code_phases, usable_carr_phases)
