@@ -44,10 +44,13 @@ julia> calc_PVT(dcs, code_phases, carrier_phases)
 
 Output:
 ```julia
-([4.0188794844854493e6, 426955.64428302745, 4.918459570283906e6, -2.0419758225928288e7], 1.7019567876997732)
+PVTSolution(
+    [4.0186749839887144e6, 427051.1942215096, 4.918252576909532e6],
+    -2.3409334780245904e7, 
+    17.961339568218765)
 ```
 
-The first 3 values represent the user position in ECEF coordinates, the fourth the calculated travel time correction. The last value represents the GDOP (Geometric Dilution of Precision).  
+The first member `pos` represents the user position in ECEF coordinates, the second `receiver_time_correction` the calculated travel time correction. The third member `GDOP` represents the Geometric Dilution of Precision.  
 
 
 
