@@ -10,7 +10,7 @@
     The implementation follows IS-GPS-200K
 """
 function sat_position_ECI(dc::GNSSDecoderState, code_phase, carrier_phase = 0)
-    can_get_sat_position(dc) || throw(BadData("SV not decoded properly"))
+    is_sat_healthy_and_decodable(dc) || throw(BadData("SV not decoded properly"))
     
     t = calc_corrected_time(dc, code_phase, carrier_phase)
     tk = t - dc.data.t_oe
@@ -100,7 +100,7 @@ end
 """
 function sat_position_ECEF(dc::GNSSDecoderState, code_phase, carrier_phase)
     
-    can_get_sat_position(dc) || throw(BadData("SV not decoded properly"))
+    is_sat_healthy_and_decodable(dc) || throw(BadData("SV not decoded properly"))
     F = dc.constants.F
     e = dc.data.e
     μ = dc.constants.μ    
@@ -153,7 +153,7 @@ end
     Checks if satellite data contains the needed information and 
     if errors during decoding occured
 """
-function can_get_sat_position(dc::GNSSDecoderState)
+function is_sat_healthy_and_decodable(dc::GNSSDecoderState)
     status = true
     
     dc.data.svhealth == "000000" ? status : status = false

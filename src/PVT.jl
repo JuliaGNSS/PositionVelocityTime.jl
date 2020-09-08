@@ -1,7 +1,6 @@
 module PVT
 
-    include("..//..//gnssdecoder.jl//src//GNSSDecoder.jl")
-    using DocStringExtensions, LinearAlgebra, .GNSSDecoder, GNSSSignals
+    using DocStringExtensions, LinearAlgebra, GNSSDecoder, GNSSSignals
     using Unitful: s, Hz
     
     export  calc_PVT,
@@ -20,20 +19,17 @@ module PVT
     This function calculates the position of the user in ECEF coordinates
     The implementation follows IS-GPS-200K Table 20-IV.
     """
-    function calc_PVT(dcs::Vector{GNSSDecoderState}, code_phases::Vector{Float64}, carrier_phases = -1)
+    function calc_PVT(dcs::Vector{GNSSDecoderState}, code_phases::Vector{Float64}, carrier_phases = zeros(length(dcs)))
         
-        if carrier_phases == -1
-            (length(dcs) == length(code_phases)) || throw(IncompatibleData("Length of Arrays of decoder and Code Phases must be equal"))
-            carrier_phases = zeros(N_sats)
-        else
-            (length(dcs) == length(code_phases) == length(carrier_phases)) || throw(IncompatibleData("Length of Arrays of Decoder, Code Phases and Carrier Phases must be equal"))
-        end
+       
+        (length(dcs) == length(code_phases) == length(carrier_phases)) || throw(IncompatibleData("Length of Arrays of Decoder, Code Phases and Carrier Phases must be equal"))
+        
         
         usable_sv = Vector{GNSSDecoderState}(undef, 0)
         usable_code_phases = Vector{Float64}(undef, 0)
         usable_carr_phases = Vector{Float64}(undef, 0)
         for i in 1:length(dcs)
-            if can_get_sat_position(dcs[i])
+            if is_sat_healthy_and_decodable(dcs[i])
                 push!(usable_sv, dcs[i])
                 push!(usable_code_phases, code_phases[i])
                 push!(usable_carr_phases, carrier_phases[i])
