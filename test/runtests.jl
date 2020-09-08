@@ -1,6 +1,6 @@
 
 using Test, PVT, GNSSDecoder
-import PVT: GNSSDecoderState, GPSData, GPSL1Constants
+import PVT: GNSSDecoderState, GPSData, GPSL1Constants, ECEF
 
 
 include("test_data.jl")

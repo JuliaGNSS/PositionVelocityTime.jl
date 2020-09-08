@@ -1,5 +1,10 @@
 ITERATIONS = 20
 
+struct PVTSolution
+    pos::ECEF
+    receiver_time_correction::Float64
+    GDOP::Float64
+end
 """
 Computes user position
 
@@ -41,8 +46,12 @@ function user_position(sv_pos, p_ranges)
 
             ξ = ξ + Δξ
     end
-    
-    return ξ, calc_DOP(H)
+
+    pos = ECEF(ξ[1:3])
+    dt_receiver = ξ[4]
+    GDOP = calc_DOP(H)
+    PVT = PVTSolution(pos, dt_receiver, GDOP)
+    return PVT
 end
 
 

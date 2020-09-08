@@ -24,16 +24,16 @@ julia> #decode Signals here
 The decoding using the GNSSDecoder module must be completed before beginning. For user position computation at least 4 decoded satellites must be handed over. 
 
 
-If using single functions, please check `can_get_sat_position` prior to computing.
+If using single functions, please check `is_sat_healthy_and_decodable` prior to computing.
 
 ```julia
 #´dc´: Decoder
-julia> can_get_sat_position(dc)
+julia> is_sat_healthy_and_decodable(dc)
 true
 ```
 
 ### Position Calculation
-The function `calc_PVT(dcs::Vector{GNSSDecoderState}, code_phases::Vector{Float64}, carrier_phases = -1)` provides a complete position calculation. Since this function checks the input arguments for usability, all data can be passed. Note that the input arguments needs to have the same size to prevent assignment errors. The input argument `carrier_phases` is optional due to its small effect on position calculation.
+The function `calc_PVT(dcs::Vector{GNSSDecoderState}, code_phases::Vector{Float64}, carrier_phases = zeros(length(dcs)))` provides a complete position calculation. Since this function checks the input arguments for usability, all data can be passed. Note that the input arguments needs to have the same size to prevent assignment errors. The input argument `carrier_phases` is optional due to its small effect on position calculation.
 
 ```julia
 #´dcs´: Array of decoder

@@ -1,13 +1,15 @@
 module PVT
 
-    using DocStringExtensions, LinearAlgebra, GNSSDecoder, GNSSSignals
+    using DocStringExtensions, Geodesy, GNSSDecoder, GNSSSignals, LinearAlgebra
     using Unitful: s, Hz
     
     export  calc_PVT,
+            is_sat_healthy_and_decodable,
+            PVTSolution,
             sat_position_ECI_2_ECEF, 
             sat_position_ECEF,
-            user_position,
-            can_get_sat_position
+            user_position
+            
     """
     Calculates ECEF position of user
 

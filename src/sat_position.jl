@@ -57,7 +57,7 @@ function sat_position_ECI(dc::GNSSDecoderState, code_phase, carrier_phase = 0)
     yk = xks * swk + yks * cik * cwk;
     zk = yks * sik;
     
-    return Vector([xk, yk, zk])
+    return [xk, yk, zk]
 end
 
 
@@ -141,7 +141,7 @@ function sat_position_ECEF(dc::GNSSDecoderState, code_phase, carrier_phase)
     yk = xks * sin(Ωk) + yks * cos(ik)*cos(Ωk)
     zk = yks * sin(ik)
     
-    position = Vector([xk, yk, zk])
+    position = [xk, yk, zk]
     return position
 end
 
