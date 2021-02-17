@@ -1,11 +1,11 @@
 projected_position_ECI2ECEF = PVTSolution(
     ECEF([
-        4.0186749839886823e6, 
-        427051.1942215017, 
-        4.918252576909476e6
+        4.0187039543983415e6, 
+        427061.61867692455, 
+        4.918310675640349e6
     ]),
-    -2.340933478024592e7,
-    17.961339568218825)
+    -2.1332062204026792e7, 
+    2.346849505593897)
 
 
 @testset "User position ECI2ECEF" begin
@@ -28,7 +28,7 @@ projected_position_ECI2ECEF = PVTSolution(
 
     out = false
     try 
-        calc_PVT(test_dcs, zeros(5), test_caps)
+        calc_PVT(test_dcs, zeros(4), test_caps)
     catch e
         if typeof(e) == PVT.IncompatibleData
             out = true
@@ -40,12 +40,12 @@ end
 
 projected_position_ECEF = PVTSolution(
     ECEF([
-        4.0186749839887214e6, 
-        427051.19422151416, 
-        4.918252576909554e6
+        4.018703954398348e6, 
+        427061.6186769259, 
+        4.918310675640358e6
     ]), 
-    -2.3409334780245896e7, 
-    17.961339568218655)
+    -2.1332062204026792e7, 
+    2.3468495055938994)
 @testset "User position ECEF" begin
     positions = map( i -> sat_position_ECEF(test_dcs[i], test_cops[i], test_caps[i]), 1 : length(test_dcs))
     pseudo_ranges = PVT.pseudo_ranges(test_dcs, test_cops, test_caps) #pseudo_range(dcs, cps)
@@ -68,7 +68,7 @@ projected_position_ECEF = PVTSolution(
 
     out = false
     try 
-        calc_PVT(test_dcs, zeros(5), test_caps)
+        calc_PVT(test_dcs, zeros(4), test_caps)
     catch e
         if typeof(e) == PVT.IncompatibleData
             out = true

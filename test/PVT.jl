@@ -1,10 +1,11 @@
-projected_pos = PVTSolution(ECEF([
-        4.0186749839887214e6, 
-        427051.19422151416, 
-        4.918252576909554e6
+projected_pos = PVTSolution(
+    ECEF([
+        4.018703954398348e6, 
+        427061.6186769259, 
+        4.918310675640358e6
     ]), 
-    -2.3409334780245896e7, 
-    17.961339568218655)
+    -2.1332062204026792e7, 
+    2.3468495055938994)
     
 
 
@@ -61,6 +62,7 @@ projected_pos = PVTSolution(ECEF([
 
     dcs = deepcopy(test_dcs)
     dcs[1].subframes_decoded = [0,0,0,0,0]
+    dcs[2].subframes_decoded = [0,0,0,0,0]
     out = false
     try 
         calc_PVT(dcs, test_cops, test_caps)

@@ -223,8 +223,64 @@ sv4_code_phase = 17790.853982632394
 sv4_carrier_phase = 0.2946765711531043
 
 
-test_dcs = Vector([sv1_struct, sv2_struct, sv3_struct, sv4_struct])
-test_cops = Vector([sv1_code_phase, sv2_code_phase, sv3_code_phase, sv4_code_phase])
-test_caps = Vector([sv1_carrier_phase, sv2_carrier_phase, sv3_carrier_phase, sv4_carrier_phase])
+sv5_data = GPSData(
+    integrity_status_flag = false,
+    TOW = 34810,
+    alert_flag = false,
+    anti_spoof_flag = true,
+    trans_week = 67,
+    codeonl2 = 1,
+    ura = 2.0,
+    svhealth = "000000",
+    IODC = "1011101101",
+    l2pcode = false,
+    T_GD = -7.916241884231567e-9,
+    t_oc = 216000,
+    a_f2 = 0.0,
+    a_f1 = 9.208633855450898e-12,
+    a_f0 = 0.0002515711821615696,
+    IODE_Sub_2 = "11101101",
+    C_rs = -81.9375,
+    Δn = 4.641621913612317e-9,
+    M_0 = 0.01827858501071997,
+    C_uc = -4.407018423080444e-6,
+    e = 0.0007737367413938046,
+    C_us = 1.044943928718567e-6,
+    sqrt_A = 5153.718004226685,
+    t_oe = 216000,
+    fit_interval = false,
+    AODO = 31,
+    C_ic = -2.60770320892334e-8,
+    Ω_0 = 2.089468318582403,
+    C_is = -2.9802322387695312e-8,
+    i_0 = 0.9643063355495126,
+    C_rc = 363.78125,
+    ω = 2.6017948651652136,
+    Ω_dot = -8.454637883889717e-9,
+    IODE_Sub_3 = "11101101",
+    IDOT = -3.8001582918463414e-10
+)
+sv5_struct = GNSSDecoderState(
+    PRN =  18,
+    buffer = BitArray(undef, 1502),
+    data = sv5_data,
+    constants = sv_constants,
+    preamble_found= false,
+    subframe_count= 0,
+    prev_30 = false,
+    prev_29 = true,
+    data_integrity = true,
+    new_data_needed = false,
+    subframes_decoded = [1,1,1,1,1],
+    nb_prev = 0,
+    num_bits_buffered = 188
+)
+
+sv5_code_phase =  10736.222919350244
+sv5_carrier_phase = 0.23463375493884087
+
+test_dcs = Vector([sv1_struct, sv2_struct, sv3_struct, sv4_struct, sv5_struct])
+test_cops = Vector([sv1_code_phase, sv2_code_phase, sv3_code_phase, sv4_code_phase, sv5_code_phase])
+test_caps = Vector([sv1_carrier_phase, sv2_carrier_phase, sv3_carrier_phase, sv4_carrier_phase, sv5_carrier_phase])
 
 
