@@ -1,6 +1,6 @@
 
 # PVT.jl
-Calculates Positions by using GPS Data
+Calculates Positions by using GPSL1 Data
 
 ## Features
 * User Position calculation
