@@ -81,10 +81,11 @@ end
 
 """
 function calc_uncorrected_time(dc::GNSSDecoderState, code_phase, carrier_phase = 0)
+    gpsl1 = GNSSSignals.GPSL1()
     t_tow = dc.data.TOW * 6
-    t_bits = dc.num_bits_buffered / GNSSSignals.get_data_frequency(GPSL1) * Hz
-    t_code_phase = code_phase / GNSSSignals.get_code_frequency(GPSL1) * Hz
-    t_carrier_phase = carrier_phase / GNSSSignals.get_center_frequency(GPSL1) * Hz
+    t_bits = dc.num_bits_buffered / GNSSSignals.get_data_frequency(gpsl1) * Hz
+    t_code_phase = code_phase / GNSSSignals.get_code_frequency(gpsl1) * Hz
+    t_carrier_phase = carrier_phase / GNSSSignals.get_center_frequency(gpsl1) * Hz
     
     t = t_tow + t_bits + t_code_phase + t_carrier_phase
 end
