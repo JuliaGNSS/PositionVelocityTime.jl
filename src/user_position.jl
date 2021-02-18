@@ -58,6 +58,7 @@ function calc_DOP(H_GEO)
     GDOP = sqrt(sum(diag(D))) # geometrical dop
     return GDOP
 end
+
 """
 Computes user position
 

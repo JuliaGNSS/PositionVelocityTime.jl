@@ -2,7 +2,7 @@
     Calculates the corrected satellite time
     $SIGNATURES
 
-    ´dc´: Decoder containing ephemeris data of satellite
+    ´decoder_state´: Decoder containing ephemeris data of satellite
     ´code_phase´: Code phase of signal at time of measure
     ´carrier_phase´: Center frequency of carrier signal
 
@@ -13,10 +13,10 @@
     20.3.3.3.3.1 User Algorithm for SV Clock Correction.
     Equation (1)
 """
-function calc_corrected_time(dc::GNSSDecoderState, code_phase, carrier_phase = 0)
+function calc_corrected_time(decoder_state::GNSSDecoderState, code_phase, carrier_phase = 0)
     
-    t_sv = calc_uncorrected_time(dc, code_phase, carrier_phase)
-    Δt_sv = code_phase_offset(dc, t_sv)
+    t_sv = calc_uncorrected_time(decoder_state, code_phase, carrier_phase)
+    Δt_sv = code_phase_offset(decoder_state, t_sv)
     t = t_sv - Δt_sv
 end
 
@@ -25,7 +25,7 @@ end
     Calculates the code Phase offset for time correction
     $SIGNATURES
 
-    ´dc´: Decoder containing ephemeris data of satellite
+    ´decoder_state´: Decoder containing ephemeris data of satellite
     ´t´: Current time(i.e. raw time without correction)
 
     Provides the implementation of the code phase clock
@@ -35,14 +35,14 @@ end
     20.3.3.3.3.1 User Algorithm for SV Clock Correction.
     Equation (2)
 """
-function code_phase_offset(dc::GNSSDecoderState, t)
-    Δtr = relativistic_correction(dc, t)
-    a_f0 = dc.data.a_f0
-    a_f1 = dc.data.a_f1
-    a_f2 = dc.data.a_f2
-    t_oc = dc.data.t_oc
+function code_phase_offset(decoder_state::GNSSDecoderState, t)
+    Δtr = relativistic_correction(decoder_state, t)
+    a_f0 = decoder_state.data.a_f0
+    a_f1 = decoder_state.data.a_f1
+    a_f2 = decoder_state.data.a_f2
+    t_oc = decoder_state.data.t_oc
     Δt_sv = a_f0 + a_f1 * (t - t_oc) + a_f2 * (t - t_oc)^2 + Δtr
-    Δt_sv = L1_correction(dc, Δt_sv)
+    Δt_sv = L1_correction(decoder_state, Δt_sv)
 end
 
 """
@@ -51,7 +51,7 @@ end
     
     $SIGNATURES
 
-    ´dc´: Decoder containing ephemeris data of satellite
+    ´decoder_state´: Decoder containing ephemeris data of satellite
     ´t´: Current time(i.e. raw time without correction)
 
     Provides the implementation of the relativistic clock
@@ -60,12 +60,12 @@ end
     Following instructions in IS-GPS-200K: 
     # 20.3.3.3.3.1 User Algorithm for SV Clock Correction
 """
-function relativistic_correction(dc::GNSSDecoderState, t, dt = 0)
+function relativistic_correction(decoder_state::GNSSDecoderState, t, dt = 0)
     
-    F = dc.constants.F
-    e = dc.data.e
-    sqrtA = dc.data.sqrt_A
-    Ek = calc_eccentric_anomaly(dc, t, dt)
+    F = decoder_state.constants.F
+    e = decoder_state.data.e
+    sqrtA = decoder_state.data.sqrt_A
+    Ek = calc_eccentric_anomaly(decoder_state, t, dt)
     Δtr = F * e * sqrtA * sin(Ek)
 end
 
@@ -73,17 +73,17 @@ end
     Calculates raw time data by observed times
     $SIGNATURES
 
-    ´dc´: Decoder containing ephemeris data of satellite
+    ´decoder_state´: Decoder containing ephemeris data of satellite
     ´code_phase´: Code phase of signal at time of measure
     ´carrier_phase´: Center frequency of carrier signal
 
     Calculates time by number of bits since TOW, TOW and code and carrier phases
 
 """
-function calc_uncorrected_time(dc::GNSSDecoderState, code_phase, carrier_phase = 0)
+function calc_uncorrected_time(decoder_state::GNSSDecoderState, code_phase, carrier_phase = 0)
     gpsl1 = GNSSSignals.GPSL1()
-    t_tow = dc.data.TOW * 6
-    t_bits = dc.num_bits_buffered / GNSSSignals.get_data_frequency(gpsl1) * Hz
+    t_tow = decoder_state.data.TOW * 6
+    t_bits = decoder_state.num_bits_buffered / GNSSSignals.get_data_frequency(gpsl1) * Hz
     t_code_phase = code_phase / GNSSSignals.get_code_frequency(gpsl1) * Hz
     t_carrier_phase = carrier_phase / GNSSSignals.get_center_frequency(gpsl1) * Hz
     
@@ -93,22 +93,20 @@ end
 """
     Provides the implementation of the Group Delay correction
     $SIGNATURES
-    ´dc´: Decoder
+    ´decoder_state´: Decoder
     ´Δt_sv´: code phase offset term
     
     Following instructions in IS-GPS-200K: 
     20.3.3.3.3.2 L1 or L2 Correction.
 """
-function L1_correction(dc::GNSSDecoderState, Δt_sv)
-   
-    Δt_sv_L1 = Δt_sv - dc.data.T_GD
-    return Δt_sv_L1
+function L1_correction(decoder_state::GNSSDecoderState, Δt_sv)
+    return Δt_sv - decoder_state.data.T_GD
 end
 
 """
 Calculates the eccentric anomaly
 $SIGNATURES
-´dc´: Decoder storing ephemeris data
+´decoder_state´: Decoder storing ephemeris data
 ´t_sv´: time of satellite vehicle
 ´dt_sv´: time correction for SV
 
@@ -119,20 +117,20 @@ satellite position and the time correction.
 Following instructions in IS-GPS-200K: 
 Table 20-IV
 """
-function calc_eccentric_anomaly( dc, t_sv, dt_sv = 0 )  
+function calc_eccentric_anomaly(decoder_state, t_sv, dt_sv = 0 )  
     
     t = t_sv - dt_sv
     
-    tk = check_crossover(t - dc.data.t_oe)
-    μ = dc.constants.μ
-    A = dc.data.sqrt_A^2
+    tk = check_crossover(t - decoder_state.data.t_oe)
+    μ = decoder_state.constants.μ
+    A = decoder_state.data.sqrt_A^2
 
     n_0 = sqrt(μ / (A^3))
-    n = n_0 + dc.data.Δn
-    M = dc.data.M_0 + n * tk
+    n = n_0 + decoder_state.data.Δn
+    M = decoder_state.data.M_0 + n * tk
             
             
-    e = dc.data.e
+    e = decoder_state.data.e
     E = M
     for k = 1:30
         Et = E
