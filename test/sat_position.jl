@@ -6,29 +6,23 @@ projected_positions_ECI2ECEF = [
     [8.06727794696111e6, 1.280426674805988e7, 2.181418989894819e7]
     ]
 @testset "Sat Position ECI2ECEF" begin
-    for i in 1:length(test_dcs)
-        out = sat_position_ECI_2_ECEF(test_dcs[i], test_cops[i], test_caps[i])
+    for i in 1:length(satellite_states)
+        out = sat_position_ECI_2_ECEF(satellite_states[i])
         @test out == projected_positions_ECI2ECEF[i]
     end
 
     sv_bad = deepcopy(sv1_struct)
-    sv_bad.subframes_decoded = [0,1,1,1,1]
+    sv_bad.decoder_state.subframes_decoded = [0,1,1,1,1]
 
     out = false
-    
-    dcs = deepcopy(test_dcs)
-    dcs[1].subframes_decoded = [0,0,0,0,0]
-    out = false
     try 
-        sat_position_ECEF(dcs[1], test_cops[1], test_caps[1])
+        sat_position_ECEF(sv_bad)
     catch e
         if typeof(e) == PVT.BadData
             out = true
         end
     end
     @test out == true
-
-    
 
     @test out == true
 end
@@ -42,18 +36,18 @@ projected_positions_ECEF = [
     [8.067277946961094e6, 1.280426674805989e7, 2.181418989894819e7]
     ]
 @testset "Sat Position ECEF" begin
-    for i in 1:length(test_dcs)
-        out = sat_position_ECEF(test_dcs[i], test_cops[i], test_caps[i])
+    for i in 1:length(satellite_states)
+        out = sat_position_ECEF(satellite_states[i])
         @test out == projected_positions_ECEF[i]
     end
 
     
     
-    dcs = deepcopy(test_dcs)
-    dcs[1].subframes_decoded = [0,0,0,0,0]
+    sv_bad = deepcopy(sv1_struct)
+    sv_bad.decoder_state.subframes_decoded = [0,0,0,0,0]
     out = false
     try 
-        sat_position_ECEF(dcs[1], test_cops[1], test_caps[1])
+        sat_position_ECEF(sv_bad)
     catch e
         if typeof(e) == PVT.BadData
             out = true

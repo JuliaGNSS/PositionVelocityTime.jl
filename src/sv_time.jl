@@ -13,10 +13,10 @@
     20.3.3.3.3.1 User Algorithm for SV Clock Correction.
     Equation (1)
 """
-function calc_corrected_time(decoder_state::GNSSDecoderState, code_phase, carrier_phase = 0)
+function calc_corrected_time(sat_state::SatelliteState)
     
-    t_sv = calc_uncorrected_time(decoder_state, code_phase, carrier_phase)
-    Δt_sv = code_phase_offset(decoder_state, t_sv)
+    t_sv = calc_uncorrected_time(sat_state)
+    Δt_sv = code_phase_offset(sat_state.decoder_state, t_sv)
     t = t_sv - Δt_sv
 end
 
@@ -80,12 +80,12 @@ end
     Calculates time by number of bits since TOW, TOW and code and carrier phases
 
 """
-function calc_uncorrected_time(decoder_state::GNSSDecoderState, code_phase, carrier_phase = 0)
+function calc_uncorrected_time(sat_state::SatelliteState)
     gpsl1 = GNSSSignals.GPSL1()
-    t_tow = decoder_state.data.TOW * 6
-    t_bits = decoder_state.num_bits_buffered / GNSSSignals.get_data_frequency(gpsl1) * Hz
-    t_code_phase = code_phase / GNSSSignals.get_code_frequency(gpsl1) * Hz
-    t_carrier_phase = carrier_phase / GNSSSignals.get_center_frequency(gpsl1) * Hz
+    t_tow = sat_state.decoder_state.data.TOW * 6
+    t_bits = sat_state.decoder_state.num_bits_buffered / GNSSSignals.get_data_frequency(gpsl1) * Hz
+    t_code_phase = sat_state.code_phase / GNSSSignals.get_code_frequency(gpsl1) * Hz
+    t_carrier_phase = sat_state.carrier_phase / GNSSSignals.get_center_frequency(gpsl1) * Hz
     
     t = t_tow + t_bits + t_code_phase + t_carrier_phase
 end

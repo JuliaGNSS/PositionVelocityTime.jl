@@ -18,14 +18,11 @@ correct_raw_times =  [
     208863.7704948417]
 
 
-@testset "Calc uncorrected Time" begin
-    for i in 1:length(test_dcs)
-        out = PVT.calc_uncorrected_time(test_dcs[i], test_cops[i], test_caps[i])
-        @test out == correct_raw_times[i]
-    end
 
-    for i in 1:length(test_dcs)
-        out = PVT.calc_uncorrected_time(test_dcs[i], 0)
-        @test out != correct_raw_times[i]
+
+@testset "Calc uncorrected Time" begin
+    for i in 1:length(satellite_states)
+        out = PVT.calc_uncorrected_time(satellite_states[i])
+        @test out == correct_raw_times[i]
     end
 end

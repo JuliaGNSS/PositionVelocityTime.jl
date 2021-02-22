@@ -1,6 +1,6 @@
 name = "PVT"
 uuid = "52ec0b5e-ee36-11ea-211c-3d844fc5682d"
-authors = ["Erik Deinzer <erik.deinzer@rwth-aachen.de", "Sören Schönbrod <soeren.schoenbrod@rwth-aachen.de", "Michael Niestroj <michael.niestroj@rwth-aachen.de"]
+authors = ["Erik Deinzer <erik.deinzer@rwth-aachen.de>", "Sören Schönbrod <soeren.schoenbrod@rwth-aachen.de>", "Michael Niestroj <michael.niestroj@rwth-aachen.de>"]
 version = "0.1.0"
 
 [deps]

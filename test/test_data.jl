@@ -37,7 +37,7 @@ sv1_data = GPSData(
     IODE_Sub_3 = "00011011",
     IDOT = -1.2286226056345314e-10
 )
-sv1_struct = GNSSDecoderState(
+sv1_decoder_struct = GNSSDecoderState(
     PRN = 7,
     buffer = BitArray(undef, 1502),
     data = sv1_data,
@@ -54,6 +54,8 @@ sv1_struct = GNSSDecoderState(
 )
 sv1_code_phase = 18126.41231251371
 sv1_carrier_phase = -0.019570794887840748
+sv1_struct = SatelliteState(decoder_state = sv1_decoder_struct, code_phase = sv1_code_phase, carrier_phase = sv1_carrier_phase)
+
 
 
 sv2_data = GPSData(
@@ -93,7 +95,7 @@ sv2_data = GPSData(
     IODE_Sub_3 =  "01011001",
     IDOT =  2.1858053332800384e-10
 )
-sv2_struct = GNSSDecoderState(
+sv2_decoder_struct = GNSSDecoderState(
     PRN= 8,
     buffer = BitArray(undef, 1502),
     data = sv2_data,
@@ -110,6 +112,8 @@ sv2_struct = GNSSDecoderState(
 )
 sv2_code_phase = 1731.7849623335098
 sv2_carrier_phase = 0.3726482419297099
+sv2_struct = SatelliteState(decoder_state = sv2_decoder_struct, code_phase = sv2_code_phase, carrier_phase = sv2_carrier_phase)
+
 
 sv3_data = GPSData(
     integrity_status_flag =  false,
@@ -148,7 +152,7 @@ sv3_data = GPSData(
     IODE_Sub_3 =  "00001001",
     IDOT =  4.071598169835366e-11
 )
-sv3_struct = GNSSDecoderState(
+sv3_decoder_struct = GNSSDecoderState(
     PRN =  10,
     buffer = BitArray(undef, 1502),
     data = sv3_data,
@@ -165,6 +169,7 @@ sv3_struct = GNSSDecoderState(
 )
 sv3_code_phase = 2975.5753833700155
 sv3_carrier_phase = 0.007562681101262569
+sv3_struct = SatelliteState(decoder_state = sv3_decoder_struct, code_phase = sv3_code_phase, carrier_phase = sv3_carrier_phase)
 
 
 sv4_data = GPSData(
@@ -204,7 +209,7 @@ sv4_data = GPSData(
   IODE_Sub_3 =  "00010100",
   IDOT =  5.610948004220491e-10
 )
-sv4_struct = GNSSDecoderState(
+sv4_decoder_struct = GNSSDecoderState(
     PRN =  15,
     buffer = BitArray(undef, 1502),
     data = sv4_data,
@@ -221,6 +226,7 @@ sv4_struct = GNSSDecoderState(
 )
 sv4_code_phase = 17790.853982632394
 sv4_carrier_phase = 0.2946765711531043
+sv4_struct = SatelliteState(decoder_state = sv4_decoder_struct, code_phase = sv4_code_phase, carrier_phase = sv4_carrier_phase)
 
 
 sv5_data = GPSData(
@@ -260,7 +266,7 @@ sv5_data = GPSData(
     IODE_Sub_3 = "11101101",
     IDOT = -3.8001582918463414e-10
 )
-sv5_struct = GNSSDecoderState(
+sv5_decoder_struct = GNSSDecoderState(
     PRN =  18,
     buffer = BitArray(undef, 1502),
     data = sv5_data,
@@ -279,8 +285,11 @@ sv5_struct = GNSSDecoderState(
 sv5_code_phase =  10736.222919350244
 sv5_carrier_phase = 0.23463375493884087
 
-test_dcs = Vector([sv1_struct, sv2_struct, sv3_struct, sv4_struct, sv5_struct])
-test_cops = Vector([sv1_code_phase, sv2_code_phase, sv3_code_phase, sv4_code_phase, sv5_code_phase])
-test_caps = Vector([sv1_carrier_phase, sv2_carrier_phase, sv3_carrier_phase, sv4_carrier_phase, sv5_carrier_phase])
+sv5_struct = SatelliteState(decoder_state = sv5_decoder_struct, code_phase = sv5_code_phase, carrier_phase = sv5_carrier_phase)
+
+satellite_states = [sv1_struct, sv2_struct, sv3_struct, sv4_struct, sv5_struct]
+#test_dcs = Vector([sv1_struct, sv2_struct, sv3_struct, sv4_struct, sv5_struct])
+#test_cops = Vector([sv1_code_phase, sv2_code_phase, sv3_code_phase, sv4_code_phase, sv5_code_phase])
+#test_caps = Vector([sv1_carrier_phase, sv2_carrier_phase, sv3_carrier_phase, sv4_carrier_phase, sv5_carrier_phase])
 
 

@@ -11,21 +11,18 @@ Computes relative pseudo ranges of satellite vehicles.
 The algorithm is based on the common reception method. 
 """
 function pseudo_ranges(
-    decoder_states::AbstractVector{GNSSDecoderState}, 
-    code_phases::AbstractVector, 
-    carrier_phases::AbstractVector = zeros(length(decoder_states))
+    sat_states::AbstractVector{SatelliteState{Float64}}
     )
     
-    for i in 1:length(decoder_states)
-        is_sat_healthy_and_decodable(decoder_states[i]) || throw(BadData("SV not decoded properly, #decoder: " * string(i)))
+    for i in 1:length(sat_states)
+        is_sat_healthy_and_decodable(sat_states[i].decoder_state) || throw(BadData("SV not decoded properly, #decoder: " * string(i)))
     end
-    (length(decoder_states) == length(code_phases) == length(carrier_phases)) || throw(IncompatibleData("Length of Arrays of Decoder, Code Phases and Carrier Phases must be equal"))
 
 
-    N_sats = length(decoder_states)
-    c = decoder_states[1].constants.c
+    N_sats = length(sat_states)
+    c = sat_states[1].decoder_state.constants.c
     
-    times = map(i -> calc_corrected_time(decoder_states[i], code_phases[i], carrier_phases[i]), 1:N_sats)
+    times = map(i -> calc_corrected_time(sat_states[i]), 1:N_sats)
     t_ref = maximum(times)
 
     τ = map(i -> t_ref - times[i], 1:N_sats)

@@ -9,55 +9,53 @@
     This function calculates the position of the SV in ECI coorinates.
     The implementation follows IS-GPS-200K
 """
-function sat_position_ECI(decoder_state::GNSSDecoderState, code_phase, carrier_phase = 0)
-    is_sat_healthy_and_decodable(decoder_state) || throw(BadData("SV not decoded properly"))
+function sat_position_ECI(sat_state::SatelliteState)
+    is_sat_healthy_and_decodable(sat_state.decoder_state) || throw(BadData("SV not decoded properly"))
     
-    t = calc_corrected_time(decoder_state, code_phase, carrier_phase)
-    tk = t - decoder_state.data.t_oe
-    tk = check_crossover(tk)
+    t = calc_corrected_time(sat_state)
+    tₖ = t - sat_state.decoder_state.data.t_oe
+    tₖ = check_crossover(tₖ)
     
     # Excentric and true anomaly
-    t_sv = calc_uncorrected_time(decoder_state, code_phase, carrier_phase)
-    dt_sv = code_phase_offset(decoder_state, t_sv)
-    Ek = calc_eccentric_anomaly(decoder_state, t, dt_sv)
+    tₛᵥ = calc_uncorrected_time(sat_state)
+    dtₛᵥ = code_phase_offset(sat_state.decoder_state, tₛᵥ)
+    Eₖ = calc_eccentric_anomaly(sat_state.decoder_state, t, dtₛᵥ)
     
     
-    
-    
-    e  = decoder_state.data.e
-    vk =  2 * atan(sqrt((1+e) / (1-e)) * tan(Ek/2))
+    e  = sat_state.decoder_state.data.e
+    vₖ =  2 * atan(sqrt((1+e) / (1-e)) * tan(Eₖ/2))
     # Argument of latitude
-    Phik = vk + decoder_state.data.ω
+    Φₖ = vₖ + sat_state.decoder_state.data.ω
     
     # Second harmonic perturbations
-    duk = decoder_state.data.C_us * sin(2*Phik) + decoder_state.data.C_uc * cos(2*Phik);
-    drk = decoder_state.data.C_rs * sin(2*Phik) + decoder_state.data.C_rc * cos(2*Phik);
-    dik = decoder_state.data.C_is * sin(2*Phik) + decoder_state.data.C_ic * cos(2*Phik);
+    δuₖ = sat_state.decoder_state.data.C_us * sin(2*Φₖ) + sat_state.decoder_state.data.C_uc * cos(2*Φₖ);
+    δrₖ = sat_state.decoder_state.data.C_rs * sin(2*Φₖ) + sat_state.decoder_state.data.C_rc * cos(2*Φₖ);
+    δiₖ = sat_state.decoder_state.data.C_is * sin(2*Φₖ) + sat_state.decoder_state.data.C_ic * cos(2*Φₖ);
     
     
     # Corrected orbit parameters
-    uk = Phik + duk;
-    rk = decoder_state.data.sqrt_A^2 * (1 - e * cos(Ek)) + drk;
-    ik = decoder_state.data.i_0 + dik + decoder_state.data.IDOT * tk;
+    uₖ = Φₖ + δuₖ;
+    rₖ = sat_state.decoder_state.data.sqrt_A^2 * (1 - e * cos(Eₖ)) + δrₖ;
+    iₖ = sat_state.decoder_state.data.i_0 + δiₖ + sat_state.decoder_state.data.IDOT * tₖ;
     
     # Positions in orbital plane
-    xks = rk * cos(uk);
-    yks = rk * sin(uk);
+    xₖs = rₖ * cos(uₖ);
+    yₖs = rₖ * sin(uₖ);
     
     # Corrected longitude of ascending node
-    Omegak = decoder_state.data.Ω_0 + decoder_state.data.Ω_dot * tk;
+    Ωₖ = sat_state.decoder_state.data.Ω_0 + sat_state.decoder_state.data.Ω_dot * tₖ;
     
     # ECI coordinates
-    swk = sin(Omegak);
-    cwk = cos(Omegak);
-    cik = cos(ik);
-    sik = sin(ik);
+    sinΩₖ = sin(Ωₖ);
+    cosΩₖ = cos(Ωₖ);
+    cosiₖ = cos(iₖ);
+    siniₖ = sin(iₖ);
             
-    xk = xks * cwk - yks * cik * swk;
-    yk = xks * swk + yks * cik * cwk;
-    zk = yks * sik;
+    xₖ = xₖs * cosΩₖ - yₖs * cosiₖ * sinΩₖ;
+    yₖ = xₖs * sinΩₖ + yₖs * cosiₖ * cosΩₖ;
+    zₖ = yₖs * siniₖ;
     
-    return [xk, yk, zk]
+    return [xₖ, yₖ, zₖ]
 end
 
 
@@ -72,16 +70,16 @@ end
     converts this position into ECEF coordinates.
     The implementation follows IS-GPS-200K
 """
-function sat_position_ECI_2_ECEF(decoder_state::GNSSDecoderState, code_phase, carrier_phase = 0)
-    pos_ECI = sat_position_ECI( decoder_state, code_phase, carrier_phase)
+function sat_position_ECI_2_ECEF(sat_state::SatelliteState)
+    pos_ECI = sat_position_ECI(sat_state)
             
-    tk = calc_corrected_time(decoder_state, code_phase, carrier_phase)
-    tk = tk - decoder_state.data.t_oe
-    tk = check_crossover( tk)
-    theta = decoder_state.constants.Ω_dot_e * (tk + decoder_state.data.t_oe)
-    cost  = cos(theta)
-    sint  = sin(theta)
-    R = [cost sint; -sint cost] 
+    tₖ = calc_corrected_time(sat_state)
+    tₖ = tₖ - sat_state.decoder_state.data.t_oe
+    tₖ = check_crossover(tₖ)
+    θ = sat_state.decoder_state.constants.Ω_dot_e * (tₖ + sat_state.decoder_state.data.t_oe)
+    cosθ  = cos(θ)
+    sinθ  = sin(θ)
+    R = [cosθ sinθ; -sinθ cosθ] 
     pos_ECI[1:2] = R * pos_ECI[1:2]
     return pos_ECI
 end
@@ -98,50 +96,52 @@ end
     This function calculates the position of the SV in ECEF coorinates.
     The implementation follows IS-GPS-200K Table 20-IV.
 """
-function sat_position_ECEF(decoder_state::GNSSDecoderState, code_phase, carrier_phase)
+function sat_position_ECEF(sat_state)
     
-    is_sat_healthy_and_decodable(decoder_state) || throw(BadData("SV not decoded properly"))
-    F = decoder_state.constants.F
-    e = decoder_state.data.e
-    μ = decoder_state.constants.μ    
-    Ω_dot_e = decoder_state.constants.Ω_dot_e
+    is_sat_healthy_and_decodable(sat_state.decoder_state) || throw(BadData("SV not decoded properly"))
+    F = sat_state.decoder_state.constants.F
+    e = sat_state.decoder_state.data.e
+    μ = sat_state.decoder_state.constants.μ    
+    Ω_dot_e = sat_state.decoder_state.constants.Ω_dot_e
 
-    A = decoder_state.data.sqrt_A^2
-    n_0 = sqrt(μ / (A^3))
-    n = n_0 + decoder_state.data.Δn
+    A = sat_state.decoder_state.data.sqrt_A^2
+    n₀ = sqrt(μ / (A^3))
+    n = n₀ + sat_state.decoder_state.data.Δn
     
     
-    t = calc_corrected_time(decoder_state, code_phase, carrier_phase)
-    tk = t - decoder_state.data.t_oe
-    tk = check_crossover(tk)
+    t = calc_corrected_time(sat_state)
+    tₖ = t - sat_state.decoder_state.data.t_oe
+    tₖ = check_crossover(tₖ)
     
     # Excentric and true anomaly
-    t_sv = calc_uncorrected_time(decoder_state, code_phase, carrier_phase)
-    dt_sv = code_phase_offset(decoder_state, t_sv)
-    E = calc_eccentric_anomaly(decoder_state, t, dt_sv)
+    t_sv = calc_uncorrected_time(sat_state)
+    dt_sv = code_phase_offset(sat_state.decoder_state, t_sv)
+    E = calc_eccentric_anomaly(sat_state.decoder_state, t, dt_sv)
     
-    vk = 2 * atan(sqrt((1+e) / (1-e)) * tan(E/2))
+    vₖ = 2 * atan(sqrt((1+e) / (1-e)) * tan(E/2))
     
-    Φk = vk + decoder_state.data.ω
+    Φₖ = vₖ + sat_state.decoder_state.data.ω
     
-    duk = decoder_state.data.C_us * sin(2*Φk) + decoder_state.data.C_uc * cos(2*Φk);
-    drk = decoder_state.data.C_rs * sin(2*Φk) + decoder_state.data.C_rc * cos(2*Φk);
-    dik = decoder_state.data.C_is * sin(2*Φk) + decoder_state.data.C_ic * cos(2*Φk);
+    δuₖ = sat_state.decoder_state.data.C_us * sin(2*Φₖ) + sat_state.decoder_state.data.C_uc * cos(2*Φₖ)
+    δrₖ = sat_state.decoder_state.data.C_rs * sin(2*Φₖ) + sat_state.decoder_state.data.C_rc * cos(2*Φₖ)
+    δiₖ = sat_state.decoder_state.data.C_is * sin(2*Φₖ) + sat_state.decoder_state.data.C_ic * cos(2*Φₖ)
     
-    uk = Φk + duk
-    rk = A * (1 - e*cos(E)) + drk
-    ik = decoder_state.data.i_0 + dik + decoder_state.data.IDOT * tk
+    uₖ = Φₖ + δuₖ 
+    rₖ = A * (1 - e*cos(E)) + δrₖ
+    iₖ = sat_state.decoder_state.data.i_0 + δiₖ + sat_state.decoder_state.data.IDOT * tₖ
+
+    xₖs = rₖ * cos(uₖ)
+    yₖs = rₖ * sin(uₖ)
     
-    xks = rk * cos(uk)
-    yks = rk * sin(uk)
+    Ωₖ = sat_state.decoder_state.data.Ω_0+ 
+        (sat_state.decoder_state.data.Ω_dot - Ω_dot_e) * tₖ -
+        sat_state.decoder_state.data.t_oe * Ω_dot_e
     
-    Ωk = decoder_state.data.Ω_0 + (decoder_state.data.Ω_dot - Ω_dot_e) * tk - Ω_dot_e*decoder_state.data.t_oe
+    xₖ = xₖs * cos(Ωₖ) - yₖs * cos(iₖ)*sin(Ωₖ)
+    yₖ = xₖs * sin(Ωₖ) + yₖs * cos(iₖ)*cos(Ωₖ)
+    zₖ = yₖs * sin(iₖ)
     
-    xk = xks * cos(Ωk) - yks * cos(ik)*sin(Ωk)
-    yk = xks * sin(Ωk) + yks * cos(ik)*cos(Ωk)
-    zk = yks * sin(ik)
-    
-    position = [xk, yk, zk]
+    position = [xₖ, yₖ, zₖ]
     return position
 end
 
