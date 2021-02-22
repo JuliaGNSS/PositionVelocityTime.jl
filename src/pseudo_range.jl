@@ -3,9 +3,7 @@
 Computes psuedo ranges 
 
 $SIGNATURES
-´decoder_state´: Decoder containing ephemeris data of satellite
-´code_phase´: Code phase of signal at time of measure
-´carrier_phase´: Center frequency of carrier signal
+´sat_state´: satellite state, combining decoded data, code- and carrierphase 
 
 Computes relative pseudo ranges of satellite vehicles.
 The algorithm is based on the common reception method. 

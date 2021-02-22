@@ -2,9 +2,7 @@
     Calculates the corrected satellite time
     $SIGNATURES
 
-    ´decoder_state´: Decoder containing ephemeris data of satellite
-    ´code_phase´: Code phase of signal at time of measure
-    ´carrier_phase´: Center frequency of carrier signal
+    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
 
     Provides the implementation of the clock computations
     from raw to corrected
@@ -73,12 +71,9 @@ end
     Calculates raw time data by observed times
     $SIGNATURES
 
-    ´decoder_state´: Decoder containing ephemeris data of satellite
-    ´code_phase´: Code phase of signal at time of measure
-    ´carrier_phase´: Center frequency of carrier signal
+    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
 
     Calculates time by number of bits since TOW, TOW and code and carrier phases
-
 """
 function calc_uncorrected_time(sat_state::SatelliteState)
     gpsl1 = GNSSSignals.GPSL1()

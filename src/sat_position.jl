@@ -2,9 +2,7 @@
     Calculates ECI Position of SV
 
     $SIGNATURES
-    ´decoder_state´: Decoder containing ephemeris data of satellite
-    ´code_phase´: Code phase of signal at time of measure
-    ´carrier_phase´: Center frequency of carrier signal
+    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
 
     This function calculates the position of the SV in ECI coorinates.
     The implementation follows IS-GPS-200K
@@ -63,8 +61,8 @@ end
     Calculates ECEF Position by converting ECI position
 
     $SIGNATURES
-    ´decoder_state´: Decoder containing ephemeris data of satellite
-    ´code_phase´: Code phase of signal at time of measure
+    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
+
 
     This function calculates the position of the SV in ECI coorinates and
     converts this position into ECEF coordinates.
@@ -89,9 +87,8 @@ end
     Calculates ECEF Position of SV 
 
     $SIGNATURES
-    ´decoder_state´: Decoder containing ephemeris data of satellite
-    ´code_phase´: Code phase of signal at time of measure
-    ´carrier_phase´: Center frequency of carrier signal
+    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
+
 
     This function calculates the position of the SV in ECEF coorinates.
     The implementation follows IS-GPS-200K Table 20-IV.

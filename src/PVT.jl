@@ -15,7 +15,7 @@ module PVT
     
     
     """
-    Struct of decoder, code and carrer Phase of satellite vehicle
+    Struct of decoder, code- and carrierphase of satellite vehicle
     """
     @with_kw struct SatelliteState{CP <: Real}
         decoder_state::GNSSDecoderState
@@ -28,9 +28,7 @@ module PVT
     Calculates ECEF position of user
 
     $SIGNATURES
-    ´decoder_state´: Decoder containing ephemeris data of satellite
-    ´code_phase´: Code phase of signal at time of measure
-    ´carrier_phase´: Center frequency of carrier signal
+    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
 
     This function calculates the position of the user in ECEF coordinates
     The implementation follows IS-GPS-200K Table 20-IV.

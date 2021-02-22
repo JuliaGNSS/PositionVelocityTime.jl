@@ -9,7 +9,7 @@ Computes ̂ρ , the distance between the satellite and the assumed user position
 
 $SIGNATURES
 ´ξ´: Combination of estimated user position and time correction
-´rSat´: Matrix of satellite Positions
+´rSat´: Single satellite Positions
 """
 function ρ_hat(ξ, rSats)
     rₙ = ξ[1:3]
@@ -23,9 +23,9 @@ Computes e, the direction vector from satellite to user
 
 $SIGNATURES
 ´ξ´: Combination of estimated user position and time correction
-´rSat´: Matrix of satellite Positions
+´rSat´: Single satellite Positions
 """
-function e( ξ, rSat)
+function e(ξ, rSat)
     rₙ = ξ[1:3]
     e = (rₙ - rSat) / norm(rₙ - rSat)
 end
@@ -35,7 +35,7 @@ Computes Geometry Matrix H
 
 $SIGNATURES
 ´ξ´: Combination of estimated user position and time correction
-´rSat´: Matrix of satellite Positions
+´rSats´: Matrix of satellite Positions
 """
 function H(ξ, rSats)
     H = mapreduce(rSat -> [transpose(e(ξ, rSat)) 1], vcat, rSats)
@@ -45,7 +45,7 @@ end
 Calculates the dilution of precision for a given geometry matrix H
 
 $SIGNATURES
-´H´: Geometry matrix
+´H_GEO´: Geometry matrix
 """
 function calc_DOP(H_GEO)
     D = inv(H_GEO' * H_GEO)
@@ -61,7 +61,7 @@ end
 Computes user position
 
 $SIGNATURES
-´rSat´: Array of Satellite positions. needs 3 values per satellite (xyz), size must be (3, N)")
+´rSats´: Array of Satellite positions. needs 3 values per satellite (xyz), size must be (3, N)")
 ´ρ´: Array of pseudo ranges 
 
 Calculates the user position by least squares method. The algorithm is based on the common reception method. 
