@@ -11,11 +11,11 @@ $SIGNATURES
 ´ξ´: Combination of estimated user position and time correction
 ´rSat´: Matrix of satellite Positions
 """
-function ρ_hat(ξ, rSat)
+function ρ_hat(ξ, rSats)
     rₙ = ξ[1:3]
     tc = ξ[4]
     
-    ρ_hat = map(i -> norm(rSat[i] - rₙ) + tc, 1:length(rSat))
+    ρ_hat = map(i -> norm(rSats[i] - rₙ) + tc, 1:length(rSats))
 end
 
 """
@@ -25,9 +25,9 @@ $SIGNATURES
 ´ξ´: Combination of estimated user position and time correction
 ´rSat´: Matrix of satellite Positions
 """
-function e(k, ξ, rSat)
+function e( ξ, rSat)
     rₙ = ξ[1:3]
-    e = (rₙ - rSat[k]) / norm(rₙ - rSat[k])
+    e = (rₙ - rSat) / norm(rₙ - rSat)
 end
 
 """
@@ -37,8 +37,8 @@ $SIGNATURES
 ´ξ´: Combination of estimated user position and time correction
 ´rSat´: Matrix of satellite Positions
 """
-function H(ξ, rSat)
-    H = vcat(map(k -> [transpose(e(k, ξ, rSat)) 1], 1:length(rSat))...)
+function H(ξ, rSats)
+    H = mapreduce(rSat -> [transpose(e(ξ, rSat)) 1], vcat, rSats)
 end
 
 """
@@ -66,7 +66,7 @@ $SIGNATURES
 
 Calculates the user position by least squares method. The algorithm is based on the common reception method. 
 """
-function user_position(rSat, ρ, accuracy::Float64 = 0.2)
+function user_position(rSats, ρ, accuracy::Float64 = 0.2)
         
     # First Guesses of Position (Center of WGS84, time error = 0)
     r₀ = [0.0, 0.0, 0.0]
@@ -75,14 +75,14 @@ function user_position(rSat, ρ, accuracy::Float64 = 0.2)
 
     Δξ = 100
     while norm(Δξ) > accuracy
-        Δρ = ρ - ρ_hat(ξ, rSat)
-        Δξ = H(ξ, rSat) \ Δρ #(transpose(H(ξ)) * H(ξ)) \ (transpose(H(ξ)) * Δρ) #H(ξ) \ Δρ
+        Δρ = ρ - ρ_hat(ξ, rSats)
+        Δξ = H(ξ, rSats) \ Δρ #(transpose(H(ξ)) * H(ξ)) \ (transpose(H(ξ)) * Δρ) #H(ξ) \ Δρ
         ξ = ξ + Δξ # ξₙ₊₁ = ξₙ + Δξ
     end
 
     pos = ECEF(ξ[1:3])
     dt_receiver = ξ[4]
-    GDOP = calc_DOP(H(ξ, rSat))
+    GDOP = calc_DOP(H(ξ, rSats))
     PVT = PVTSolution(pos, dt_receiver, GDOP)
     return PVT
 end
