@@ -8,7 +8,6 @@ Calculates Positions by using GPSL1 Data
 * Precision estimation (GDOP)
 
 ## Preparing
-____________
 
 ### Install
 ```julia
@@ -45,7 +44,6 @@ true
 ```
 
 ## Usage
-___________________
 ### Satellite position
 There are two options for satellite position calculation: 
 
@@ -70,7 +68,6 @@ julia>sat_position_ECI2ECEF(satellite_state)
  2.1851582648954894e7
 ```
 
-_______________________
 ### User position Calculation
 The function 
 `calc_PVT(satellite_states::AbstractVector{SatelliteState{Float64}})` 
