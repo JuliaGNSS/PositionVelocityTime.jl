@@ -41,8 +41,6 @@ projected_positions_ECEF = [
         @test out == projected_positions_ECEF[i]
     end
 
-    
-    
     sv_bad = deepcopy(sv1_struct)
     sv_bad.decoder_state.subframes_decoded = [0,0,0,0,0]
     out = false
@@ -54,6 +52,4 @@ projected_positions_ECEF = [
         end
     end
     @test out == true
-
-
 end

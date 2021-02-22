@@ -1,5 +1,3 @@
-ITERATIONS = 20
-
 struct PVTSolution
     pos::ECEF
     receiver_time_correction::Float64
@@ -54,7 +52,7 @@ function calc_DOP(H_GEO)
     TDOP = sqrt(D[4,4]) # temporal dop
     VDOP = sqrt(D[3,3]) # vertical dop
     HDOP = sqrt(D[1,1] + D[2,2]) # horizontal dop
-    PDOP = sqrt(D[1,1] + D[2,2] + D[3,3]) # position dop
+    PDOP = sqrt(D[1,1] + D[2,2] + D[3, 3]) # position dop
     GDOP = sqrt(sum(diag(D))) # geometrical dop
     return GDOP
 end
@@ -68,15 +66,15 @@ $SIGNATURES
 
 Calculates the user position by least squares method. The algorithm is based on the common reception method. 
 """
-function user_position(rSat, ρ)
+function user_position(rSat, ρ, accuracy::Float64 = 0.2)
         
     # First Guesses of Position (Center of WGS84, time error = 0)
     r₀ = [0.0, 0.0, 0.0]
     t = 0.0
     ξ = [r₀; t]  
 
-
-    for i in 1:ITERATIONS
+    Δξ = 100
+    while norm(Δξ) > accuracy
         Δρ = ρ - ρ_hat(ξ, rSat)
         Δξ = H(ξ, rSat) \ Δρ #(transpose(H(ξ)) * H(ξ)) \ (transpose(H(ξ)) * Δρ) #H(ξ) \ Δρ
         ξ = ξ + Δξ # ξₙ₊₁ = ξₙ + Δξ

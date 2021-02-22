@@ -135,7 +135,7 @@ function calc_eccentric_anomaly(decoder_state, t_sv, dt_sv = 0 )
     for k = 1:30
         Et = E
         E = M + e * sin(E)
-        if abs( E - Et ) <= 1e-12 
+        if abs(E - Et) <= 1e-12 
             break;
         end
     end          

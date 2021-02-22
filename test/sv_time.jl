@@ -18,8 +18,6 @@ correct_raw_times =  [
     208863.7704948417]
 
 
-
-
 @testset "Calc uncorrected Time" begin
     for i in 1:length(satellite_states)
         out = PVT.calc_uncorrected_time(satellite_states[i])

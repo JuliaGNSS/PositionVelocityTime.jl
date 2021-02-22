@@ -288,8 +288,3 @@ sv5_carrier_phase = 0.23463375493884087
 sv5_struct = SatelliteState(decoder_state = sv5_decoder_struct, code_phase = sv5_code_phase, carrier_phase = sv5_carrier_phase)
 
 satellite_states = [sv1_struct, sv2_struct, sv3_struct, sv4_struct, sv5_struct]
-#test_dcs = Vector([sv1_struct, sv2_struct, sv3_struct, sv4_struct, sv5_struct])
-#test_cops = Vector([sv1_code_phase, sv2_code_phase, sv3_code_phase, sv4_code_phase, sv5_code_phase])
-#test_caps = Vector([sv1_carrier_phase, sv2_carrier_phase, sv3_carrier_phase, sv4_carrier_phase, sv5_carrier_phase])
-
-
