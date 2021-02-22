@@ -96,7 +96,7 @@ end
     This function calculates the position of the SV in ECEF coorinates.
     The implementation follows IS-GPS-200K Table 20-IV.
 """
-function sat_position_ECEF(sat_state)
+function sat_position_ECEF(sat_state::SatelliteState)
     
     is_sat_healthy_and_decodable(sat_state.decoder_state) || throw(BadData("SV not decoded properly"))
     F = sat_state.decoder_state.constants.F
