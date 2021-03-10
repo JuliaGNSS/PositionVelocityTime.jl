@@ -1,32 +1,20 @@
 projected_position_ECI2ECEF = PVTSolution(
-    ECEF([4.0186749839886995e6, 427051.19422150403, 4.918252576909507e6]),
-     -2.340933478024591e7,
-      17.961339568218193)
+    ECEF([4.018703954398344e6, 427061.6186769246, 4.918310675640356e6]), -2.1332062204026792e7, 2.346849505593898)
 
 
 @testset "User position ECI2ECEF" begin
-    positions = map( i -> sat_position_ECI_2_ECEF(test_dcs[i], test_cops[i], test_caps[i]), 1 : length(test_dcs))
-    pseudo_ranges = PVT.pseudo_ranges(test_dcs, test_cops, test_caps) #pseudo_range(dcs, cps)
+    positions = map(x -> sat_position_ECI_2_ECEF(x), satellite_states)
+    pseudo_ranges = PVT.pseudo_ranges(satellite_states)
     out = user_position(positions, pseudo_ranges)
-    @test out == projected_position_ECI2ECEF
-
+    @test out.pos ≈ projected_position_ECI2ECEF.pos
+    @test out.receiver_time_correction ≈ projected_position_ECI2ECEF.receiver_time_correction
+    @test out.GDOP ≈ projected_position_ECI2ECEF.GDOP
 
     out = false
     try 
-        calc_PVT(test_dcs[1:3], test_cops[1:3], test_caps[1:3])
+        calc_PVT([sv1_struct])
     catch e
         if typeof(e) == PVT.SmallData
-            out = true
-        end
-    end
-    @test out == true
-
-
-    out = false
-    try 
-        calc_PVT(test_dcs, zeros(5), test_caps)
-    catch e
-        if typeof(e) == PVT.IncompatibleData
             out = true
         end
     end
@@ -35,35 +23,23 @@ end
 
 
 projected_position_ECEF = PVTSolution(
-    ECEF([4.0186749839887144e6, 427051.1942215096, 4.918252576909532e6]),
-     -2.3409334780245904e7,
-      17.961339568218765)
-
+    ECEF([4.0187039543983485e6, 427061.6186769258, 4.9183106756403595e6]), 
+    -2.133206220402679e7, 
+    2.346849505593898)
 @testset "User position ECEF" begin
-    positions = map( i -> sat_position_ECEF(test_dcs[i], test_cops[i], test_caps[i]), 1 : length(test_dcs))
-    pseudo_ranges = PVT.pseudo_ranges(test_dcs, test_cops, test_caps) #pseudo_range(dcs, cps)
+    positions = map( x -> sat_position_ECEF(x), satellite_states)
+    pseudo_ranges = PVT.pseudo_ranges(satellite_states)
     out = user_position(positions, pseudo_ranges)
-    @test out == projected_position_ECEF
+    @test out.pos ≈ projected_position_ECEF.pos
+    @test out.receiver_time_correction ≈ projected_position_ECEF.receiver_time_correction
+    @test out.GDOP ≈ projected_position_ECEF.GDOP
 
-
-    
 
     out = false
     try 
-        calc_PVT(test_dcs[1:3], test_cops[1:3], test_caps[1:3])
+        calc_PVT([sv1_struct])
     catch e
         if typeof(e) == PVT.SmallData
-            out = true
-        end
-    end
-    @test out == true
-
-
-    out = false
-    try 
-        calc_PVT(test_dcs, zeros(5), test_caps)
-    catch e
-        if typeof(e) == PVT.IncompatibleData
             out = true
         end
     end

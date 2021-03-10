@@ -1,6 +1,6 @@
 module PVT
 
-    using DocStringExtensions, Geodesy, GNSSDecoder, GNSSSignals, LinearAlgebra
+    using DocStringExtensions, Geodesy, GNSSDecoder, GNSSSignals, LinearAlgebra, Parameters
     using Unitful: s, Hz
     
     export  calc_PVT,
@@ -8,39 +8,39 @@ module PVT
             PVTSolution,
             sat_position_ECI_2_ECEF, 
             sat_position_ECEF,
-            user_position
+            user_position,
+            SatelliteState
             
+    
+    """
+    Struct of decoder, code- and carrierphase of satellite vehicle
+    """
+    @with_kw struct SatelliteState{CP <: Real}
+        decoder_state::GNSSDecoderState
+        code_phase::CP
+        carrier_phase::CP = 0
+    end
+
+
     """
     Calculates ECEF position of user
 
     $SIGNATURES
-    ´dc´: Decoder containing ephemeris data of satellite
-    ´code_phase´: Code phase of signal at time of measure
-    ´carrier_phase´: Center frequency of carrier signal
+    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
 
     This function calculates the position of the user in ECEF coordinates
     The implementation follows IS-GPS-200K Table 20-IV.
     """
-    function calc_PVT(dcs::Vector{GNSSDecoderState}, code_phases::Vector{Float64}, carrier_phases = zeros(length(dcs)))
+    function calc_PVT(
+        satellite_states::AbstractVector{SatelliteState{Float64}}
+        )
         
-       
-        (length(dcs) == length(code_phases) == length(carrier_phases)) || throw(IncompatibleData("Length of Arrays of Decoder, Code Phases and Carrier Phases must be equal"))
         
-        
-        usable_sv = Vector{GNSSDecoderState}(undef, 0)
-        usable_code_phases = Vector{Float64}(undef, 0)
-        usable_carr_phases = Vector{Float64}(undef, 0)
-        for i in 1:length(dcs)
-            if is_sat_healthy_and_decodable(dcs[i])
-                push!(usable_sv, dcs[i])
-                push!(usable_code_phases, code_phases[i])
-                push!(usable_carr_phases, carrier_phases[i])
-            end
-        end
-        length(usable_sv) >= 4 || throw(SmallData("Not enough usable SV Data"))
+        usable_satellite_states = filter(x -> is_sat_healthy_and_decodable(x.decoder_state), satellite_states)
 
-        sv_positions = map( (dcs, cps, caps) -> sat_position_ECEF(dcs, cps, caps), usable_sv, usable_code_phases, usable_carr_phases)
-        pseudoranges = pseudo_ranges(usable_sv, usable_code_phases, usable_carr_phases)
+        length(usable_satellite_states) >= 4 || throw(SmallData("Not enough usable SV Data"))
+        sv_positions = map(x -> sat_position_ECEF(x), usable_satellite_states)
+        pseudoranges = pseudo_ranges(usable_satellite_states)
 
         userpos = user_position(sv_positions, pseudoranges)
 

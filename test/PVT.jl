@@ -1,53 +1,19 @@
 projected_pos = PVTSolution(
-        ECEF([4.0186749839887144e6, 427051.1942215096, 4.918252576909532e6]),
-        -2.3409334780245904e7, 
-        17.961339568218765)
+    ECEF([4.0187039543983485e6, 427061.6186769258, 4.9183106756403595e6]), 
+    -2.133206220402679e7, 
+    2.346849505593898)
     
 
-
 @testset "Testing calc_PVT" begin
-        user = calc_PVT(test_dcs, test_cops, test_caps)
-        @test user == projected_pos
-
-
-
-    out = false
-    try 
-        calc_PVT(test_dcs, test_cops[1:3], test_caps)
-    catch e
-        if typeof(e) == PVT.IncompatibleData
-            out = true
-        end
-    end
-    @test out == true
-
+    user = calc_PVT(satellite_states)
+    @test user.pos ≈ projected_pos.pos
+    @test user.receiver_time_correction ≈ projected_pos.receiver_time_correction
+    @test user.GDOP ≈ projected_pos.GDOP
 
 
     out = false
     try 
-        calc_PVT(test_dcs, test_cops[1:3], test_caps[1:3])
-    catch e
-        if typeof(e) == PVT.IncompatibleData
-            out = true
-        end
-    end
-    @test out == true
-
-
-    out = false
-    try 
-        calc_PVT(test_dcs[1:3], test_cops[1:3], test_caps)
-    catch e
-        if typeof(e) == PVT.IncompatibleData
-            out = true
-        end
-    end
-    @test out == true
-
-
-    out = false
-    try 
-        calc_PVT(test_dcs[1:3], test_cops[1:3], test_caps[1:3])
+        calc_PVT(satellite_states[1:3])
     catch e
         if typeof(e) == PVT.SmallData
             out = true
@@ -56,11 +22,13 @@ projected_pos = PVTSolution(
     @test out == true
 
 
-    dcs = deepcopy(test_dcs)
-    dcs[1].subframes_decoded = [0,0,0,0,0]
+    svs_bad = deepcopy(satellite_states)
+    svs_bad[1].decoder_state.subframes_decoded = [0,0,0,0,0]
+    svs_bad[2].decoder_state.subframes_decoded = [0,0,0,0,0]
+
     out = false
     try 
-        calc_PVT(dcs, test_cops, test_caps)
+        calc_PVT(svs_bad)
     catch e
         if typeof(e) == PVT.SmallData
             out = true
