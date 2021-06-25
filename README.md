@@ -14,12 +14,12 @@ This is still work in progress.
 ### Install
 ```julia
 julia> ]
-pkg> add PVT
+pkg> add git@github.com:JuliaGNSS/PositionVelocityTime.jl.git
 ```
 
 ### Initializing
 ```julia
-julia> using PVT, GNSSDecoder
+julia> using PositionVelocityTime, GNSSDecoder
 julia> #decode Signals here
 ```
 The decoding using the GNSSDecoder module must be completed before beginning.
@@ -44,7 +44,7 @@ There are two options for satellite position calculation:
 
 - ECEF satellite position calculation (IS-GPS-200K Table 20-IV):
 ```julia
-sat_position_ECEF(satellite_state::SatelliteState)
+sat_position_ECEF(satellite_state)
 
 julia>sat_position_ECEF(satellite_state)
 3-element Array{Float64,1}:
@@ -54,7 +54,7 @@ julia>sat_position_ECEF(satellite_state)
 ```
 - ECI satellite position calculation (IS-GPS-200K 20.3.3.4.3.3):
 ```julia
-sat_position_ECI2ECEF(satellite_state::SatelliteState)
+sat_position_ECI2ECEF(satellite_state)
 
 julia>sat_position_ECI2ECEF(satellite_state)
 3-element Array{Float64,1}:
