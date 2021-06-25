@@ -15,7 +15,7 @@ projected_pos = PVTSolution(
     try 
         calc_PVT(satellite_states[1:3])
     catch e
-        if typeof(e) == PVT.SmallData
+        if typeof(e) == PositionVelocityTime.SmallData
             out = true
         end
     end
@@ -30,7 +30,7 @@ projected_pos = PVTSolution(
     try 
         calc_PVT(svs_bad)
     catch e
-        if typeof(e) == PVT.SmallData
+        if typeof(e) == PositionVelocityTime.SmallData
             out = true
         end
     end

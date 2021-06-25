@@ -1,7 +1,7 @@
-name = "PVT"
+name = "PositionVelocityTime"
 uuid = "52ec0b5e-ee36-11ea-211c-3d844fc5682d"
-authors = ["Erik Deinzer <erik.deinzer@rwth-aachen.de>", "Sören Schönbrod <soeren.schoenbrod@rwth-aachen.de>", "Michael Niestroj <michael.niestroj@rwth-aachen.de>"]
-version = "0.1.0"
+authors = ["Erik Deinzer <erik.deinzer@rwth-aachen.de>", "Soeren Schoenbrod <soeren.schoenbrod@nav.rwth-aachen.de>", "Michael Niestroj <michael.niestroj@rwth-aachen.de>"]
+version = "0.0.1"
 
 [deps]
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
@@ -10,8 +10,15 @@ GNSSSignals = "52c80523-2a4e-5c38-8979-05588f836870"
 Geodesy = "0ef565a4-170c-5f04-8de2-149903a85f3d"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Parameters = "d96e819e-fc66-5662-9728-84c9c7592b0a"
-StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
+
+[compat]
+DocStringExtensions = "0.6, 0.7, 0.8"
+GNSSDecoder = "0.0.1"
+GNSSSignals = "0.14"
+Geodesy = "0.5, 1.0"
+Parameters = "0.11, 0.12"
+julia = "1.4"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

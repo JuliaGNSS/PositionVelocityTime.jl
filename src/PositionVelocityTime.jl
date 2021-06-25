@@ -1,4 +1,4 @@
-module PVT
+module PositionVelocityTime
 
     using DocStringExtensions, Geodesy, GNSSDecoder, GNSSSignals, LinearAlgebra, Parameters
     using Unitful: s, Hz

@@ -18,7 +18,7 @@ projected_positions_ECI2ECEF = [
     try 
         sat_position_ECEF(sv_bad)
     catch e
-        if typeof(e) == PVT.BadData
+        if typeof(e) == PositionVelocityTime.BadData
             out = true
         end
     end
@@ -47,7 +47,7 @@ projected_positions_ECEF = [
     try 
         sat_position_ECEF(sv_bad)
     catch e
-        if typeof(e) == PVT.BadData
+        if typeof(e) == PositionVelocityTime.BadData
             out = true
         end
     end

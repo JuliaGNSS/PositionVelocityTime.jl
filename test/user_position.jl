@@ -4,7 +4,7 @@ projected_position_ECI2ECEF = PVTSolution(
 
 @testset "User position ECI2ECEF" begin
     positions = map(x -> sat_position_ECI_2_ECEF(x), satellite_states)
-    pseudo_ranges = PVT.pseudo_ranges(satellite_states)
+    pseudo_ranges = PositionVelocityTime.pseudo_ranges(satellite_states)
     out = user_position(positions, pseudo_ranges)
     @test out.pos ≈ projected_position_ECI2ECEF.pos
     @test out.receiver_time_correction ≈ projected_position_ECI2ECEF.receiver_time_correction
@@ -14,7 +14,7 @@ projected_position_ECI2ECEF = PVTSolution(
     try 
         calc_PVT([sv1_struct])
     catch e
-        if typeof(e) == PVT.SmallData
+        if typeof(e) == PositionVelocityTime.SmallData
             out = true
         end
     end
@@ -28,7 +28,7 @@ projected_position_ECEF = PVTSolution(
     2.346849505593898)
 @testset "User position ECEF" begin
     positions = map( x -> sat_position_ECEF(x), satellite_states)
-    pseudo_ranges = PVT.pseudo_ranges(satellite_states)
+    pseudo_ranges = PositionVelocityTime.pseudo_ranges(satellite_states)
     out = user_position(positions, pseudo_ranges)
     @test out.pos ≈ projected_position_ECEF.pos
     @test out.receiver_time_correction ≈ projected_position_ECEF.receiver_time_correction
@@ -39,7 +39,7 @@ projected_position_ECEF = PVTSolution(
     try 
         calc_PVT([sv1_struct])
     catch e
-        if typeof(e) == PVT.SmallData
+        if typeof(e) == PositionVelocityTime.SmallData
             out = true
         end
     end

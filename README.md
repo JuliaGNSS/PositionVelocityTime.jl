@@ -1,6 +1,8 @@
 
-# PVT.jl
+# PositionVelocityTime.jl (WIP)
 Calculates Positions by using GPSL1 Data
+
+This is still work in progress.
 
 ## Features
 * User Position calculation
@@ -11,7 +13,8 @@ Calculates Positions by using GPSL1 Data
 
 ### Install
 ```julia
-julia> ]add PVT
+julia> ]
+pkg> add PVT
 ```
 
 ### Initializing
@@ -34,14 +37,6 @@ julia> SatelliteState(
 The declaration of `carrier_phase` is optional due to its small effect on the user position.
 
 For user position computation at least 4 decoded satellites must be handed over. 
-
-If using single functions, please check `is_sat_healthy_and_decodable` prior to computing.
-
-```julia
-#´dc´: Decoder
-julia> is_sat_healthy_and_decodable(dc)
-true
-```
 
 ## Usage
 ### Satellite position
@@ -71,7 +66,7 @@ julia>sat_position_ECI2ECEF(satellite_state)
 ### User position Calculation
 The function 
 `calc_PVT(satellite_states::AbstractVector{SatelliteState{Float64}})` 
-provides a complete position calculation. Since this function checks the input arguments for usability, all data can be passed.
+provides a complete position calculation.
 
 ```julia
 #´satellite_states´: Struct of satellite data
