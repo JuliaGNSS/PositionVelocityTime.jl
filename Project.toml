@@ -15,7 +15,7 @@ Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 [compat]
 DocStringExtensions = "0.6, 0.7, 0.8"
 GNSSDecoder = "0.0.1"
-GNSSSignals = "0.14"
+GNSSSignals = "0.14, 0.15"
 Geodesy = "0.5, 1.0"
 Parameters = "0.11, 0.12"
 julia = "1.4"
