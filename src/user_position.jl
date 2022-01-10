@@ -1,7 +1,16 @@
-struct PVTSolution
+@with_kw struct PVTSolution
     pos::ECEF
     receiver_time_correction::Float64
     GDOP::Float64
+    PDOP::Float64 = nothing
+    VDOP::Float64 = nothing
+    HDOP::Float64 = nothing
+    TDOP::Float64 = nothing
+    #following is added for satllite observation
+    num_used_sats::Union{Nothing,Int64}  = nothing
+    used_sats::Union{Nothing,AbstractVector{Int64}} = nothing
+    elevation_sats::Union{Nothing,AbstractVector{Int64}}  = nothing
+    azimuth_sats::Union{Nothing,AbstractVector{Int64}}  = nothing
 end
 
 """
@@ -54,7 +63,7 @@ function calc_DOP(H_GEO)
     HDOP = sqrt(D[1,1] + D[2,2]) # horizontal dop
     PDOP = sqrt(D[1,1] + D[2,2] + D[3, 3]) # position dop
     GDOP = sqrt(sum(diag(D))) # geometrical dop
-    return GDOP
+    return GDOP, PDOP, VDOP, HDOP, TDOP
 end
 
 """
@@ -66,7 +75,7 @@ $SIGNATURES
 
 Calculates the user position by least squares method. The algorithm is based on the common reception method. 
 """
-function user_position(rSats, ρ, accuracy::Float64 = 0.2)
+function user_position(rSats, ρ, accuracy::Float64 = 0.02)
         
     # First Guesses of Position (Center of WGS84, time error = 0)
     r₀ = [0.0, 0.0, 0.0]
@@ -82,7 +91,7 @@ function user_position(rSats, ρ, accuracy::Float64 = 0.2)
 
     pos = ECEF(ξ[1:3])
     dt_receiver = ξ[4]
-    GDOP = calc_DOP(H(ξ, rSats))
-    PVT = PVTSolution(pos, dt_receiver, GDOP)
+    GDOP, PDOP, VDOP, HDOP, TDOP = calc_DOP(H(ξ, rSats))
+    PVT = PVTSolution(pos, dt_receiver, GDOP, PDOP, VDOP, HDOP, TDOP, nothing, nothing, nothing, nothing)
     return PVT
 end

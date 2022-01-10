@@ -17,11 +17,13 @@ function sat_position_ECI(sat_state::SatelliteState)
     # Excentric and true anomaly
     tₛᵥ = calc_uncorrected_time(sat_state)
     dtₛᵥ = code_phase_offset(sat_state.decoder_state, tₛᵥ)
-    Eₖ = calc_eccentric_anomaly(sat_state.decoder_state, t, dtₛᵥ)
+
+    Eₖ = calc_eccentric_anomaly(sat_state.decoder_state, tₛᵥ, dtₛᵥ)
     
     
     e  = sat_state.decoder_state.data.e
     vₖ =  2 * atan(sqrt((1 + e) / (1 - e)) * tan(Eₖ / 2))
+
     # Argument of latitude
     Φₖ = vₖ + sat_state.decoder_state.data.ω
     
@@ -68,9 +70,9 @@ end
     converts this position into ECEF coordinates.
     The implementation follows IS-GPS-200K
 """
-function sat_position_ECI_2_ECEF(sat_state::SatelliteState)
+function sat_position_ECI_2_ECEF(sat_state::SatelliteState) 
     pos_ECI = sat_position_ECI(sat_state)
-            
+
     tₖ = calc_corrected_time(sat_state)
     tₖ = tₖ - sat_state.decoder_state.data.t_oe
     tₖ = check_crossover(tₖ)
@@ -78,6 +80,32 @@ function sat_position_ECI_2_ECEF(sat_state::SatelliteState)
     cosθ  = cos(θ)
     sinθ  = sin(θ)
     R = [cosθ sinθ; -sinθ cosθ] 
+    pos_ECI[1:2] = R * pos_ECI[1:2]
+    return pos_ECI
+end
+
+"""
+    Calculates ECI Position by converting ECEF position
+
+    $SIGNATURES
+    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
+
+
+    This function calculates the position of the SV in ECEF coorinates and
+    converts this position into ECI coordinates.
+    The implementation follows IS-GPS-200K
+"""
+function sat_position_ECEF2ECI(sat_state::SatelliteState, dt) 
+    pos_ECEF = sat_position_ECEF(sat_state)
+
+    θ = sat_state.decoder_state.constants.Ω_dot_e * dt
+
+    #rotation around z-axis
+    cosθ  = cos(θ)
+    sinθ  = sin(θ)
+    R = [cosθ sinθ; -sinθ cosθ] 
+
+    pos_ECI = pos_ECEF
     pos_ECI[1:2] = R * pos_ECI[1:2]
     return pos_ECI
 end
@@ -113,10 +141,12 @@ function sat_position_ECEF(sat_state::SatelliteState)
     # Excentric and true anomaly
     t_sv = calc_uncorrected_time(sat_state)
     dt_sv = code_phase_offset(sat_state.decoder_state, t_sv)
-    E = calc_eccentric_anomaly(sat_state.decoder_state, t, dt_sv)
-    
+    #println("dt_SV: ", dt_sv)
+
+    E = calc_eccentric_anomaly_new(sat_state.decoder_state, tₖ)
     vₖ = 2 * atan(sqrt((1 + e) / (1 - e)) * tan(E / 2))
-    
+
+
     Φₖ = vₖ + sat_state.decoder_state.data.ω
     
     δuₖ = sat_state.decoder_state.data.C_us * sin(2 * Φₖ) + sat_state.decoder_state.data.C_uc * cos(2 * Φₖ)
