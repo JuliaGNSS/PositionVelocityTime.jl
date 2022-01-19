@@ -39,7 +39,7 @@ sv1_data = GPSData(
 )
 sv1_decoder_struct = GNSSDecoderState(
     PRN = 7,
-    buffer = BitArray(undef, 1502),
+    buffer = BitArray(undef, 310),
     data = sv1_data,
     constants = sv_constants,
     preamble_found =false,
@@ -97,7 +97,7 @@ sv2_data = GPSData(
 )
 sv2_decoder_struct = GNSSDecoderState(
     PRN= 8,
-    buffer = BitArray(undef, 1502),
+    buffer = BitArray(undef, 310),
     data = sv2_data,
     constants = sv_constants,
     preamble_found = false,
@@ -154,7 +154,7 @@ sv3_data = GPSData(
 )
 sv3_decoder_struct = GNSSDecoderState(
     PRN =  10,
-    buffer = BitArray(undef, 1502),
+    buffer = BitArray(undef, 310),
     data = sv3_data,
     constants = sv_constants,
     preamble_found =  false,
@@ -211,7 +211,7 @@ sv4_data = GPSData(
 )
 sv4_decoder_struct = GNSSDecoderState(
     PRN =  15,
-    buffer = BitArray(undef, 1502),
+    buffer = BitArray(undef, 310),
     data = sv4_data,
     constants = sv_constants,
     preamble_found =  false,
@@ -268,7 +268,7 @@ sv5_data = GPSData(
 )
 sv5_decoder_struct = GNSSDecoderState(
     PRN =  18,
-    buffer = BitArray(undef, 1502),
+    buffer = BitArray(undef, 310),
     data = sv5_data,
     constants = sv_constants,
     preamble_found= false,

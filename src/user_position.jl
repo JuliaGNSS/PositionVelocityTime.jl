@@ -1,16 +1,8 @@
-@with_kw struct PVTSolution
-    pos::ECEF
-    receiver_time_correction::Float64
-    GDOP::Float64
-    PDOP::Float64 = nothing
-    VDOP::Float64 = nothing
-    HDOP::Float64 = nothing
-    TDOP::Float64 = nothing
-    #following is added for satllite observation
-    num_used_sats::Union{Nothing,Int64}  = nothing
-    used_sats::Union{Nothing,AbstractVector{Int64}} = nothing
-    elevation_sats::Union{Nothing,AbstractVector{Int64}}  = nothing
-    azimuth_sats::Union{Nothing,AbstractVector{Int64}}  = nothing
+"""
+Creates empty PVTSolution
+"""
+function null_PVT()
+    pvt = PVTSolution(ECEF([0,0,0]), 0, nothing, nothing, nothing, nothing, nothing, 0, nothing, nothing, nothing)
 end
 
 """
@@ -42,6 +34,7 @@ end
 """
 Computes Geometry Matrix H
 
+
 $SIGNATURES
 ´ξ´: Combination of estimated user position and time correction
 ´rSats´: Matrix of satellite Positions
@@ -49,6 +42,8 @@ $SIGNATURES
 function H(ξ, rSats)
     H = mapreduce(rSat -> [transpose(e(ξ, rSat)) 1], vcat, rSats)
 end
+
+
 
 """
 Calculates the dilution of precision for a given geometry matrix H
@@ -75,10 +70,13 @@ $SIGNATURES
 
 Calculates the user position by least squares method. The algorithm is based on the common reception method. 
 """
-function user_position(rSats, ρ, accuracy::Float64 = 0.02)
+function user_position(prev_pos ,rSats, ρ, accuracy::Float64 = 0.02)
+
+    length(rSats) >= 4 || throw(SmallData("Not enough usable SV Data in user_position estimation."))
         
     # First Guesses of Position (Center of WGS84, time error = 0)
-    r₀ = [0.0, 0.0, 0.0]
+    #r₀ = [0.0, 0.0, 0.0]
+    r₀ = prev_pos
     t = 0.0
     ξ = [r₀; t]  
 
@@ -92,6 +90,6 @@ function user_position(rSats, ρ, accuracy::Float64 = 0.02)
     pos = ECEF(ξ[1:3])
     dt_receiver = ξ[4]
     GDOP, PDOP, VDOP, HDOP, TDOP = calc_DOP(H(ξ, rSats))
-    PVT = PVTSolution(pos, dt_receiver, GDOP, PDOP, VDOP, HDOP, TDOP, nothing, nothing, nothing, nothing)
+    PVT = PVTSolution(pos, dt_receiver, GDOP, PDOP, VDOP, HDOP, TDOP, length(ρ), nothing, nothing, nothing)
     return PVT
 end

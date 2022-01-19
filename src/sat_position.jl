@@ -18,7 +18,7 @@ function sat_position_ECI(sat_state::SatelliteState)
     tₛᵥ = calc_uncorrected_time(sat_state)
     dtₛᵥ = code_phase_offset(sat_state.decoder_state, tₛᵥ)
 
-    Eₖ = calc_eccentric_anomaly(sat_state.decoder_state, tₛᵥ, dtₛᵥ)
+    Eₖ = calc_eccentric_anomaly_tsv(sat_state.decoder_state, tₛᵥ, dtₛᵥ)
     
     
     e  = sat_state.decoder_state.data.e
@@ -95,7 +95,7 @@ end
     converts this position into ECI coordinates.
     The implementation follows IS-GPS-200K
 """
-function sat_position_ECEF2ECI(sat_state::SatelliteState, dt) 
+function sat_position_rotation(sat_state::SatelliteState, dt) 
     pos_ECEF = sat_position_ECEF(sat_state)
 
     θ = sat_state.decoder_state.constants.Ω_dot_e * dt
@@ -143,7 +143,7 @@ function sat_position_ECEF(sat_state::SatelliteState)
     dt_sv = code_phase_offset(sat_state.decoder_state, t_sv)
     #println("dt_SV: ", dt_sv)
 
-    E = calc_eccentric_anomaly_new(sat_state.decoder_state, tₖ)
+    E = calc_eccentric_anomaly_tk(sat_state.decoder_state, tₖ)
     vₖ = 2 * atan(sqrt((1 + e) / (1 - e)) * tan(E / 2))
 
 

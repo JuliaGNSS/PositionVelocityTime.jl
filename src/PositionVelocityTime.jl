@@ -4,12 +4,13 @@ module PositionVelocityTime
     using Unitful: s, Hz
     
     export  calc_PVT,
-            calc_PVT_old,
             is_sat_healthy_and_decodable,
             PVTSolution,
+            sat_position_rotation, 
             sat_position_ECI_2_ECEF, 
             sat_position_ECEF,
             user_position,
+            null_PVT,
             SatelliteState
             
     
@@ -22,6 +23,24 @@ module PositionVelocityTime
         carrier_phase::CP = 0
     end
 
+    """
+    PVTSolution, with used sats and el and az.
+    """
+    @with_kw mutable struct PVTSolution
+        pos::ECEF
+        receiver_time_correction::Float64
+        GDOP::Union{Nothing, Float64}
+        PDOP::Union{Nothing, Float64} 
+        VDOP::Union{Nothing, Float64} 
+        HDOP::Union{Nothing, Float64} 
+        TDOP::Union{Nothing, Float64}
+        #following is added for satllite observation
+        num_used_sats::Int64
+        used_sats::Union{Nothing,AbstractVector{Int64}} 
+        elevation_sats::Union{Nothing,AbstractVector{Float64}}  
+        azimuth_sats::Union{Nothing,AbstractVector{Float64}}  
+    end
+    
     """
     Calculates elevation and azimuth of satellite
 
@@ -59,29 +78,6 @@ module PositionVelocityTime
 
     $SIGNATURES
     ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
-
-    This function calculates the position of the user in ECEF coordinates
-    The implementation follows IS-GPS-200K Table 20-IV.
-    """
-
-    function calc_PVT_old(
-        satellite_states::AbstractVector{SatelliteState{Float64}}
-        )
-        c = satellite_states[1].decoder_state.constants.c
-
-        usable_satellite_states = filter(x -> is_sat_healthy_and_decodable(x.decoder_state), satellite_states)
-        length(usable_satellite_states) >= 4 || throw(SmallData("Not enough usable SV Data"))
-        sv_positions = map(x -> sat_position_ECEF(x), usable_satellite_states)
-        pseudoranges = pseudo_ranges(usable_satellite_states)
-
-        userpos = user_position(sv_positions, pseudoranges)
-    end
-
-    """
-    Calculates ECEF position of user
-
-    $SIGNATURES
-    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
     
     ´min_elevation´: the minimum elevation for a satellite, that can be used for a positioning
                     min_elevation = -100, deactivates the  elevation filter
@@ -94,49 +90,58 @@ module PositionVelocityTime
     The implementation follows IS-GPS-200K Table 20-IV.
     """
     function calc_PVT(
+        prev_pvt::PVTSolution,
         satellite_states::AbstractVector{SatelliteState{Float64}},
         min_elevation::Int64 = -100 #elevation filter is normally turned off
         )
-        c = satellite_states[1].decoder_state.constants.c
 
+        c = satellite_states[1].decoder_state.constants.c
         usable_satellite_states = filter(x -> is_sat_healthy_and_decodable(x.decoder_state), satellite_states)
         length(usable_satellite_states) >= 4 || throw(SmallData("Not enough usable SV Data"))
         sv_positions = map(x -> sat_position_ECEF(x), usable_satellite_states)
-        pseudoranges = pseudo_ranges(usable_satellite_states)
+        
+        if prev_pvt.num_used_sats == 0
+            pseudoranges = pseudo_ranges(usable_satellite_states)
+            pvt_sol = user_position([0,0,0], sv_positions, pseudoranges)
+            prev_pos = pvt_sol.pos
+        else
+            prev_pos = prev_pvt.pos
+        end
 
-        userpos = user_position(sv_positions, pseudoranges)
-
-
-        # Remove Satellite with low elevation angle (new)
-        if min_elevation != -100  # min elevaiton filter
-            out = map( x-> get_elevation_azimuth(userpos.pos, x), sv_positions)
+        # Remove Satellite with low elevation angle
+        if min_elevation >= 0 && min_elevation < 90 # min elevaiton filter
+            out = map( x-> get_elevation_azimuth(prev_pos, x), sv_positions)
             el, az = map(x->getindex.(out,x), 1:2)
-
-            println(el)
-            println(az)
-            println("vec length sv_positions: ", length(sv_positions))
-            map(x-> print(x.decoder_state.PRN,", "), usable_satellite_states)
-            println("\n")
 
             buf_state = usable_satellite_states
             buf_sat_pos = sv_positions
+            el_save = Float64[]
+            az_save = Float64[]
+            PRN_save = Int64[]
             for i = 1:length(usable_satellite_states)
                 if el[i] < min_elevation
-                    #println("Filter PRN:", buf_state[i].decoder_state.PRN)
                     usable_satellite_states = filter(x -> buf_state[i].decoder_state.PRN != x.decoder_state.PRN, usable_satellite_states)
                     sv_positions = filter(x -> x != buf_sat_pos[i], sv_positions)
+                else
+                    append!(PRN_save, buf_state[i].decoder_state.PRN)
+                    append!(el_save, el[i])
+                    append!(az_save, az[i])
                 end
             end
         end
 
-        #new part: compensation of earth rotation
+        length(usable_satellite_states) >= 4 || throw(SmallData("Not enough usable SV Data, with elevation filter."))
 
-        dt =  map(x -> norm(x-userpos.pos)/c, sv_positions)
-        sv_positions = map(i -> sat_position_ECEF2ECI(usable_satellite_states[i],-dt[i]), 1:length(usable_satellite_states))
-        
+        #compensation of earth rotation within TOF
+        dt =  map(x -> norm(x-prev_pos)/c, sv_positions)
+        sv_positions = map(i -> sat_position_rotation(usable_satellite_states[i], dt[i]), 1:length(usable_satellite_states))
+
         pseudoranges = pseudo_ranges(usable_satellite_states)
-        userpos = user_position(sv_positions, pseudoranges)
-
+        pvt = user_position(prev_pos, sv_positions, pseudoranges)
+        pvt.used_sats = PRN_save
+        pvt.elevation_sats = el_save
+        pvt.azimuth_sats = az_save
+        return pvt
     end
 
     
