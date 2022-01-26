@@ -5,6 +5,7 @@ module PositionVelocityTime
     export  calc_PVT,
             is_sat_healthy_and_decodable,
             PVTSolution,
+            DOP,
             sat_position_rotation, 
             sat_position_ECI_2_ECEF, 
             sat_position_ECEF,
