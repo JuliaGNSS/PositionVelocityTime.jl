@@ -31,7 +31,7 @@ module PositionVelocityTime
     """
     DOP, stores the Dilution of Precision values
     """
-    @with_kw mutable struct DOP
+    @with_kw struct DOP
         GDOP::Union{Nothing, Float64} = nothing
         PDOP::Union{Nothing, Float64} = nothing
         VDOP::Union{Nothing, Float64} = nothing
@@ -43,7 +43,7 @@ module PositionVelocityTime
     """
     PVTSolution, with used sats and el and az.
     """
-    @with_kw mutable struct PVTSolution
+    @with_kw struct PVTSolution
         pos::ECEF = ECEF([0,0,0])
         receiver_time_correction::Float64 = 0
         DOP_val::DOP = DOP()
@@ -51,6 +51,10 @@ module PositionVelocityTime
         used_sats::AbstractVector{Int64} = [] 
         elevation_sats::AbstractVector{Float64} = []
         azimuth_sats::AbstractVector{Float64} = [] 
+    end
+
+    function PVTSolution(pvt_old::PVTSolution, used_sats, elevation_sats,azimuth_sats)
+        PVTSolution(pvt_old.pos, pvt_old.receiver_time_correction, pvt_old.DOP_val, used_sats, elevation_sats, azimuth_sats)
     end
 
     function get_num_used_sats(pvt_solution::PVTSolution)
@@ -151,9 +155,7 @@ module PositionVelocityTime
 
         pseudoranges = pseudo_ranges(usable_satellite_states)
         pvt = user_position(prev_pos, sv_positions, pseudoranges)
-        pvt.used_sats = PRN_save
-        pvt.elevation_sats = el_save
-        pvt.azimuth_sats = az_save
+        pvt = PVTSolution(pvt, PRN_save, el_save, az_save)
         return pvt
     end
 
