@@ -1,9 +1,3 @@
-"""
-Creates empty PVTSolution
-"""
-function null_PVT()
-    pvt = PVTSolution(ECEF([0,0,0]), 0, nothing, nothing, nothing, nothing, nothing, 0, nothing, nothing, nothing)
-end
 
 """
 Computes ̂ρ , the distance between the satellite and the assumed user position 
@@ -58,7 +52,8 @@ function calc_DOP(H_GEO)
     HDOP = sqrt(D[1,1] + D[2,2]) # horizontal dop
     PDOP = sqrt(D[1,1] + D[2,2] + D[3, 3]) # position dop
     GDOP = sqrt(sum(diag(D))) # geometrical dop
-    return GDOP, PDOP, VDOP, HDOP, TDOP
+
+    return DOP(GDOP,PDOP,VDOP,HDOP,TDOP)
 end
 
 """
@@ -89,7 +84,7 @@ function user_position(prev_pos ,rSats, ρ, accuracy::Float64 = 0.02)
 
     pos = ECEF(ξ[1:3])
     dt_receiver = ξ[4]
-    GDOP, PDOP, VDOP, HDOP, TDOP = calc_DOP(H(ξ, rSats))
-    PVT = PVTSolution(pos, dt_receiver, GDOP, PDOP, VDOP, HDOP, TDOP, length(ρ), nothing, nothing, nothing)
+    DOP_val = calc_DOP(H(ξ, rSats))
+    PVT = PVTSolution(pos, dt_receiver, DOP_val, [], [], [])
     return PVT
 end

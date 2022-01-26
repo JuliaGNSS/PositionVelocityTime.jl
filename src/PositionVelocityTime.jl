@@ -1,6 +1,5 @@
 module PositionVelocityTime
-
-    using DocStringExtensions, Geodesy, GNSSDecoder, GNSSSignals, LinearAlgebra, Parameters
+    using CoordinateTransformations, DocStringExtensions, Geodesy, GNSSDecoder, GNSSSignals, LinearAlgebra, Parameters
     using Unitful: s, Hz
     
     export  calc_PVT,
@@ -10,8 +9,13 @@ module PositionVelocityTime
             sat_position_ECI_2_ECEF, 
             sat_position_ECEF,
             user_position,
-            null_PVT,
-            SatelliteState
+            SatelliteState,
+            get_num_used_sats,
+            get_gdop,
+            get_pdop,
+            get_hdop,
+            get_vdop,
+            get_tdop
             
     
     """
@@ -24,23 +28,55 @@ module PositionVelocityTime
     end
 
     """
+    DOP, stores the Dilution of Precision values
+    """
+    @with_kw mutable struct DOP
+        GDOP::Union{Nothing, Float64} = nothing
+        PDOP::Union{Nothing, Float64} = nothing
+        VDOP::Union{Nothing, Float64} = nothing
+        HDOP::Union{Nothing, Float64} = nothing
+        TDOP::Union{Nothing, Float64} = nothing
+    end
+
+
+    """
     PVTSolution, with used sats and el and az.
     """
     @with_kw mutable struct PVTSolution
-        pos::ECEF
-        receiver_time_correction::Float64
-        GDOP::Union{Nothing, Float64}
-        PDOP::Union{Nothing, Float64} 
-        VDOP::Union{Nothing, Float64} 
-        HDOP::Union{Nothing, Float64} 
-        TDOP::Union{Nothing, Float64}
+        pos::ECEF = ECEF([0,0,0])
+        receiver_time_correction::Float64 = 0
+        DOP_val::DOP = DOP()
         #following is added for satllite observation
-        num_used_sats::Int64
-        used_sats::Union{Nothing,AbstractVector{Int64}} 
-        elevation_sats::Union{Nothing,AbstractVector{Float64}}  
-        azimuth_sats::Union{Nothing,AbstractVector{Float64}}  
+        used_sats::AbstractVector{Int64} = [] 
+        elevation_sats::AbstractVector{Float64} = []
+        azimuth_sats::AbstractVector{Float64} = [] 
     end
-    
+
+    function get_num_used_sats(pvt_solution::PVTSolution)
+        length(pvt_solution.used_sats)
+    end
+
+    #Get methods for single DOP values
+    function get_gdop(pvt_sol::PVTSolution)
+        return pvt_sol.DOP_val.GDOP
+    end
+
+    function get_pdop(pvt_sol::PVTSolution)
+        return pvt_sol.DOP_val.PDOP
+    end
+
+    function get_vdop(pvt_sol::PVTSolution)
+        return pvt_sol.DOP_val.VDOP
+    end
+
+    function get_hdop(pvt_sol::PVTSolution)
+        return pvt_sol.DOP_val.HDOP
+    end
+
+    function get_tdop(pvt_sol::PVTSolution)
+        return pvt_sol.DOP_val.TDOP
+    end
+
     """
     Calculates elevation and azimuth of satellite
 
@@ -49,28 +85,14 @@ module PositionVelocityTime
     sat_pos_ecef: satellite position in ecef coordinates
 
     This function calculates the elevation and azimuth of the satellite in degree
-    The implementation follows ESA_GNSS-Book_TM-23_Vol_I B.3
     """
 
-    function get_elevation_azimuth(user_pos_ecef::ECEF, sat_pos_ecef)
-        
-        p = sat_pos_ecef-user_pos_ecef
-        dist = norm(p)
-        p̂ = p/dist
-        
-        user_lla = LLAfromECEF(wgs84)(ECEF(user_pos_ecef[1], user_pos_ecef[2], user_pos_ecef[3]))
-        lat = user_lla.lat
-        lon = user_lla.lon
-
-        ê = [-sind(lat), cosd(lat), 0]
-        n̂ = [-cosd(lon)*sind(lat), -sind(lat)*sind(lon), cosd(lat)]
-        û = [cosd(lon)*cosd(lat), sind(lon)*cosd(lat), sind(lat)]
-
-        el = asind(dot(p̂,û))
-        az = atand(dot(p̂,ê),dot(p̂,n̂))
-
+    function get_elevation_azimuth(user_pos_ecef::ECEF, sat_pos_ecef::ECEF)
+        sat_enu = ENUfromECEF(user_pos_ecef, wgs84)(sat_pos_ecef)
+        sat_enu_sph = SphericalFromCartesian()(sat_enu)
+        az = rad2deg(sat_enu_sph.θ)
+        el = rad2deg(sat_enu_sph.ϕ)
         return el, az
-
     end
 
     """
@@ -79,8 +101,9 @@ module PositionVelocityTime
     $SIGNATURES
     ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
     
-    ´min_elevation´: the minimum elevation for a satellite, that can be used for a positioning
-                    min_elevation = -100, deactivates the  elevation filter
+    ´min_elevation´: The minimum elevation for a satellite, that can be used for a positioning
+                     Hint: The elevation starts here with 0° at the horizon and has its maximum with 90° in the zenith.
+                     min_elevation = -100, deactivates the  elevation filter
     
 
     This function calculates the position of the user in ECEF coordinates
@@ -90,8 +113,8 @@ module PositionVelocityTime
     The implementation follows IS-GPS-200K Table 20-IV.
     """
     function calc_PVT(
-        prev_pvt::PVTSolution,
         satellite_states::AbstractVector{SatelliteState{Float64}},
+        prev_pvt::PVTSolution = PVTSolution(),
         min_elevation::Int64 = -100 #elevation filter is normally turned off
         )
 
@@ -100,7 +123,7 @@ module PositionVelocityTime
         length(usable_satellite_states) >= 4 || throw(SmallData("Not enough usable SV Data"))
         sv_positions = map(x -> sat_position_ECEF(x), usable_satellite_states)
         
-        if prev_pvt.num_used_sats == 0
+        if get_num_used_sats(prev_pvt) == 0
             pseudoranges = pseudo_ranges(usable_satellite_states)
             pvt_sol = user_position([0,0,0], sv_positions, pseudoranges)
             prev_pos = pvt_sol.pos
@@ -110,24 +133,13 @@ module PositionVelocityTime
 
         # Remove Satellite with low elevation angle
         if min_elevation >= 0 && min_elevation < 90 # min elevaiton filter
-            out = map( x-> get_elevation_azimuth(prev_pos, x), sv_positions)
+            out = map( x-> get_elevation_azimuth(prev_pos, ECEF(x[1],x[2],x[3])), sv_positions)
             el, az = map(x->getindex.(out,x), 1:2)
-
-            buf_state = usable_satellite_states
-            buf_sat_pos = sv_positions
-            el_save = Float64[]
-            az_save = Float64[]
-            PRN_save = Int64[]
-            for i = 1:length(usable_satellite_states)
-                if el[i] < min_elevation
-                    usable_satellite_states = filter(x -> buf_state[i].decoder_state.PRN != x.decoder_state.PRN, usable_satellite_states)
-                    sv_positions = filter(x -> x != buf_sat_pos[i], sv_positions)
-                else
-                    append!(PRN_save, buf_state[i].decoder_state.PRN)
-                    append!(el_save, el[i])
-                    append!(az_save, az[i])
-                end
-            end
+            el_filter = el .>= min_elevation
+            usable_satellite_states = usable_satellite_states[el_filter]
+            el_save = el[el_filter]
+            az_save = az[el_filter]
+            PRN_save = map(x -> x.decoder_state.PRN, usable_satellite_states)
         end
 
         length(usable_satellite_states) >= 4 || throw(SmallData("Not enough usable SV Data, with elevation filter."))
