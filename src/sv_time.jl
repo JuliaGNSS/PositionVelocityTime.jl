@@ -80,7 +80,7 @@ function calc_uncorrected_time(sat_state::SatelliteState)
     gpsl1 = GNSSSignals.GPSL1()
 
     t_tow = sat_state.decoder_state.data.TOW * 6 
-    t_bits = (sat_state.decoder_state.num_bits_buffered - 2)/ GNSSSignals.get_data_frequency(gpsl1) * Hz #-2 because otherwise the, two Bits from the previos Subframe would be used aswell. 
+    t_bits = (sat_state.decoder_state.num_bits_after_valid_subframe) / GNSSSignals.get_data_frequency(gpsl1) * Hz
     t_code_phase = sat_state.code_phase / GNSSSignals.get_code_frequency(gpsl1) * Hz
     t_carrier_phase = sat_state.carrier_phase / GNSSSignals.get_center_frequency(gpsl1) * Hz
     
