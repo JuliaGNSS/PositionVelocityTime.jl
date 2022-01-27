@@ -1,8 +1,3 @@
-struct PVTSolution
-    pos::ECEF
-    receiver_time_correction::Float64
-    GDOP::Float64
-end
 
 """
 Computes ̂ρ , the distance between the satellite and the assumed user position 
@@ -33,6 +28,7 @@ end
 """
 Computes Geometry Matrix H
 
+
 $SIGNATURES
 ´ξ´: Combination of estimated user position and time correction
 ´rSats´: Matrix of satellite Positions
@@ -40,6 +36,8 @@ $SIGNATURES
 function H(ξ, rSats)
     H = mapreduce(rSat -> [transpose(e(ξ, rSat)) 1], vcat, rSats)
 end
+
+
 
 """
 Calculates the dilution of precision for a given geometry matrix H
@@ -54,7 +52,8 @@ function calc_DOP(H_GEO)
     HDOP = sqrt(D[1,1] + D[2,2]) # horizontal dop
     PDOP = sqrt(D[1,1] + D[2,2] + D[3, 3]) # position dop
     GDOP = sqrt(sum(diag(D))) # geometrical dop
-    return GDOP
+
+    return DOP(GDOP,PDOP,VDOP,HDOP,TDOP)
 end
 
 """
@@ -66,10 +65,13 @@ $SIGNATURES
 
 Calculates the user position by least squares method. The algorithm is based on the common reception method. 
 """
-function user_position(rSats, ρ, accuracy::Float64 = 0.2)
+function user_position(prev_pos ,rSats, ρ, accuracy::Float64 = 0.02)
+
+    length(rSats) >= 4 || throw(SmallData("Not enough usable SV Data in user_position estimation."))
         
     # First Guesses of Position (Center of WGS84, time error = 0)
-    r₀ = [0.0, 0.0, 0.0]
+    #r₀ = [0.0, 0.0, 0.0]
+    r₀ = prev_pos
     t = 0.0
     ξ = [r₀; t]  
 
@@ -82,7 +84,7 @@ function user_position(rSats, ρ, accuracy::Float64 = 0.2)
 
     pos = ECEF(ξ[1:3])
     dt_receiver = ξ[4]
-    GDOP = calc_DOP(H(ξ, rSats))
-    PVT = PVTSolution(pos, dt_receiver, GDOP)
+    DOP_val = calc_DOP(H(ξ, rSats))
+    PVT = PVTSolution(pos, dt_receiver, DOP_val, [], [], [])
     return PVT
 end

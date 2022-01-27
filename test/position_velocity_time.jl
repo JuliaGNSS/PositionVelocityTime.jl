@@ -1,19 +1,21 @@
 projected_pos = PVTSolution(
-    ECEF([4.0187039543983485e6, 427061.6186769258, 4.9183106756403595e6]), 
-    -2.133206220402679e7, 
-    2.346849505593898)
-    
+    ECEF([4.0186911757808267e6, 427026.7592380331, 4.91826139491441e6]), 
+    -2.1332096090475585e7, 
+    DOP(2.346836665386327, 0, 0, 0, 0), 1:length(satellite_states), [], [])
+
+prev_PVT = PVTSolution()
+min_elevation =  0
 
 @testset "Testing calc_PVT" begin
-    user = calc_PVT(satellite_states)
+    user = calc_PVT(satellite_states, prev_PVT, min_elevation)
     @test user.pos ≈ projected_pos.pos
     @test user.receiver_time_correction ≈ projected_pos.receiver_time_correction
-    @test user.GDOP ≈ projected_pos.GDOP
+    @test get_gdop(user) ≈ get_gdop(projected_pos)
 
 
     out = false
     try 
-        calc_PVT(satellite_states[1:3])
+        calc_PVT(satellite_states[1:3], prev_PVT, min_elevation)
     catch e
         if typeof(e) == PositionVelocityTime.SmallData
             out = true
@@ -28,7 +30,7 @@ projected_pos = PVTSolution(
 
     out = false
     try 
-        calc_PVT(svs_bad)
+        calc_PVT(svs_bad, prev_PVT, min_elevation)
     catch e
         if typeof(e) == PositionVelocityTime.SmallData
             out = true

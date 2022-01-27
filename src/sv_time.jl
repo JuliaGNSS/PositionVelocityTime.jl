@@ -63,9 +63,10 @@ function relativistic_correction(decoder_state::GNSSDecoderState, t, dt = 0)
     F = decoder_state.constants.F
     e = decoder_state.data.e
     sqrtA = decoder_state.data.sqrt_A
-    Ek = calc_eccentric_anomaly(decoder_state, t, dt)
+    Ek = calc_eccentric_anomaly_tsv(decoder_state, t, dt)
     Δtr = F * e * sqrtA * sin(Ek)
 end
+
 
 """
     Calculates raw time data by observed times
@@ -77,8 +78,9 @@ end
 """
 function calc_uncorrected_time(sat_state::SatelliteState)
     gpsl1 = GNSSSignals.GPSL1()
-    t_tow = sat_state.decoder_state.data.TOW * 6
-    t_bits = sat_state.decoder_state.num_bits_buffered / GNSSSignals.get_data_frequency(gpsl1) * Hz
+
+    t_tow = sat_state.decoder_state.data.TOW * 6 
+    t_bits = (sat_state.decoder_state.num_bits_after_valid_subframe) / GNSSSignals.get_data_frequency(gpsl1) * Hz
     t_code_phase = sat_state.code_phase / GNSSSignals.get_code_frequency(gpsl1) * Hz
     t_carrier_phase = sat_state.carrier_phase / GNSSSignals.get_center_frequency(gpsl1) * Hz
     
@@ -112,31 +114,51 @@ satellite position and the time correction.
 Following instructions in IS-GPS-200K: 
 Table 20-IV
 """
-function calc_eccentric_anomaly(decoder_state, t_sv, dt_sv = 0 )  
+function calc_eccentric_anomaly_tsv(decoder_state::GNSSDecoderState, t_sv, dt_sv)  
     
     t = t_sv - dt_sv
-    
     tk = check_crossover(t - decoder_state.data.t_oe)
+       
+    return calc_eccentric_anomaly_tk(decoder_state, tk)  
+end
+
+"""
+Calculates the eccentric anomaly
+$SIGNATURES
+´decoder_state´: Decoder storing ephemeris data
+´tk´: time from ephemeris reference epoch 
+
+This function implements the calculation of the Eccentric
+anomaly, which is required for both, the calculation of the
+satellite position and the time correction.
+
+Following instructions in IS-GPS-200K: 
+Table 20-IV
+"""
+function calc_eccentric_anomaly_tk(decoder_state::GNSSDecoderState, tk)  
     μ = decoder_state.constants.μ
     A = decoder_state.data.sqrt_A^2
 
     n_0 = sqrt(μ / (A^3))
     n = n_0 + decoder_state.data.Δn
-    M = decoder_state.data.M_0 + n * tk
+    Mk = decoder_state.data.M_0 + n * tk
             
             
     e = decoder_state.data.e
-    E = M
+    
+    Ek = Mk
     for k = 1:30
-        Et = E
-        E = M + e * sin(E)
-        if abs(E - Et) <= 1e-12 
+        Et = Ek
+        Ek = Mk + e * sin(Ek)
+        if abs(Ek - Et) <= 1e-12 
             break;
         end
-    end          
-    return E
-end
+    end         
 
+
+
+    return Ek
+end
 """
 Correction for end of week crossovers
 $SIGNATURES

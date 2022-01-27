@@ -39,18 +39,15 @@ sv1_data = GPSData(
 )
 sv1_decoder_struct = GNSSDecoderState(
     PRN = 7,
-    buffer = BitArray(undef, 1502),
+    buffer = BitArray(undef, 310),
     data = sv1_data,
     constants = sv_constants,
-    preamble_found =false,
-    subframe_count =0,
     prev_30=false,
     prev_29=false,
     data_integrity=true,
-    new_data_needed= false,
     subframes_decoded = [1,1,1,1,1],
-    nb_prev = 0,
-    num_bits_buffered = 187
+    num_bits_buffered = 187,
+    num_bits_after_valid_subframe = 185
 )
 sv1_code_phase = 18126.41231251371
 sv1_carrier_phase = -0.019570794887840748
@@ -97,18 +94,15 @@ sv2_data = GPSData(
 )
 sv2_decoder_struct = GNSSDecoderState(
     PRN= 8,
-    buffer = BitArray(undef, 1502),
+    buffer = BitArray(undef, 310),
     data = sv2_data,
     constants = sv_constants,
-    preamble_found = false,
-    subframe_count =  0,
     prev_30 =  false,
     prev_29 =  false,
     data_integrity =  true,
-    new_data_needed =  false,
     subframes_decoded = [1,1,1,1,1],
-    nb_prev =  1,
-    num_bits_buffered =  188
+    num_bits_buffered = 188,
+    num_bits_after_valid_subframe = 186
 )
 sv2_code_phase = 1731.7849623335098
 sv2_carrier_phase = 0.3726482419297099
@@ -154,18 +148,15 @@ sv3_data = GPSData(
 )
 sv3_decoder_struct = GNSSDecoderState(
     PRN =  10,
-    buffer = BitArray(undef, 1502),
+    buffer = BitArray(undef, 310),
     data = sv3_data,
     constants = sv_constants,
-    preamble_found =  false,
-    subframe_count =  0,
     prev_30 =  true,
     prev_29 =  true,
     data_integrity =  true,
-    new_data_needed =  false,
     subframes_decoded = [1,1,1,1,1],
-    nb_prev =  1,
-    num_bits_buffered =  188
+    num_bits_buffered = 188,
+    num_bits_after_valid_subframe = 186
 )
 sv3_code_phase = 2975.5753833700155
 sv3_carrier_phase = 0.007562681101262569
@@ -211,18 +202,15 @@ sv4_data = GPSData(
 )
 sv4_decoder_struct = GNSSDecoderState(
     PRN =  15,
-    buffer = BitArray(undef, 1502),
+    buffer = BitArray(undef, 310),
     data = sv4_data,
     constants = sv_constants,
-    preamble_found =  false,
-    subframe_count =  0,
     prev_30 =  false,
     prev_29 =  false,
     data_integrity =  true,
-    new_data_needed =  false,
     subframes_decoded = [1,1,1,1,1],
-    nb_prev =  0,
-    num_bits_buffered =  187
+    num_bits_buffered = 187,
+    num_bits_after_valid_subframe = 185
 )
 sv4_code_phase = 17790.853982632394
 sv4_carrier_phase = 0.2946765711531043
@@ -268,18 +256,15 @@ sv5_data = GPSData(
 )
 sv5_decoder_struct = GNSSDecoderState(
     PRN =  18,
-    buffer = BitArray(undef, 1502),
+    buffer = BitArray(undef, 310),
     data = sv5_data,
     constants = sv_constants,
-    preamble_found= false,
-    subframe_count= 0,
     prev_30 = false,
     prev_29 = true,
     data_integrity = true,
-    new_data_needed = false,
     subframes_decoded = [1,1,1,1,1],
-    nb_prev = 0,
-    num_bits_buffered = 188
+    num_bits_buffered = 188,
+    num_bits_after_valid_subframe = 186
 )
 
 sv5_code_phase =  10736.222919350244
