@@ -14,6 +14,7 @@ Parameters = "d96e819e-fc66-5662-9728-84c9c7592b0a"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
+CoordinateTransformations = "0.6"
 DocStringExtensions = "0.6, 0.7, 0.8"
 GNSSDecoder = "0.0.1"
 GNSSSignals = "0.14, 0.15"
