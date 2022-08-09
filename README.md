@@ -18,7 +18,7 @@ pkg> add git@github.com:JuliaGNSS/PositionVelocityTime.jl.git
 Decoded data and code phase of satellite must be combined in the provided `SatelliteState` struct. 
 ```julia
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
-decoder = GPSL1DecoderState()
+# decode satellite
 gpsl1 = GPSL1()
 sat_state = SatelliteState(
     decoder = decoder,
@@ -28,6 +28,13 @@ sat_state = SatelliteState(
 )
 ```
 The declaration of `carrier_phase` is optional due to its small effect on the user position.
+
+Alternatively, the tracking result can be passed to `SatelliteState` instead of `system`, `code_phase` and `carrier_phase`:
+```julia
+using Tracking
+# track and decode satellite
+sat_state = SatelliteState(decoder, tracking_result)
+```
 
 For user position computation at least 4 decoded satellites must be provided. 
 
