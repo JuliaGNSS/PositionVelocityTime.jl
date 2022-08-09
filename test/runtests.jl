@@ -1,10 +1,5 @@
 
-using Test, PositionVelocityTime, GNSSDecoder
-import PositionVelocityTime: GNSSDecoderState, GPSData, GPSL1Constants, ECEF, SatelliteState
+using Test, PositionVelocityTime, GNSSDecoder, AstroTime, BitIntegers, GNSSSignals, Geodesy
 
-
-include("test_data.jl")
-include("sat_position.jl")
-include("user_position.jl")
-include("position_velocity_time.jl")
-include("sv_time.jl")
+include("sat_time.jl")
+include("pvt.jl")

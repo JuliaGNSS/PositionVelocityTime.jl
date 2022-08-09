@@ -1,8 +1,6 @@
 
-# PositionVelocityTime.jl (WIP)
-Calculates Positions by using GPSL1 Data
-
-This is still work in progress.
+# PositionVelocityTime.jl
+Calculates position and time by using GNSS data
 
 ## Features
 * User Position calculation
@@ -22,66 +20,38 @@ pkg> add git@github.com:JuliaGNSS/PositionVelocityTime.jl.git
 julia> using PositionVelocityTime, GNSSDecoder
 julia> #decode Signals here
 ```
-The decoding using the GNSSDecoder module must be completed before beginning.
 
 
-Data must be combined in the provided `SatelliteState` struct. 
+Decoded data and code phase of satellite must be combined in the provided `SatelliteState` struct. 
 ```julia
-#decoder: Solution of GNSSDecoder
-#codephase, carrierphase: Solution of Acquisition 
-julia> SatelliteState(
-    decoder_state = decoder, 
-    code_phase = codephase,
-    carrier_phase = carrierphase)
+julia> sat_state = SatelliteState(
+    decoder = decoder, 
+    code_phase = code_phase,
+    carrier_phase = carrier_phase # optional
+)
 ```
 The declaration of `carrier_phase` is optional due to its small effect on the user position.
 
-For user position computation at least 4 decoded satellites must be handed over. 
+For user position computation at least 4 decoded satellites must be provided. 
 
 ## Usage
-### Satellite position
-There are two options for satellite position calculation: 
-
-- ECEF satellite position calculation (IS-GPS-200K Table 20-IV):
-```julia
-sat_position_ECEF(satellite_state)
-
-julia>sat_position_ECEF(satellite_state)
-3-element Array{Float64,1}:
--8.537268174201585e6, 
--1.2988350094779423e7, 
-2.1851582648954894e7
-```
-- ECI satellite position calculation (IS-GPS-200K 20.3.3.4.3.3):
-```julia
-sat_position_ECI2ECEF(satellite_state)
-
-julia>sat_position_ECI2ECEF(satellite_state)
-3-element Array{Float64,1}:
- -8.537268174201572e6, 
- -1.2988350094779432e7, 
- 2.1851582648954894e7
-```
 
 ### User position Calculation
 The function 
-`calc_PVT(satellite_states::AbstractVector{SatelliteState{Float64}})` 
+```
+calc_PVT(system, sat_states)
+``` 
 provides a complete position calculation.
 
+Exemplary output:
 ```julia
-#´satellite_states´: Struct of satellite data
-julia> calc_PVT(satellite_states)
+julia> gpsl1 = GPSL1()
+julia> pvt = calc_pvt(gpsl1, sat_states)
+PositionVelocityTime.PVTSolution
+  position: ECEF{Float64}
+  time_correction: Float64 -2.392890916479146e7
+  time: AstroTime.Epochs.TAIEpoch{Float64}
+  dop: PositionVelocityTime.DOP
+  used_sats: Array{Int64}((5,)) [2, 4, 11, 25, 30]
+  sat_positions: Array{ECEF}((5,))
 ```
-
-Output:
-```julia
-PVTSolution(
-    [4.0186749839887144e6, 427051.1942215096, 4.918252576909532e6],
-    -2.3409334780245904e7, 
-    17.961339568218765)
-```
-
-The first member `pos` represents the user position in ECEF coordinates, the second `receiver_time_correction` the calculated travel time correction. The third member `GDOP` represents the Geometric Dilution of Precision.  
-
-
-

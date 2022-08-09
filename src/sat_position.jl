@@ -1,185 +1,80 @@
-"""
-    Calculates ECI Position of SV
-
-    $SIGNATURES
-    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
-
-    This function calculates the position of the SV in ECI coorinates.
-    The implementation follows IS-GPS-200K
-"""
-function sat_position_ECI(sat_state::SatelliteState)
-    is_sat_healthy_and_decodable(sat_state.decoder_state) || throw(BadData("SV not decoded properly"))
-    
-    t = calc_corrected_time(sat_state)
-    tₖ = t - sat_state.decoder_state.data.t_oe
-    tₖ = check_crossover(tₖ)
-    
-    # Excentric and true anomaly
-    tₛᵥ = calc_uncorrected_time(sat_state)
-    dtₛᵥ = code_phase_offset(sat_state.decoder_state, tₛᵥ)
-
-    Eₖ = calc_eccentric_anomaly_tsv(sat_state.decoder_state, tₛᵥ, dtₛᵥ)
-    
-    
-    e  = sat_state.decoder_state.data.e
-    vₖ =  2 * atan(sqrt((1 + e) / (1 - e)) * tan(Eₖ / 2))
-
-    # Argument of latitude
-    Φₖ = vₖ + sat_state.decoder_state.data.ω
-    
-    # Second harmonic perturbations
-    δuₖ = sat_state.decoder_state.data.C_us * sin(2 * Φₖ) + sat_state.decoder_state.data.C_uc * cos(2 * Φₖ);
-    δrₖ = sat_state.decoder_state.data.C_rs * sin(2 * Φₖ) + sat_state.decoder_state.data.C_rc * cos(2 * Φₖ);
-    δiₖ = sat_state.decoder_state.data.C_is * sin(2 * Φₖ) + sat_state.decoder_state.data.C_ic * cos(2 * Φₖ);
-    
-    
-    # Corrected orbit parameters
-    uₖ = Φₖ + δuₖ;
-    rₖ = sat_state.decoder_state.data.sqrt_A^2 * (1 - e * cos(Eₖ)) + δrₖ;
-    iₖ = sat_state.decoder_state.data.i_0 + δiₖ + sat_state.decoder_state.data.IDOT * tₖ;
-    
-    # Positions in orbital plane
-    xₖs = rₖ * cos(uₖ);
-    yₖs = rₖ * sin(uₖ);
-    
-    # Corrected longitude of ascending node
-    Ωₖ = sat_state.decoder_state.data.Ω_0 + sat_state.decoder_state.data.Ω_dot * tₖ;
-    
-    # ECI coordinates
-    sinΩₖ = sin(Ωₖ);
-    cosΩₖ = cos(Ωₖ);
-    cosiₖ = cos(iₖ);
-    siniₖ = sin(iₖ);
-            
-    xₖ = xₖs * cosΩₖ - yₖs * cosiₖ * sinΩₖ;
-    yₖ = xₖs * sinΩₖ + yₖs * cosiₖ * cosΩₖ;
-    zₖ = yₖs * siniₖ;
-    
-    return [xₖ, yₖ, zₖ]
+function calc_eccentric_anomaly(mean_anomaly, eccentricity)    
+    Ek = mean_anomaly
+    for k = 1:30
+        Et = Ek
+        Ek = mean_anomaly + eccentricity * sin(Ek)
+        if abs(Ek - Et) <= 1e-12 
+            break;
+        end
+    end         
+    return Ek
 end
 
-
-"""
-    Calculates ECEF Position by converting ECI position
-
-    $SIGNATURES
-    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
-
-
-    This function calculates the position of the SV in ECI coorinates and
-    converts this position into ECEF coordinates.
-    The implementation follows IS-GPS-200K
-"""
-function sat_position_ECI_2_ECEF(sat_state::SatelliteState) 
-    pos_ECI = sat_position_ECI(sat_state)
-
-    tₖ = calc_corrected_time(sat_state)
-    tₖ = tₖ - sat_state.decoder_state.data.t_oe
-    tₖ = check_crossover(tₖ)
-    θ = sat_state.decoder_state.constants.Ω_dot_e * (tₖ + sat_state.decoder_state.data.t_oe)
-    cosθ  = cos(θ)
-    sinθ  = sin(θ)
-    R = [cosθ sinθ; -sinθ cosθ] 
-    pos_ECI[1:2] = R * pos_ECI[1:2]
-    return pos_ECI
+function calc_eccentric_anomaly(decoder::GNSSDecoder.GNSSDecoderState, t)
+    data = decoder.data
+    computed_mean_motion = sqrt(decoder.constants.μ) / data.sqrt_A^3
+    time_from_ephemeris_reference_epoch = correct_week_crossovers(t - data.t_0e)
+    corrected_mean_motion = computed_mean_motion + data.Δn
+    mean_anomaly = data.M_0 + corrected_mean_motion * time_from_ephemeris_reference_epoch
+    calc_eccentric_anomaly(mean_anomaly, data.e)
 end
 
 """
-    Calculates ECI Position by converting ECEF position
+Calculates satellite position at time instance t
 
-    $SIGNATURES
-    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
-
-
-    This function calculates the position of the SV in ECEF coorinates and
-    converts this position into ECI coordinates.
-    The implementation follows IS-GPS-200K
+$SIGNATURES
+`decoder`: GNSS decoder state
+`t`: time at satellite in system time
 """
-function sat_position_rotation(sat_state::SatelliteState, dt) 
-    pos_ECEF = sat_position_ECEF(sat_state)
-
-    θ = sat_state.decoder_state.constants.Ω_dot_e * dt
-
-    #rotation around z-axis
-    cosθ  = cos(θ)
-    sinθ  = sin(θ)
-    R = [cosθ sinθ; -sinθ cosθ] 
-
-    pos_ECI = pos_ECEF
-    pos_ECI[1:2] = R * pos_ECI[1:2]
-    return pos_ECI
-end
-
-
-"""
-    Calculates ECEF Position of SV 
-
-    $SIGNATURES
-    ´sat_state´: satellite state, combining decoded data, code- and carrierphase 
-
-
-    This function calculates the position of the SV in ECEF coorinates.
-    The implementation follows IS-GPS-200K Table 20-IV.
-"""
-function sat_position_ECEF(sat_state::SatelliteState)
-    
-    is_sat_healthy_and_decodable(sat_state.decoder_state) || throw(BadData("SV not decoded properly"))
-    F = sat_state.decoder_state.constants.F
-    e = sat_state.decoder_state.data.e
-    μ = sat_state.decoder_state.constants.μ    
-    Ω_dot_e = sat_state.decoder_state.constants.Ω_dot_e
-
-    A = sat_state.decoder_state.data.sqrt_A^2
-    n₀ = sqrt(μ / (A^3))
-    n = n₀ + sat_state.decoder_state.data.Δn
-    
-    
-    t = calc_corrected_time(sat_state)
-    tₖ = t - sat_state.decoder_state.data.t_oe
-    tₖ = check_crossover(tₖ)
-    
-    # Excentric and true anomaly
-    t_sv = calc_uncorrected_time(sat_state)
-    dt_sv = code_phase_offset(sat_state.decoder_state, t_sv)
-    #println("dt_SV: ", dt_sv)
-
-    E = calc_eccentric_anomaly_tk(sat_state.decoder_state, tₖ)
-    vₖ = 2 * atan(sqrt((1 + e) / (1 - e)) * tan(E / 2))
-
-
-    Φₖ = vₖ + sat_state.decoder_state.data.ω
-    
-    δuₖ = sat_state.decoder_state.data.C_us * sin(2 * Φₖ) + sat_state.decoder_state.data.C_uc * cos(2 * Φₖ)
-    δrₖ = sat_state.decoder_state.data.C_rs * sin(2 * Φₖ) + sat_state.decoder_state.data.C_rc * cos(2 * Φₖ)
-    δiₖ = sat_state.decoder_state.data.C_is * sin(2 * Φₖ) + sat_state.decoder_state.data.C_ic * cos(2 * Φₖ)
-    
-    uₖ = Φₖ + δuₖ 
-    rₖ = A * (1 - e * cos(E)) + δrₖ
-    iₖ = sat_state.decoder_state.data.i_0 + δiₖ + sat_state.decoder_state.data.IDOT * tₖ
-
-    xₖs = rₖ * cos(uₖ)
-    yₖs = rₖ * sin(uₖ)
-    
-    Ωₖ = sat_state.decoder_state.data.Ω_0 + 
-        (sat_state.decoder_state.data.Ω_dot - Ω_dot_e) * tₖ -
-        sat_state.decoder_state.data.t_oe * Ω_dot_e
-    
-    xₖ = xₖs * cos(Ωₖ) - yₖs * cos(iₖ) * sin(Ωₖ)
-    yₖ = xₖs * sin(Ωₖ) + yₖs * cos(iₖ) * cos(Ωₖ)
-    zₖ = yₖs * sin(iₖ)
-    
-    position = [xₖ, yₖ, zₖ]
-    return position
+function calc_satellite_position(decoder::GNSSDecoder.GNSSDecoderState, t)
+    data = decoder.data
+    constants = decoder.constants
+    semi_major_axis = data.sqrt_A^2
+    time_from_ephemeris_reference_epoch = correct_week_crossovers(t - data.t_0e)
+    eccentric_anomaly = calc_eccentric_anomaly(decoder, t)
+    β = data.e / (1 + sqrt(1 - data.e^2))
+    true_anomaly = eccentric_anomaly + 2 * atan(β * sin(eccentric_anomaly) / (1 - β * cos(eccentric_anomaly)))
+    argument_of_latitude = true_anomaly + data.ω
+    argrument_of_latitude_correction = data.C_us * sin(2 * argument_of_latitude) + data.C_uc * cos(2 * argument_of_latitude)
+    radius_correction = data.C_rs * sin(2 * argument_of_latitude) + data.C_rc * cos(2 * argument_of_latitude)
+    inclination_correction = data.C_is * sin(2 * argument_of_latitude) + data.C_ic * cos(2 * argument_of_latitude)
+    corrected_argument_of_latitude = argument_of_latitude + argrument_of_latitude_correction
+    corrected_radius = semi_major_axis * (1 - data.e * cos(eccentric_anomaly)) + radius_correction
+    corrected_inclination = data.i_0 + inclination_correction + data.i_dot * time_from_ephemeris_reference_epoch
+    x_position_in_orbital_plane = corrected_radius * cos(corrected_argument_of_latitude)
+    y_position_in_orbital_plane = corrected_radius * sin(corrected_argument_of_latitude)
+    corrected_longitude_of_ascending_node = data.Ω_0 + (data.Ω_dot - constants.Ω_dot_e) * time_from_ephemeris_reference_epoch - constants.Ω_dot_e * data.t_0e
+    SVector(
+        x_position_in_orbital_plane * cos(corrected_longitude_of_ascending_node) - y_position_in_orbital_plane * cos(corrected_inclination) * sin(corrected_longitude_of_ascending_node),
+        x_position_in_orbital_plane * sin(corrected_longitude_of_ascending_node) + y_position_in_orbital_plane * cos(corrected_inclination) * cos(corrected_longitude_of_ascending_node),
+        y_position_in_orbital_plane * sin(corrected_inclination),
+    )
 end
 
 """
-    Checks if satellite data is correctly tranmitted
-    $SIGNATURES
-    ´decoder_state´: Decoder
+Calculates satellite position at transmission time based on code phase and number of bits since TOW.
 
-    Checks if satellite data contains the needed information and 
-    if errors during decoding occured
+$SIGNATURES
+`system`: GNSS system
+`state`: Satellite state (SatelliteState)
 """
-function is_sat_healthy_and_decodable(decoder_state::GNSSDecoderState)
-    decoder_state.data.svhealth == "000000" ? decoder_state.subframes_decoded[1:3] == [1,1,1] : false
+function calc_satellite_position(system::AbstractGNSS, state::SatelliteState)
+    t = calc_corrected_time(system, state)
+    calc_satellite_position(state.decoder, t)
+end
+
+"""
+Computes pseudo ranges 
+
+$SIGNATURES
+`sat_state`: satellite state, combining decoded data, code- and carrierphase 
+
+Computes relative pseudo ranges of satellite vehicles.
+The algorithm is based on the common reception method. 
+"""
+function calc_pseudo_ranges(times)
+    t_ref = maximum(times)
+    reference_times = map(time -> t_ref - time, times)
+    pseudoranges = reference_times .* SPEEDOFLIGHT
+    return pseudoranges, t_ref
 end
