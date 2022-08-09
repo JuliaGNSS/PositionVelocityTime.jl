@@ -3,7 +3,8 @@ function correct_week_crossovers(t)
     t + (t > half_week ? -2 * half_week : (t < -half_week ? 2 * half_week : 0.0))
 end
 
-function calc_uncorrected_time(system::AbstractGNSS, state::SatelliteState)
+function calc_uncorrected_time(state::SatelliteState)
+    system = state.system
     t_tow = state.decoder.data.TOW
     t_bits = (state.decoder.num_bits_after_valid_syncro_sequence) / GNSSSignals.get_data_frequency(system) * Hz
     t_code_phase = state.code_phase / GNSSSignals.get_code_frequency(system) * Hz
@@ -32,9 +33,8 @@ function correct_by_group_delay(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDeco
 end
 
 function calc_corrected_time(
-    system::AbstractGNSS,
     state::SatelliteState,
 )
-    approximated_time = calc_uncorrected_time(system, state)
+    approximated_time = calc_uncorrected_time(state)
     correct_clock(state.decoder, approximated_time)
 end

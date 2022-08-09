@@ -8,7 +8,8 @@ module PositionVelocityTime
         Parameters,
         AstroTime,
         LsqFit,
-        StaticArrays
+        StaticArrays,
+        Tracking
 
     using Unitful: s, Hz
 
@@ -32,8 +33,21 @@ module PositionVelocityTime
     """
     @with_kw struct SatelliteState{CP <: Real}
         decoder::GNSSDecoder.GNSSDecoderState
+        system::AbstractGNSS
         code_phase::CP
         carrier_phase::CP = 0.0
+    end
+
+    function SatelliteState(
+        decoder::GNSSDecoder.GNSSDecoderState,
+        tracking_results::Tracking.TrackingResults
+    )
+        SatelliteState(
+            decoder,
+            get_system(tracking_results),
+            get_code_phase(tracking_results),
+            get_carrier_phase(tracking_results)
+        )
     end
 
     """
@@ -110,14 +124,16 @@ module PositionVelocityTime
         PVT.
     """
     function calc_pvt(
-        system::AbstractGNSS,
         states::AbstractVector{<: SatelliteState},
         prev_pvt::PVTSolution = PVTSolution()
     )
-        prev_ξ = [prev_pvt.position; prev_pvt.time_correction]
+        length(states) < 4 && ArgumentError("You'll need at least 4 satellites to calculate PVT")
+        all(state -> state.system == states[1].system, states) || ArgumentError("For now all satellites need to be base on the same GNSS")
         healthy_states = filter(x -> is_sat_healthy(x.decoder), states)
+        length(healthy_states) < 4 && ArgumentError("You'll need at least 4 healthy satellites to calculate PVT")
+        prev_ξ = [prev_pvt.position; prev_pvt.time_correction]
         healthy_prns = map(state -> state.decoder.prn, healthy_states)
-        times = map(state -> calc_corrected_time(system, state), healthy_states)
+        times = map(state -> calc_corrected_time(state), healthy_states)
         sat_positions = map((state, time) -> calc_satellite_position(state.decoder, time), healthy_states, times)
         pseudo_ranges, reference_time = calc_pseudo_ranges(times)
         ξ = user_position(sat_positions, pseudo_ranges, prev_ξ)

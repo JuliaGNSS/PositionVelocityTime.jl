@@ -15,17 +15,14 @@ julia> ]
 pkg> add git@github.com:JuliaGNSS/PositionVelocityTime.jl.git
 ```
 
-### Initializing
-```julia
-julia> using PositionVelocityTime, GNSSDecoder
-julia> #decode Signals here
-```
-
-
 Decoded data and code phase of satellite must be combined in the provided `SatelliteState` struct. 
 ```julia
-julia> sat_state = SatelliteState(
-    decoder = decoder, 
+using PositionVelocityTime, GNSSSignals, GNSSDecoder
+decoder = GPSL1DecoderState()
+gpsl1 = GPSL1()
+sat_state = SatelliteState(
+    decoder = decoder,
+    system = gpsl1,
     code_phase = code_phase,
     carrier_phase = carrier_phase # optional
 )
@@ -36,22 +33,10 @@ For user position computation at least 4 decoded satellites must be provided.
 
 ## Usage
 
-### User position Calculation
+### User position calculation
 The function 
-```
-calc_PVT(system, sat_states)
+```julia
+# You need at least 4 satellite states
+calc_PVT(sat_states)
 ``` 
 provides a complete position calculation.
-
-Exemplary output:
-```julia
-julia> gpsl1 = GPSL1()
-julia> pvt = calc_pvt(gpsl1, sat_states)
-PositionVelocityTime.PVTSolution
-  position: ECEF{Float64}
-  time_correction: Float64 -2.392890916479146e7
-  time: AstroTime.Epochs.TAIEpoch{Float64}
-  dop: PositionVelocityTime.DOP
-  used_sats: Array{Int64}((5,)) [2, 4, 11, 25, 30]
-  sat_positions: Array{ECEF}((5,))
-```

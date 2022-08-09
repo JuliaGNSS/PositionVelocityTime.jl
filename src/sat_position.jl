@@ -58,8 +58,8 @@ $SIGNATURES
 `system`: GNSS system
 `state`: Satellite state (SatelliteState)
 """
-function calc_satellite_position(system::AbstractGNSS, state::SatelliteState)
-    t = calc_corrected_time(system, state)
+function calc_satellite_position(state::SatelliteState)
+    t = calc_corrected_time(state)
     calc_satellite_position(state.decoder, t)
 end
 
