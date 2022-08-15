@@ -16,6 +16,7 @@ module PositionVelocityTime
     const SPEEDOFLIGHT = 299792458.0
     
     export  calc_pvt,
+        PVTSolution,
         SatelliteState,
         get_LLA,
         get_num_used_sats,
