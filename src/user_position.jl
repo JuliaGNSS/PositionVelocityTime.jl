@@ -62,7 +62,7 @@ $SIGNATURES
 `H_GEO`: Geometry matrix
 """
 function calc_DOP(H_GEO)
-    D = inv(H_GEO' * H_GEO)
+    D = inv(Symmetric(collect(H_GEO' * H_GEO)))
     TDOP = sqrt(D[4,4]) # temporal dop
     VDOP = sqrt(D[3,3]) # vertical dop
     HDOP = sqrt(D[1,1] + D[2,2]) # horizontal dop

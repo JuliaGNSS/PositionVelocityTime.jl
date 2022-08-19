@@ -128,10 +128,12 @@ module PositionVelocityTime
         states::AbstractVector{<: SatelliteState},
         prev_pvt::PVTSolution = PVTSolution()
     )
-        length(states) < 4 && ArgumentError("You'll need at least 4 satellites to calculate PVT")
+        length(states) < 4 && throw(ArgumentError("You'll need at least 4 satellites to calculate PVT"))
         all(state -> state.system == states[1].system, states) || ArgumentError("For now all satellites need to be base on the same GNSS")
         healthy_states = filter(x -> is_sat_healthy(x.decoder), states)
-        length(healthy_states) < 4 && ArgumentError("You'll need at least 4 healthy satellites to calculate PVT")
+        if length(healthy_states) < 4
+            return prev_pvt
+        end
         prev_ξ = [prev_pvt.position; prev_pvt.time_correction]
         healthy_prns = map(state -> state.decoder.prn, healthy_states)
         times = map(state -> calc_corrected_time(state), healthy_states)
