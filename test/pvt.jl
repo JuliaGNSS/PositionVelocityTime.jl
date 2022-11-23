@@ -476,9 +476,9 @@ BitIntegers.@define_integers 320
     ]
 
     pvt = calc_pvt(states)
-    @test get_LLA(pvt) ==
+    @test get_LLA(pvt) ≈
           LLA(; lat = 50.778851672464015, lon = 6.065568885758519, alt = 289.4069805158367)
-    @test pvt.time == TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
+    @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
 end
 
 @testset "PVT GPS L1" begin
@@ -1396,7 +1396,7 @@ end
     ]
 
     pvt = calc_pvt(states)
-    @test get_LLA(pvt) ==
+    @test get_LLA(pvt) ≈
           LLA(; lat = 50.77885249310784, lon = 6.0656199911189175, alt = 291.95658091689086)
-    @test pvt.time == TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
+    @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
 end
