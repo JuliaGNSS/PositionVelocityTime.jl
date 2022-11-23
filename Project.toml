@@ -1,30 +1,40 @@
 name = "PositionVelocityTime"
 uuid = "52ec0b5e-ee36-11ea-211c-3d844fc5682d"
-authors = ["Erik Deinzer <erik.deinzer@rwth-aachen.de>", "Soeren Schoenbrod <soeren.schoenbrod@nav.rwth-aachen.de>", "Michael Niestroj <michael.niestroj@rwth-aachen.de>"]
+authors = ["Soeren Schoenbrod <soeren.schoenbrod@nav.rwth-aachen.de>", "Michael Niestroj <michael.niestroj@rwth-aachen.de>", "Erik Deinzer <erik.deinzer@rwth-aachen.de>"]
 version = "0.0.1"
 
 [deps]
+AstroTime = "c61b5328-d09d-5e37-a9a8-0eb41c39009c"
 CoordinateTransformations = "150eb455-5306-5404-9cee-2592286d6298"
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 GNSSDecoder = "bf6b1ec8-12ad-4501-972c-3dec0d675c2b"
 GNSSSignals = "52c80523-2a4e-5c38-8979-05588f836870"
 Geodesy = "0ef565a4-170c-5f04-8de2-149903a85f3d"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LsqFit = "2fda8390-95c7-5789-9bda-21331edee243"
 Parameters = "d96e819e-fc66-5662-9728-84c9c7592b0a"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Tracking = "10b2438b-ffd4-5096-aa58-44041d5c8f3b"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
+AstroTime = "0.7"
+BitIntegers = "0.2.6"
+Tracking = "0.15"
+LsqFit = "0.12, 0.13"
 CoordinateTransformations = "0.6"
-DocStringExtensions = "0.6, 0.7, 0.8"
-GNSSDecoder = "0.0.1"
-GNSSSignals = "0.14, 0.15"
+DocStringExtensions = "0.6, 0.7, 0.8, 0.9"
+GNSSDecoder = "0.1.0"
+GNSSSignals = "0.16"
+StaticArrays = "1"
 Geodesy = "0.5, 1.0"
 Parameters = "0.11, 0.12"
 Unitful = "1"
-julia = "1.4"
+julia = "1.6"
 
 [extras]
+BitIntegers = "c3b6d118-76ef-56ca-8cc7-ebb389d030a1"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test"]
+test = ["Test", "BitIntegers"]
