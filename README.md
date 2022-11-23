@@ -3,8 +3,8 @@
 Calculates position and time by using GNSS data
 
 ## Features
-* User Position calculation
-* Satellite Position calculation
+* Estimation of user position and time
+* Calculates satellite position
 * Precision estimation (GDOP)
 
 ## Preparing
@@ -12,7 +12,7 @@ Calculates position and time by using GNSS data
 ### Install
 ```julia
 julia> ]
-pkg> add git@github.com:JuliaGNSS/PositionVelocityTime.jl.git
+pkg> PositionVelocityTime.jl
 ```
 
 Decoded data and code phase of satellite must be combined in the provided `SatelliteState` struct. 
