@@ -1,6 +1,6 @@
 name = "PositionVelocityTime"
 uuid = "52ec0b5e-ee36-11ea-211c-3d844fc5682d"
-authors = ["Erik Deinzer <erik.deinzer@rwth-aachen.de>", "Soeren Schoenbrod <soeren.schoenbrod@nav.rwth-aachen.de>", "Michael Niestroj <michael.niestroj@rwth-aachen.de>"]
+authors = ["Soeren Schoenbrod <soeren.schoenbrod@nav.rwth-aachen.de>", "Michael Niestroj <michael.niestroj@rwth-aachen.de>", "Erik Deinzer <erik.deinzer@rwth-aachen.de>"]
 version = "0.0.1"
 
 [deps]

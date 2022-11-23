@@ -9,7 +9,7 @@ $SIGNATURES
 function ρ_hat(sat_positions, ξ)
     rₙ = ξ[1:3]
     tc = ξ[4]
-    
+
     map(eachcol(sat_positions)) do sat_pos
         travel_time = norm(sat_pos - rₙ) / SPEEDOFLIGHT
         rotated_sat_pos = rotate_by_earth_rotation(sat_pos, travel_time)
@@ -17,13 +17,14 @@ function ρ_hat(sat_positions, ξ)
     end
 end
 
-
 function rotate_by_earth_rotation(sat_pos, Δt)
     ω_e = 7.2921151467e-5
     α = ω_e * Δt
-    Rz = @SMatrix [  cos(α) sin(α)   0;
-                    -sin(α) cos(α)   0;
-                    0       0        1];
+    Rz = @SMatrix [
+        cos(α) sin(α) 0
+        -sin(α) cos(α) 0
+        0 0 1
+    ]
     Rz * sat_pos
 end
 
@@ -53,8 +54,6 @@ function H(sat_positions, ξ)
     mapreduce(sat_pos -> [transpose(e(sat_pos, ξ)) 1], vcat, eachcol(sat_positions))
 end
 
-
-
 """
 Calculates the dilution of precision for a given geometry matrix H
 
@@ -63,13 +62,13 @@ $SIGNATURES
 """
 function calc_DOP(H_GEO)
     D = inv(Symmetric(collect(H_GEO' * H_GEO)))
-    TDOP = sqrt(D[4,4]) # temporal dop
-    VDOP = sqrt(D[3,3]) # vertical dop
-    HDOP = sqrt(D[1,1] + D[2,2]) # horizontal dop
-    PDOP = sqrt(D[1,1] + D[2,2] + D[3, 3]) # position dop
+    TDOP = sqrt(D[4, 4]) # temporal dop
+    VDOP = sqrt(D[3, 3]) # vertical dop
+    HDOP = sqrt(D[1, 1] + D[2, 2]) # horizontal dop
+    PDOP = sqrt(D[1, 1] + D[2, 2] + D[3, 3]) # position dop
     GDOP = sqrt(sum(diag(D))) # geometrical dop
 
-    return DOP(GDOP,PDOP,VDOP,HDOP,TDOP)
+    return DOP(GDOP, PDOP, VDOP, HDOP, TDOP)
 end
 
 """
@@ -82,12 +81,11 @@ sat_positions: Array of satellite positions. Needs 3 values per satellite (xyz),
 Calculates the user position by least squares method. The algorithm is based on the common reception method. 
 """
 function user_position(sat_positions, ρ, prev_ξ = zeros(4))
-        
     sat_positions_mat = reduce(hcat, sat_positions)
 
     ξ_fit_ols = curve_fit(ρ_hat, H, sat_positions_mat, ρ, collect(prev_ξ))
-#    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
-#    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions_mat, ρ, wt, collect(prev_ξ))
+    #    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
+    #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions_mat, ρ, wt, collect(prev_ξ))
 
     return ξ_fit_ols.param
 end
