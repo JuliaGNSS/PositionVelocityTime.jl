@@ -1,6 +1,6 @@
 BitIntegers.@define_integers 288
 BitIntegers.@define_integers 320
-@testset "PVT Galileo E1B" begin
+@testset "PVT Galileo E1B with frequency offset of $freq_offset" for freq_offset in (0.0Hz, 500Hz, -1000Hz)
     galileo_e1b = GalileoE1B()
     states = [
         SatelliteState(;
@@ -94,6 +94,7 @@ BitIntegers.@define_integers 320
                 false,
             ),
             system = galileo_e1b,
+            carrier_doppler = 1617.3312825078192Hz + freq_offset,
             code_phase = 2216.5793761534956,
             carrier_phase = -1.461823180908076,
         ),
@@ -188,6 +189,7 @@ BitIntegers.@define_integers 320
                 true,
             ),
             system = galileo_e1b,
+            carrier_doppler = 4055.9318556579988Hz + freq_offset,
             code_phase = 48.75149191469789,
             carrier_phase = -2.3877702498883373,
         ),
@@ -282,6 +284,7 @@ BitIntegers.@define_integers 320
                 false,
             ),
             system = galileo_e1b,
+            carrier_doppler = 209.7024609093128Hz + freq_offset,
             code_phase = 69.54389556899758,
             carrier_phase = -1.4138935647217596,
         ),
@@ -376,6 +379,7 @@ BitIntegers.@define_integers 320
                 true,
             ),
             system = galileo_e1b,
+            carrier_doppler = -974.6289079820336Hz + freq_offset,
             code_phase = 1701.8894620076721,
             carrier_phase = -1.721713905186919,
         ),
@@ -470,6 +474,7 @@ BitIntegers.@define_integers 320
                 true,
             ),
             system = galileo_e1b,
+            carrier_doppler = 4089.415808665647Hz + freq_offset,
             code_phase = 4015.495436832823,
             carrier_phase = -2.8554107708683047,
         ),
@@ -479,9 +484,11 @@ BitIntegers.@define_integers 320
     @test get_LLA(pvt) ≈
           LLA(; lat = 50.778851672464015, lon = 6.065568885758519, alt = 289.4069805158367)
     @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
+    @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 9
+    @test get_frequency_offset(galileo_e1b, pvt) ≈ (1675.63Hz + freq_offset) atol = 0.01Hz
 end
 
-@testset "PVT GPS L1" begin
+@testset "PVT GPS L1 with frequency offset of $freq_offset" for freq_offset in (0.0Hz, 500Hz, -1000Hz)
     gpsl1 = GPSL1()
     states = [
         SatelliteState(;
@@ -582,6 +589,7 @@ end
                 false,
             ),
             system = gpsl1,
+            carrier_doppler = 2669.8440799388595Hz + freq_offset,
             code_phase = 4876.431542382193,
             carrier_phase = 0.09402551301430394,
         ),
@@ -683,6 +691,7 @@ end
                 false,
             ),
             system = gpsl1,
+            carrier_doppler = 4704.3549972665805Hz + freq_offset,
             code_phase = 8455.107739656896,
             carrier_phase = 2.7614518715603946,
         ),
@@ -784,6 +793,7 @@ end
                 true,
             ),
             system = gpsl1,
+            carrier_doppler = 4603.179391134832Hz + freq_offset,
             code_phase = 10510.15670303955,
             carrier_phase = -0.7447786034769108,
         ),
@@ -885,6 +895,7 @@ end
                 false,
             ),
             system = gpsl1,
+            carrier_doppler = 3144.174219887768Hz + freq_offset,
             code_phase = 3618.5099300503684,
             carrier_phase = -0.22375187424152987,
         ),
@@ -986,6 +997,7 @@ end
                 false,
             ),
             system = gpsl1,
+            carrier_doppler = 595.7926881306387Hz + freq_offset,
             code_phase = 17600.66651489137,
             carrier_phase = 2.59152430602131,
         ),
@@ -1087,6 +1099,7 @@ end
                 true,
             ),
             system = gpsl1,
+            carrier_doppler = -794.0022484221436Hz + freq_offset,
             code_phase = 14504.587373634655,
             carrier_phase = -0.7416765461612318,
         ),
@@ -1188,6 +1201,7 @@ end
                 true,
             ),
             system = gpsl1,
+            carrier_doppler = 2826.783251528247Hz + freq_offset,
             code_phase = 14394.465193705755,
             carrier_phase = -0.7597910878699417,
         ),
@@ -1289,6 +1303,7 @@ end
                 true,
             ),
             system = gpsl1,
+            carrier_doppler = -1083.2317687377372Hz + freq_offset,
             code_phase = 13905.233170289455,
             carrier_phase = -2.1444956909602526,
         ),
@@ -1390,6 +1405,7 @@ end
                 false,
             ),
             system = gpsl1,
+            carrier_doppler = 3393.7445379085816Hz + freq_offset,
             code_phase = 16861.02713837273,
             carrier_phase = -0.9185401811870872,
         ),
@@ -1399,4 +1415,6 @@ end
     @test get_LLA(pvt) ≈
           LLA(; lat = 50.77885249310784, lon = 6.0656199911189175, alt = 291.95658091689086)
     @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
+    @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 2.5
+    @test get_frequency_offset(gpsl1, pvt) ≈ (1632.59Hz + freq_offset) atol = 0.01Hz
 end

@@ -30,6 +30,16 @@ function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, t)
     t - correct_by_group_delay(decoder, Δt)
 end
 
+function calc_satellite_clock_drift(decoder::GNSSDecoder.GNSSDecoderState, t)
+    decoder.data.a_f1 +
+    decoder.data.a_f2 * t * 2
+end
+
+function calc_satellite_clock_drift(state::SatelliteState)
+    approximated_time = calc_uncorrected_time(state)
+    calc_satellite_clock_drift(state.decoder, approximated_time)
+end
+
 function correct_by_group_delay(
     decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1Data},
     t,

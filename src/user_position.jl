@@ -6,7 +6,7 @@ $SIGNATURES
 `ξ`: Combination of estimated user position and time correction
 `sat_positions`: Satellite Positions
 """
-function ρ_hat(sat_positions, ξ)
+function calc_ρ_hat(sat_positions, ξ)
     rₙ = ξ[1:3]
     tc = ξ[4]
 
@@ -35,7 +35,7 @@ $SIGNATURES
 `ξ`: Combination of estimated user position and time correction
 `sat_pos`: Single satellite positions
 """
-function e(sat_pos, ξ)
+function calc_e(sat_pos, ξ)
     rₙ = ξ[1:3]
     travel_time = norm(sat_pos - rₙ) / SPEEDOFLIGHT
     rotated_sat_pos = rotate_by_earth_rotation(sat_pos, travel_time)
@@ -50,8 +50,8 @@ $SIGNATURES
 `ξ`: Combination of estimated user position and time correction
 `sat_positions`: Matrix of satellite positions
 """
-function H(sat_positions, ξ)
-    mapreduce(sat_pos -> [transpose(e(sat_pos, ξ)) 1], vcat, eachcol(sat_positions))
+function calc_H(sat_positions, ξ)
+    mapreduce(sat_pos -> [transpose(calc_e(sat_pos, ξ)) 1], vcat, eachcol(sat_positions))
 end
 
 """
@@ -83,9 +83,34 @@ Calculates the user position by least squares method. The algorithm is based on 
 function user_position(sat_positions, ρ, prev_ξ = zeros(4))
     sat_positions_mat = reduce(hcat, sat_positions)
 
-    ξ_fit_ols = curve_fit(ρ_hat, H, sat_positions_mat, ρ, collect(prev_ξ))
+    ξ_fit_ols = curve_fit(calc_ρ_hat, calc_H, sat_positions_mat, ρ, collect(prev_ξ))
     #    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
     #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions_mat, ρ, wt, collect(prev_ξ))
 
     return ξ_fit_ols.param
 end
+
+"""
+Computes user velocity
+
+$SIGNATURES
+
+Calculates the user velocity and clock drift
+"""
+function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, states)
+    sat_positions = map(get_sat_position, sat_positions_and_velocities)
+    sat_positions_mat = reduce(hcat, sat_positions)
+    sat_clock_drifts = map(calc_satellite_clock_drift, states)
+    sat_dopplers = map(x -> upreferred(x.carrier_doppler / Hz), states)
+    H = collect(calc_H(sat_positions_mat, ξ))
+    center_frequency = get_center_frequency(first(states).system)
+    λ = SPEEDOFLIGHT / upreferred(center_frequency / Hz)
+    y =
+        sat_dopplers * λ -
+        sat_clock_drifts * SPEEDOFLIGHT -
+        map(x -> dot(calc_e(get_sat_position(x), ξ), get_sat_velocity(x)), sat_positions_and_velocities)
+    H \ y
+end
+
+get_sat_position(x) = x.position
+get_sat_velocity(x) = x.velocity

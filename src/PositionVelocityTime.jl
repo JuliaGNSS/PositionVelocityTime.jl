@@ -9,7 +9,8 @@ using CoordinateTransformations,
     AstroTime,
     LsqFit,
     StaticArrays,
-    Tracking
+    Tracking,
+    Unitful
 
 using Unitful: s, Hz
 
@@ -21,12 +22,14 @@ export calc_pvt,
     get_LLA,
     get_num_used_sats,
     calc_satellite_position,
+    calc_satellite_position_and_velocity,
     get_sat_enu,
     get_gdop,
     get_pdop,
     get_hdop,
     get_vdop,
-    get_tdop
+    get_tdop,
+    get_frequency_offset
 
 """
 Struct of decoder, code- and carrierphase of satellite
@@ -35,6 +38,7 @@ Struct of decoder, code- and carrierphase of satellite
     decoder::GNSSDecoder.GNSSDecoderState
     system::AbstractGNSS
     code_phase::CP
+    carrier_doppler::typeof(1.0Hz)
     carrier_phase::CP = 0.0
 end
 
@@ -46,6 +50,7 @@ function SatelliteState(
         decoder,
         get_system(tracking_results),
         get_code_phase(tracking_results),
+        get_carrier_doppler(tracking_results),
         get_carrier_phase(tracking_results),
     )
 end
@@ -67,8 +72,10 @@ positions.
 """
 @with_kw struct PVTSolution
     position::ECEF = ECEF(0, 0, 0)
+    velocity::ECEF = ECEF(0, 0, 0)
     time_correction::Float64 = 0
     time::Union{TAIEpoch{Float64},Nothing} = nothing
+    relative_clock_drift::Float64 = 0
     dop::Union{DOP,Nothing} = nothing
     used_sats::Vector{Int64} = []
     sat_positions::Vector{ECEF} = []
@@ -137,14 +144,18 @@ function calc_pvt(
     prev_ξ = [prev_pvt.position; prev_pvt.time_correction]
     healthy_prns = map(state -> state.decoder.prn, healthy_states)
     times = map(state -> calc_corrected_time(state), healthy_states)
-    sat_positions = map(
-        (state, time) -> calc_satellite_position(state.decoder, time),
+    sat_positions_and_velocities = map(
+        (state, time) -> calc_satellite_position_and_velocity(state.decoder, time),
         healthy_states,
         times,
     )
+    sat_positions = map(get_sat_position, sat_positions_and_velocities)
     pseudo_ranges, reference_time = calc_pseudo_ranges(times)
     ξ = user_position(sat_positions, pseudo_ranges, prev_ξ)
+    user_velocity_and_clock_drift = calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, states)
     position = ECEF(ξ[1], ξ[2], ξ[3])
+    velocity = ECEF(user_velocity_and_clock_drift[1], user_velocity_and_clock_drift[2], user_velocity_and_clock_drift[3])
+    relative_clock_drift = user_velocity_and_clock_drift[4] / SPEEDOFLIGHT 
     time_correction = ξ[4]
     corrected_reference_time = reference_time + time_correction / SPEEDOFLIGHT
 
@@ -155,9 +166,13 @@ function calc_pvt(
         corrected_reference_time - floor(Int, corrected_reference_time),
     )
 
-    dop = calc_DOP(H(reduce(hcat, sat_positions), ξ))
+    dop = calc_DOP(calc_H(reduce(hcat, sat_positions), ξ))
 
-    PVTSolution(position, time_correction, time, dop, healthy_prns, sat_positions)
+    PVTSolution(position, velocity, time_correction, time, relative_clock_drift, dop, healthy_prns, sat_positions)
+end
+
+function get_frequency_offset(system::AbstractGNSS, pvt::PVTSolution)
+    pvt.relative_clock_drift * get_center_frequency(system)
 end
 
 function get_system_start_time(
