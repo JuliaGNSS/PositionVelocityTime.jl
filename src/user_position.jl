@@ -62,6 +62,16 @@ $SIGNATURES
 """
 function calc_DOP(H_GEO)
     D = inv(Symmetric(collect(H_GEO' * H_GEO)))
+    if D[4, 4] < 0 ||
+        D[3, 3] < 0 ||
+        D[1, 1] + D[2, 2] < 0 ||
+        D[1, 1] + D[2, 2] + D[3, 3] < 0 ||
+        sum(diag(D)) < 0
+        # Something has gone wrong
+        # This could probably be detected somewhere else
+        # more efficiently.
+        return DOP(-1, -1, -1, -1, -1)
+    end
     TDOP = sqrt(D[4, 4]) # temporal dop
     VDOP = sqrt(D[3, 3]) # vertical dop
     HDOP = sqrt(D[1, 1] + D[2, 2]) # horizontal dop

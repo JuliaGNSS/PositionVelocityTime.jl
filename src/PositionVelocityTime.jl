@@ -167,6 +167,9 @@ function calc_pvt(
     )
 
     dop = calc_DOP(calc_H(reduce(hcat, sat_positions), ξ))
+    if dop.GDOP < 0
+        return PVTSolution()
+    end
 
     PVTSolution(position, velocity, time_correction, time, relative_clock_drift, dop, healthy_prns, sat_positions)
 end
