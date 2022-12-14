@@ -171,8 +171,8 @@ function calc_pvt(
     PVTSolution(position, velocity, time_correction, time, relative_clock_drift, dop, healthy_prns, sat_positions)
 end
 
-function get_frequency_offset(system::AbstractGNSS, pvt::PVTSolution)
-    pvt.relative_clock_drift * get_center_frequency(system)
+function get_frequency_offset(pvt::PVTSolution, base_frequency)
+    pvt.relative_clock_drift * base_frequency
 end
 
 function get_system_start_time(
