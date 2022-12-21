@@ -10,7 +10,8 @@ using CoordinateTransformations,
     LsqFit,
     StaticArrays,
     Tracking,
-    Unitful
+    Unitful,
+    Statistics
 
 using Unitful: s, Hz
 
@@ -151,11 +152,52 @@ function calc_pvt(
     )
     sat_positions = map(get_sat_position, sat_positions_and_velocities)
     pseudo_ranges, reference_time = calc_pseudo_ranges(times)
-    ξ = user_position(sat_positions, pseudo_ranges, prev_ξ)
-    user_velocity_and_clock_drift = calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, states)
+    ξ, rmse = user_position(sat_positions, pseudo_ranges, prev_ξ)
+    if rmse > 1e-3
+        # Try to exclude a satellite to get better RMSE
+        num_sats = length(sat_positions)
+        if num_sats > 4
+            # Let's try to use the satellites from previous PVT
+#            available_prns_from_prev_pvt = map(prn -> prn in prev_pvt.used_sats, healthy_prns)
+#            filtered_sat_positions = sat_positions[available_prns_from_prev_pvt]
+#            filtered_pseudo_ranges = pseudo_ranges[available_prns_from_prev_pvt]
+#            temp_ξ, temp_rmse = user_position(filtered_sat_positions, filtered_pseudo_ranges, prev_ξ)
+#            if temp_rmse < 1e-3
+#                ξ = temp_ξ
+#                rmse = temp_rmse
+#                healthy_states = healthy_states[available_prns_from_prev_pvt]
+#                sat_positions_and_velocities = sat_positions_and_velocities[available_prns_from_prev_pvt]
+#                healthy_prns = healthy_prns[available_prns_from_prev_pvt]
+#            else
+                for i = 1:num_sats
+                    filtered_sat_positions = sat_positions[1:num_sats .!= i]
+                    filtered_pseudo_ranges = pseudo_ranges[1:num_sats .!= i]
+                    temp_ξ, temp_rmse = user_position(filtered_sat_positions, filtered_pseudo_ranges, prev_ξ)
+                    if temp_rmse < 1e-3
+                        ξ = temp_ξ
+                        rmse = temp_rmse
+                        healthy_states = healthy_states[1:num_sats .!= i]
+                        sat_positions_and_velocities = sat_positions_and_velocities[1:num_sats .!= i]
+                        healthy_prns = healthy_prns[1:num_sats .!= i]
+                        sat_positions = filtered_sat_positions
+                        break
+                    end
+                end
+#            end
+        end
+        if rmse > 1e-3
+            return prev_pvt
+        end
+    end
+    user_velocity_and_clock_drift =
+        calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, healthy_states)
     position = ECEF(ξ[1], ξ[2], ξ[3])
-    velocity = ECEF(user_velocity_and_clock_drift[1], user_velocity_and_clock_drift[2], user_velocity_and_clock_drift[3])
-    relative_clock_drift = user_velocity_and_clock_drift[4] / SPEEDOFLIGHT 
+    velocity = ECEF(
+        user_velocity_and_clock_drift[1],
+        user_velocity_and_clock_drift[2],
+        user_velocity_and_clock_drift[3],
+    )
+    relative_clock_drift = user_velocity_and_clock_drift[4] / SPEEDOFLIGHT
     time_correction = ξ[4]
     corrected_reference_time = reference_time + time_correction / SPEEDOFLIGHT
 
@@ -168,10 +210,19 @@ function calc_pvt(
 
     dop = calc_DOP(calc_H(reduce(hcat, sat_positions), ξ))
     if dop.GDOP < 0
-        return PVTSolution()
+        return prev_pvt
     end
 
-    PVTSolution(position, velocity, time_correction, time, relative_clock_drift, dop, healthy_prns, sat_positions)
+    PVTSolution(
+        position,
+        velocity,
+        time_correction,
+        time,
+        relative_clock_drift,
+        dop,
+        healthy_prns,
+        sat_positions,
+    )
 end
 
 function get_frequency_offset(pvt::PVTSolution, base_frequency)

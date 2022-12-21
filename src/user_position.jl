@@ -96,8 +96,8 @@ function user_position(sat_positions, ρ, prev_ξ = zeros(4))
     ξ_fit_ols = curve_fit(calc_ρ_hat, calc_H, sat_positions_mat, ρ, collect(prev_ξ))
     #    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
     #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions_mat, ρ, wt, collect(prev_ξ))
-
-    return ξ_fit_ols.param
+    rmse = sqrt(mean(ξ_fit_ols.resid .^ 2))
+    return ξ_fit_ols.param, rmse
 end
 
 """
