@@ -7,7 +7,7 @@ function calc_uncorrected_time(state::SatelliteState)
     system = state.system
     t_tow = state.decoder.data.TOW
     t_bits =
-        (state.decoder.num_bits_after_valid_syncro_sequence) /
+        state.decoder.num_bits_after_valid_syncro_sequence /
         GNSSSignals.get_data_frequency(system) * Hz
     t_code_phase = state.code_phase / GNSSSignals.get_code_frequency(system) * Hz
     t_carrier_phase = state.carrier_phase / GNSSSignals.get_center_frequency(system) * Hz

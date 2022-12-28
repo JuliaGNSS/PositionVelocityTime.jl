@@ -67,6 +67,11 @@ struct DOP
     TDOP::Float64
 end
 
+struct SatInfo
+    position::ECEF
+    time::Float64
+end
+
 """
 PVT solution including DOP, used satellites and satellite
 positions.
@@ -78,8 +83,7 @@ positions.
     time::Union{TAIEpoch{Float64},Nothing} = nothing
     relative_clock_drift::Float64 = 0
     dop::Union{DOP,Nothing} = nothing
-    used_sats::Vector{Int64} = []
-    sat_positions::Vector{ECEF} = []
+    sats::Dict{Int, SatInfo} = Dict{Int, SatInfo}()
 end
 
 function get_num_used_sats(pvt_solution::PVTSolution)
@@ -138,6 +142,7 @@ function calc_pvt(
         throw(ArgumentError("You'll need at least 4 satellites to calculate PVT"))
     all(state -> state.system == states[1].system, states) ||
         ArgumentError("For now all satellites need to be base on the same GNSS")
+    system = first(states).system
     healthy_states = filter(x -> is_sat_healthy(x.decoder), states)
     if length(healthy_states) < 4
         return prev_pvt
@@ -152,43 +157,7 @@ function calc_pvt(
     )
     sat_positions = map(get_sat_position, sat_positions_and_velocities)
     pseudo_ranges, reference_time = calc_pseudo_ranges(times)
-    ξ, rmse = user_position(sat_positions, pseudo_ranges, prev_ξ)
-    if rmse > 1e-3
-        # Try to exclude a satellite to get better RMSE
-        num_sats = length(sat_positions)
-        if num_sats > 4
-            # Let's try to use the satellites from previous PVT
-#            available_prns_from_prev_pvt = map(prn -> prn in prev_pvt.used_sats, healthy_prns)
-#            filtered_sat_positions = sat_positions[available_prns_from_prev_pvt]
-#            filtered_pseudo_ranges = pseudo_ranges[available_prns_from_prev_pvt]
-#            temp_ξ, temp_rmse = user_position(filtered_sat_positions, filtered_pseudo_ranges, prev_ξ)
-#            if temp_rmse < 1e-3
-#                ξ = temp_ξ
-#                rmse = temp_rmse
-#                healthy_states = healthy_states[available_prns_from_prev_pvt]
-#                sat_positions_and_velocities = sat_positions_and_velocities[available_prns_from_prev_pvt]
-#                healthy_prns = healthy_prns[available_prns_from_prev_pvt]
-#            else
-                for i = 1:num_sats
-                    filtered_sat_positions = sat_positions[1:num_sats .!= i]
-                    filtered_pseudo_ranges = pseudo_ranges[1:num_sats .!= i]
-                    temp_ξ, temp_rmse = user_position(filtered_sat_positions, filtered_pseudo_ranges, prev_ξ)
-                    if temp_rmse < 1e-3
-                        ξ = temp_ξ
-                        rmse = temp_rmse
-                        healthy_states = healthy_states[1:num_sats .!= i]
-                        sat_positions_and_velocities = sat_positions_and_velocities[1:num_sats .!= i]
-                        healthy_prns = healthy_prns[1:num_sats .!= i]
-                        sat_positions = filtered_sat_positions
-                        break
-                    end
-                end
-#            end
-        end
-        if rmse > 1e-3
-            return prev_pvt
-        end
-    end
+    ξ, rmse = user_position(sat_positions, pseudo_ranges)
     user_velocity_and_clock_drift =
         calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, healthy_states)
     position = ECEF(ξ[1], ξ[2], ξ[3])
@@ -208,6 +177,11 @@ function calc_pvt(
         corrected_reference_time - floor(Int, corrected_reference_time),
     )
 
+    sat_infos = SatInfo.(
+        sat_positions,
+        times
+    )
+
     dop = calc_DOP(calc_H(reduce(hcat, sat_positions), ξ))
     if dop.GDOP < 0
         return prev_pvt
@@ -220,8 +194,7 @@ function calc_pvt(
         time,
         relative_clock_drift,
         dop,
-        healthy_prns,
-        sat_positions,
+        Dict(healthy_prns .=> sat_infos)
     )
 end
 
