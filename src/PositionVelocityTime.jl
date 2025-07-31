@@ -168,7 +168,9 @@ function calc_pvt(
     )
     relative_clock_drift = user_velocity_and_clock_drift[4] / SPEEDOFLIGHT
     time_correction = ξ[4]
-    corrected_reference_time = reference_time + time_correction / SPEEDOFLIGHT
+    # The estimated time correction is negative
+    # See https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/8
+    corrected_reference_time = reference_time - time_correction / SPEEDOFLIGHT
 
     week = get_week(first(healthy_states).decoder)
     start_time = get_system_start_time(first(healthy_states).decoder)
