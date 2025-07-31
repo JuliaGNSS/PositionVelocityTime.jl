@@ -5,7 +5,6 @@ using CoordinateTransformations,
     GNSSDecoder,
     GNSSSignals,
     LinearAlgebra,
-    Parameters,
     AstroTime,
     LsqFit,
     StaticArrays,
@@ -35,7 +34,7 @@ export calc_pvt,
 """
 Struct of decoder, code- and carrierphase of satellite
 """
-@with_kw struct SatelliteState{CP<:Real}
+@kwdef struct SatelliteState{CP<:Real}
     decoder::GNSSDecoder.GNSSDecoderState
     system::AbstractGNSS
     code_phase::CP
@@ -45,14 +44,15 @@ end
 
 function SatelliteState(
     decoder::GNSSDecoder.GNSSDecoderState,
-    tracking_results::Tracking.TrackingResults,
+    system::AbstractGNSS,
+    sat_state::SatState,
 )
     SatelliteState(
         decoder,
-        get_system(tracking_results),
-        get_code_phase(tracking_results),
-        get_carrier_doppler(tracking_results),
-        get_carrier_phase(tracking_results),
+        system,
+        get_code_phase(sat_state),
+        get_carrier_doppler(sat_state),
+        get_carrier_phase(sat_state),
     )
 end
 
@@ -76,14 +76,14 @@ end
 PVT solution including DOP, used satellites and satellite
 positions.
 """
-@with_kw struct PVTSolution
+@kwdef struct PVTSolution
     position::ECEF = ECEF(0, 0, 0)
     velocity::ECEF = ECEF(0, 0, 0)
     time_correction::Float64 = 0
     time::Union{TAIEpoch{Float64},Nothing} = nothing
     relative_clock_drift::Float64 = 0
     dop::Union{DOP,Nothing} = nothing
-    sats::Dict{Int, SatInfo} = Dict{Int, SatInfo}()
+    sats::Dict{Int,SatInfo} = Dict{Int,SatInfo}()
 end
 
 function get_num_used_sats(pvt_solution::PVTSolution)
@@ -179,10 +179,7 @@ function calc_pvt(
         corrected_reference_time - floor(Int, corrected_reference_time),
     )
 
-    sat_infos = SatInfo.(
-        sat_positions,
-        times
-    )
+    sat_infos = SatInfo.(sat_positions, times)
 
     dop = calc_DOP(calc_H(reduce(hcat, sat_positions), ξ))
     if dop.GDOP < 0
@@ -196,7 +193,7 @@ function calc_pvt(
         time,
         relative_clock_drift,
         dop,
-        Dict(healthy_prns .=> sat_infos)
+        Dict(healthy_prns .=> sat_infos),
     )
 end
 
