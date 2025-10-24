@@ -116,9 +116,9 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, st
     center_frequency = get_center_frequency(first(states).system)
     λ = SPEEDOFLIGHT / upreferred(center_frequency / Hz)
     y =
-        sat_dopplers * λ -
+        -(sat_dopplers * λ -
         sat_clock_drifts * SPEEDOFLIGHT -
-        map(x -> dot(calc_e(get_sat_position(x), ξ), get_sat_velocity(x)), sat_positions_and_velocities)
+        map(x -> dot(calc_e(get_sat_position(x), ξ), get_sat_velocity(x)), sat_positions_and_velocities))
     H \ y
 end
 
