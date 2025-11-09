@@ -485,7 +485,7 @@ BitIntegers.@define_integers 320
           LLA(; lat = 50.778851672464015, lon = 6.065568885758519, alt = 289.4069805158367)
     @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 9
-    @test get_frequency_offset(pvt, get_center_frequency(galileo_e1b)) ≈ (1675.63Hz + freq_offset) atol = 0.01Hz
+    @test get_frequency_offset(pvt, get_center_frequency(galileo_e1b)) ≈ -(1675.63Hz + freq_offset) atol = 0.01Hz
 end
 
 @testset "PVT GPS L1 with frequency offset of $freq_offset" for freq_offset in (0.0Hz, 500Hz, -1000Hz)
@@ -1416,5 +1416,5 @@ end
           LLA(; lat = 50.77885249310784, lon = 6.0656199911189175, alt = 291.95658091689086)
     @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 2.5
-    @test get_frequency_offset(pvt, get_center_frequency(gpsl1)) ≈ (1632.59Hz + freq_offset) atol = 0.01Hz
+    @test get_frequency_offset(pvt, get_center_frequency(gpsl1)) ≈ -(1632.59Hz + freq_offset) atol = 0.01Hz
 end
