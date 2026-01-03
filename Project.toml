@@ -1,7 +1,7 @@
 name = "PositionVelocityTime"
 uuid = "52ec0b5e-ee36-11ea-211c-3d844fc5682d"
-authors = ["Soeren Schoenbrod <soeren.schoenbrod@nav.rwth-aachen.de>", "Michael Niestroj <michael.niestroj@rwth-aachen.de>", "Erik Deinzer <erik.deinzer@rwth-aachen.de>"]
 version = "0.2.2"
+authors = ["Soeren Schoenbrod <soeren.schoenbrod@nav.rwth-aachen.de>", "Michael Niestroj <michael.niestroj@rwth-aachen.de>", "Erik Deinzer <erik.deinzer@rwth-aachen.de>"]
 
 [deps]
 AstroTime = "c61b5328-d09d-5e37-a9a8-0eb41c39009c"
@@ -22,13 +22,13 @@ AstroTime = "0.7"
 BitIntegers = "0.2.6, 0.3.5"
 CoordinateTransformations = "0.6"
 DocStringExtensions = "0.6, 0.7, 0.8, 0.9"
-GNSSDecoder = "0.1.2"
+GNSSDecoder = "0.1.5"
 GNSSSignals = "0.17"
 Geodesy = "0.5, 1.0"
 LsqFit = "0.12, 0.13, 0.14, 0.15"
 StaticArrays = "1"
 Statistics = "1"
-Tracking = "0.15, 0.16"
+Tracking = "0.17.1"
 Unitful = "1"
 julia = "1.6"
 
