@@ -1,5 +1,9 @@
 
 # PositionVelocityTime.jl
+
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://JuliaGNSS.github.io/PositionVelocityTime.jl/stable/)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://JuliaGNSS.github.io/PositionVelocityTime.jl/dev/)
+
 Calculates position and time by using GNSS data
 
 ## Features

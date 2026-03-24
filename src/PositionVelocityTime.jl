@@ -32,7 +32,23 @@ export calc_pvt,
     get_frequency_offset
 
 """
-Struct of decoder, code- and carrierphase of satellite
+    SatelliteState{CP<:Real}
+
+Combines the GNSS decoder state with code and carrier phase measurements for a single satellite.
+
+# Fields
+- `decoder::GNSSDecoderState`: GNSS decoder state containing decoded navigation data
+- `system::AbstractGNSS`: GNSS system (e.g., `GPSL1()`, `GalileoE1B()`)
+- `code_phase::CP`: Code phase measurement
+- `carrier_doppler`: Carrier Doppler frequency in Hz
+- `carrier_phase::CP`: Carrier phase measurement (default: `0.0`)
+
+# Constructors
+    SatelliteState(; decoder, system, code_phase, carrier_doppler, carrier_phase=0.0)
+    SatelliteState(decoder, system, sat_state::SatState)
+
+The second constructor extracts code phase, carrier Doppler, and carrier phase from a
+`Tracking.SatState`.
 """
 @kwdef struct SatelliteState{CP<:Real}
     decoder::GNSSDecoder.GNSSDecoderState
@@ -57,7 +73,17 @@ function SatelliteState(
 end
 
 """
-Dilution of Precision (DOP)
+    DOP
+
+Dilution of Precision (DOP) values describing the geometric quality of the satellite
+constellation used for a PVT solution.
+
+# Fields
+- `GDOP::Float64`: Geometric DOP (overall quality)
+- `PDOP::Float64`: Position DOP (3D position quality)
+- `VDOP::Float64`: Vertical DOP
+- `HDOP::Float64`: Horizontal DOP
+- `TDOP::Float64`: Time DOP
 """
 struct DOP
     GDOP::Float64
@@ -73,8 +99,18 @@ struct SatInfo
 end
 
 """
-PVT solution including DOP, used satellites and satellite
-positions.
+    PVTSolution
+
+Complete Position, Velocity, and Time solution from GNSS measurements.
+
+# Fields
+- `position::ECEF`: User position in ECEF coordinates (meters)
+- `velocity::ECEF`: User velocity in ECEF coordinates (m/s)
+- `time_correction::Float64`: Estimated receiver clock bias (meters)
+- `time::Union{TAIEpoch{Float64}, Nothing}`: Estimated time as a TAI epoch
+- `relative_clock_drift::Float64`: Relative receiver clock drift (dimensionless)
+- `dop::Union{DOP, Nothing}`: Dilution of precision values
+- `sats::Dict{Int, SatInfo}`: Dictionary mapping PRN to satellite info (position and time)
 """
 @kwdef struct PVTSolution
     position::ECEF = ECEF(0, 0, 0)
@@ -86,38 +122,73 @@ positions.
     sats::Dict{Int,SatInfo} = Dict{Int,SatInfo}()
 end
 
+"""
+    get_num_used_sats(pvt_solution::PVTSolution) -> Int
+
+Return the number of satellites used in the PVT solution.
+"""
 function get_num_used_sats(pvt_solution::PVTSolution)
-    length(pvt_solution.used_sats)
+    length(pvt_solution.sats)
 end
 
-#Get methods for single DOP values
+"""
+    get_gdop(pvt_sol::PVTSolution) -> Float64
+
+Return the Geometric Dilution of Precision (GDOP) from the PVT solution.
+"""
 function get_gdop(pvt_sol::PVTSolution)
     return pvt_sol.dop.GDOP
 end
 
+"""
+    get_pdop(pvt_sol::PVTSolution) -> Float64
+
+Return the Position Dilution of Precision (PDOP) from the PVT solution.
+"""
 function get_pdop(pvt_sol::PVTSolution)
     return pvt_sol.dop.PDOP
 end
 
+"""
+    get_vdop(pvt_sol::PVTSolution) -> Float64
+
+Return the Vertical Dilution of Precision (VDOP) from the PVT solution.
+"""
 function get_vdop(pvt_sol::PVTSolution)
     return pvt_sol.dop.VDOP
 end
 
+"""
+    get_hdop(pvt_sol::PVTSolution) -> Float64
+
+Return the Horizontal Dilution of Precision (HDOP) from the PVT solution.
+"""
 function get_hdop(pvt_sol::PVTSolution)
     return pvt_sol.dop.HDOP
 end
 
+"""
+    get_tdop(pvt_sol::PVTSolution) -> Float64
+
+Return the Time Dilution of Precision (TDOP) from the PVT solution.
+"""
 function get_tdop(pvt_sol::PVTSolution)
     return pvt_sol.dop.TDOP
 end
 
 """
-Calculates East-North-Up (ENU) coordinates of satellite in spherical
-form (azimuth and elevation).
+    get_sat_enu(user_pos_ecef::ECEF, sat_pos_ecef::ECEF) -> Spherical
 
-$SIGNATURES
-user_pos_ecef: user position in ecef coordinates
-sat_pos_ecef: satellite position in ecef coordinates
+Convert satellite position to East-North-Up (ENU) spherical coordinates (azimuth and
+elevation) relative to the user position.
+
+# Arguments
+- `user_pos_ecef::ECEF`: User position in ECEF coordinates
+- `sat_pos_ecef::ECEF`: Satellite position in ECEF coordinates
+
+# Returns
+Spherical coordinates containing azimuth and elevation of the satellite as seen from
+the user position.
 """
 function get_sat_enu(user_pos_ecef::ECEF, sat_pos_ecef::ECEF)
     sat_enu = ENUfromECEF(user_pos_ecef, wgs84)(sat_pos_ecef)
@@ -125,14 +196,25 @@ function get_sat_enu(user_pos_ecef::ECEF, sat_pos_ecef::ECEF)
 end
 
 """
-Calculates Position Velocity and Time (PVT).
-Note: Estimation of velocity still needs to be implemented.
+    calc_pvt(states::AbstractVector{<:SatelliteState}, prev_pvt::PVTSolution=PVTSolution()) -> PVTSolution
 
-$SIGNATURES
-`system`: GNSS system
-`states`: Vector satellite states (SatelliteState)
-`prev_pvt` (optionally): Previous PVT solution to accelerate calculation of next
-    PVT.
+Calculate Position, Velocity, and Time (PVT) from GNSS satellite measurements.
+
+Requires at least 4 healthy satellites from the same GNSS system. Uses least-squares
+estimation for position and time, and solves for velocity and clock drift from
+carrier Doppler measurements.
+
+# Arguments
+- `states`: Vector of [`SatelliteState`](@ref) for observed satellites
+- `prev_pvt`: Previous PVT solution used as initial guess (default: origin)
+
+# Returns
+A [`PVTSolution`](@ref) containing position, velocity, time, DOP values, and
+satellite information. Returns `prev_pvt` if fewer than 4 healthy satellites are
+available or if the GDOP is negative.
+
+# Throws
+- `ArgumentError`: If fewer than 4 satellite states are provided
 """
 function calc_pvt(
     states::AbstractVector{<:SatelliteState},
@@ -197,6 +279,18 @@ function calc_pvt(
     )
 end
 
+"""
+    get_frequency_offset(pvt::PVTSolution, base_frequency) -> typeof(base_frequency)
+
+Calculate the receiver frequency offset from the relative clock drift and a base frequency.
+
+# Arguments
+- `pvt::PVTSolution`: PVT solution containing the relative clock drift
+- `base_frequency`: Reference frequency (e.g., the carrier frequency of the GNSS signal)
+
+# Returns
+The frequency offset as `relative_clock_drift * base_frequency`.
+"""
 function get_frequency_offset(pvt::PVTSolution, base_frequency)
     pvt.relative_clock_drift * base_frequency
 end
@@ -221,6 +315,12 @@ function get_week(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GalileoE1B
     decoder.data.WN
 end
 
+"""
+    get_LLA(pvt::PVTSolution) -> LLA
+
+Convert the ECEF position in the PVT solution to geodetic coordinates
+(latitude, longitude, altitude) using the WGS84 ellipsoid.
+"""
 function get_LLA(pvt::PVTSolution)
     LLAfromECEF(wgs84)(pvt.position)
 end

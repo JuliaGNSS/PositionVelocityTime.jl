@@ -1,0 +1,7 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Geodesy = "0ef565a4-170c-5f04-8de2-149903a85f3d"
+PositionVelocityTime = "52ec0b5e-ee36-11ea-211c-3d844fc5682d"
+
+[compat]
+Documenter = "1"
