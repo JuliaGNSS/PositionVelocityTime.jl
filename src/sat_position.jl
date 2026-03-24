@@ -20,17 +20,45 @@ function calc_eccentric_anomaly(decoder::GNSSDecoder.GNSSDecoderState, t)
 end
 
 """
-Calculates satellite position at time instance t
+    calc_satellite_position(decoder::GNSSDecoder.GNSSDecoderState, t)
+    calc_satellite_position(state::SatelliteState)
 
-$SIGNATURES
-`decoder`: GNSS decoder state
-`t`: time at satellite in system time
+Calculate the satellite ECEF position from orbital parameters at time `t`.
+
+The first method takes a decoder state and explicit time. The second method
+computes the corrected transmission time from the [`SatelliteState`](@ref) automatically.
+
+# Arguments
+- `decoder`: GNSS decoder state containing ephemeris data
+- `t`: Transmission time in system time (seconds)
+- `state`: A [`SatelliteState`](@ref) combining decoder, system, and phase measurements
+
+# Returns
+An `SVector{3, Float64}` with the satellite position in ECEF coordinates (meters).
 """
 function calc_satellite_position(decoder::GNSSDecoder.GNSSDecoderState, t)
     pos_and_vel = calc_satellite_position_and_velocity(decoder, t)
     pos_and_vel.position
 end
 
+"""
+    calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderState, t)
+    calc_satellite_position_and_velocity(state::SatelliteState)
+
+Calculate the satellite ECEF position and velocity from orbital parameters at time `t`.
+
+Uses Keplerian orbital mechanics with perturbation corrections (harmonic corrections
+for argument of latitude, radius, and inclination) to propagate the satellite ephemeris.
+
+# Arguments
+- `decoder`: GNSS decoder state containing ephemeris data
+- `t`: Transmission time in system time (seconds)
+- `state`: A [`SatelliteState`](@ref) combining decoder, system, and phase measurements
+
+# Returns
+A named tuple `(position, velocity)` where each is an `SVector{3, Float64}` in ECEF
+coordinates (meters and m/s respectively).
+"""
 function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data
     constants = decoder.constants
@@ -154,13 +182,6 @@ function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderSt
     (position = position, velocity = velocity)
 end
 
-"""
-Calculates satellite position at transmission time based on code phase and number of bits since TOW.
-
-$SIGNATURES
-`system`: GNSS system
-`state`: Satellite state (SatelliteState)
-"""
 function calc_satellite_position(state::SatelliteState)
     pos_and_vel = calc_satellite_position_and_velocity(state)
     pos_and_vel.position
@@ -170,15 +191,6 @@ function calc_satellite_position_and_velocity(state::SatelliteState)
     calc_satellite_position_and_velocity(state.decoder, t)
 end
 
-"""
-Computes pseudo ranges 
-
-$SIGNATURES
-`sat_state`: satellite state, combining decoded data, code- and carrierphase 
-
-Computes relative pseudo ranges of satellite vehicles.
-The algorithm is based on the common reception method. 
-"""
 function calc_pseudo_ranges(times)
     t_ref = maximum(times)
     reference_times = map(time -> t_ref - time, times)
