@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.6](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v1.0.5...v1.0.6) (2026-05-07)
+
+
+### Bug Fixes
+
+* resolve GPS L1 week-rollover ambiguity via approximate_year ([e7e2191](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/e7e219128346626da70432b618ca4a86ef9914c6))
+
 ## [1.0.5](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v1.0.4...v1.0.5) (2026-05-07)
 
 
