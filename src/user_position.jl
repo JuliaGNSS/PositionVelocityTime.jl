@@ -69,6 +69,36 @@ calc_H(sat_positions, ξ) =
     calc_H!(Matrix{Float64}(undef, size(sat_positions, 2), 4), sat_positions, ξ)
 
 """
+Computes the directional second derivative of `calc_ρ_hat` along `v`,
+used by LsqFit's geodesic acceleration.
+
+For each satellite j the residual is `r_j(ξ) = ‖s_j' - r_n‖ + tc - ρ_j`,
+where s_j' is the Earth-rotation-corrected satellite position. Treating
+s_j' as constant w.r.t. ξ (the rotation depends on ξ via travel time,
+but ω_e/c ≈ 2e-13 makes that contribution negligible here), the Hessian
+is block-diagonal: the position block is `(I - û û^T) / d_j`, the time
+block is zero. So `v^T H_j v = (‖v_r‖² - (û · v_r)²) / d_j`.
+
+$SIGNATURES
+"""
+function calc_Avv!(dir_deriv, sat_positions, ξ, v)
+    rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
+    v_r = SVector{3}(v[1], v[2], v[3])
+    v_r_sq = dot(v_r, v_r)
+    n = size(sat_positions, 2)
+    for j in 1:n
+        sat_pos = SVector{3}(sat_positions[1, j], sat_positions[2, j], sat_positions[3, j])
+        travel_time = norm(sat_pos - rₙ) / SPEEDOFLIGHT
+        rotated_sat_pos = rotate_by_earth_rotation(sat_pos, travel_time)
+        u = rotated_sat_pos - rₙ
+        d = norm(u)
+        û = u / d
+        dir_deriv[j] = (v_r_sq - dot(û, v_r)^2) / d
+    end
+    return dir_deriv
+end
+
+"""
 Calculates the dilution of precision for a given geometry matrix H
 
 $SIGNATURES
@@ -110,6 +140,9 @@ function user_position(sat_positions, ρ, prev_ξ = zeros(4))
     ξ_fit_ols = curve_fit(
         calc_ρ_hat!, calc_H!, sat_positions_mat, ρ, collect(prev_ξ);
         inplace = true,
+        avv! = (dir_deriv, p, v) -> calc_Avv!(dir_deriv, sat_positions_mat, p, v),
+        lambda = 0.0,
+        min_step_quality = 0.0,
     )
     #    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
     #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions_mat, ρ, wt, collect(prev_ξ))
