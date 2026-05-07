@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v1.0.2...v1.0.3) (2026-05-07)
+
+
+### Performance Improvements
+
+* use in-place LM model and Jacobian in user_position ([2c8fefe](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/2c8fefe1c432314ae8c3e9481dfc553694fbc195))
+
 ## [1.0.2](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v1.0.1...v1.0.2) (2026-05-07)
 
 
