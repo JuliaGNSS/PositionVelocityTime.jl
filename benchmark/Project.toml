@@ -1,0 +1,7 @@
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+BitIntegers = "c3b6d118-76ef-56ca-8cc7-ebb389d030a1"
+GNSSDecoder = "bf6b1ec8-12ad-4501-972c-3dec0d675c2b"
+GNSSSignals = "52c80523-2a4e-5c38-8979-05588f836870"
+PositionVelocityTime = "52ec0b5e-ee36-11ea-211c-3d844fc5682d"
+Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
