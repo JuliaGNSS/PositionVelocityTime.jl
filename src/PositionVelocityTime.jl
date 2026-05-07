@@ -225,10 +225,9 @@ function calc_pvt(
     all(state -> state.system == states[1].system, states) ||
         ArgumentError("For now all satellites need to be base on the same GNSS")
     system = first(states).system
-    healthy_states = filter(x -> is_sat_healthy(x.decoder), states)
-    if length(healthy_states) < 4
-        return prev_pvt
-    end
+    healthy_indices = findall(x -> is_sat_healthy(x.decoder), states)
+    length(healthy_indices) < 4 && return prev_pvt
+    healthy_states = view(states, healthy_indices)
     prev_ξ = [prev_pvt.position; prev_pvt.time_correction]
     healthy_prns = map(state -> state.decoder.prn, healthy_states)
     times = map(state -> calc_corrected_time(state), healthy_states)
