@@ -10,7 +10,8 @@ using CoordinateTransformations,
     StaticArrays,
     Tracking,
     Unitful,
-    Statistics
+    Statistics,
+    Dates
 
 using Unitful: s, Hz
 
@@ -196,7 +197,9 @@ function get_sat_enu(user_pos_ecef::ECEF, sat_pos_ecef::ECEF)
 end
 
 """
-    calc_pvt(states::AbstractVector{<:SatelliteState}, prev_pvt::PVTSolution=PVTSolution()) -> PVTSolution
+    calc_pvt(states::AbstractVector{<:SatelliteState},
+             prev_pvt::PVTSolution = PVTSolution();
+             approximate_year::Integer = year(now(UTC))) -> PVTSolution
 
 Calculate Position, Velocity, and Time (PVT) from GNSS satellite measurements.
 
@@ -208,6 +211,15 @@ carrier Doppler measurements.
 - `states`: Vector of [`SatelliteState`](@ref) for observed satellites
 - `prev_pvt`: Previous PVT solution used as initial guess (default: origin)
 
+# Keyword Arguments
+- `approximate_year`: Calendar year of the observation, used to resolve the
+  GPS L1 C/A 1024-week rollover ambiguity (legacy LNAV broadcasts only a
+  10-bit week number, so the receiver needs external information to
+  determine which 1024-week cycle the recording is in). Anything within
+  ±9 years of the actual observation date works. Defaults to the current
+  UTC year, which is correct for live signals; for processing archived
+  recordings, pass the rough year of the recording.
+
 # Returns
 A [`PVTSolution`](@ref) containing position, velocity, time, DOP values, and
 satellite information. Returns `prev_pvt` if fewer than 4 healthy satellites are
@@ -218,7 +230,8 @@ available or if the GDOP is negative.
 """
 function calc_pvt(
     states::AbstractVector{<:SatelliteState},
-    prev_pvt::PVTSolution = PVTSolution(),
+    prev_pvt::PVTSolution = PVTSolution();
+    approximate_year::Integer = year(now(UTC)),
 )
     length(states) < 4 &&
         throw(ArgumentError("You'll need at least 4 satellites to calculate PVT"))
@@ -255,7 +268,7 @@ function calc_pvt(
     # See https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/8
     corrected_reference_time = reference_time - time_correction / SPEEDOFLIGHT
 
-    week = get_week(first(healthy_states).decoder)
+    week = get_week(first(healthy_states).decoder; approximate_year)
     start_time = get_system_start_time(first(healthy_states).decoder)
     time = TAIEpoch(
         week * 7 * 24 * 60 * 60 + floor(Int, corrected_reference_time) + start_time.second,
@@ -308,11 +321,42 @@ function get_system_start_time(
     TAIEpoch(1999, 8, 22, 0, 0, (32 - 13.0)) # There were 32 leap seconds at 08/22/1999 compared to UTC
 end
 
-function get_week(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1Data})
-    2048 + decoder.data.trans_week
+"""
+    get_week(decoder::GNSSDecoderState{<:GPSL1Data}; approximate_year)
+
+Return the absolute GPS week number for a GPSL1 decoder, resolving the
+1024-week rollover ambiguity using `approximate_year` as a calendar
+anchor.
+
+The legacy GPS L1 C/A LNAV message broadcasts only a 10-bit week number
+(0–1023) modulo 1024, so the receiver cannot determine which 1024-week
+cycle the recording is in from the data alone (IS-GPS-200, §20.3.3.3).
+Each cycle is ~19.6 years, so any anchor within ±9 years of the true
+observation date selects the correct cycle.
+
+GPS week 0 is 1980-01-06; cycle boundaries fall on 1999-08-22,
+2019-04-07, 2038-11-21, 2058-07-08, …
+
+For Galileo, the broadcast WN is 12 bits and does not need this
+treatment in any practical operational scenario.
+"""
+function get_week(
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1Data};
+    approximate_year::Integer = year(now(UTC)),
+)
+    # GPS week 0 begins 1980-01-06. Compute the integer week count from
+    # there to mid-`approximate_year`, then choose the cycle base such
+    # that `cycle_base + trans_week` is closest to that anchor.
+    days_at_anchor = Date(approximate_year, 6, 30) - Date(1980, 1, 6)
+    weeks_at_anchor = Dates.value(days_at_anchor) ÷ 7
+    n_cycles = round(Int, (weeks_at_anchor - decoder.data.trans_week) / 1024)
+    return n_cycles * 1024 + decoder.data.trans_week
 end
 
-function get_week(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GalileoE1BData})
+function get_week(
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GalileoE1BData};
+    approximate_year::Integer = year(now(UTC)),
+)
     decoder.data.WN
 end
 
