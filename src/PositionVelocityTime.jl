@@ -243,7 +243,7 @@ function calc_pvt(
     sat_positions_mat = reduce(hcat, sat_positions)
     H = calc_H(sat_positions_mat, ξ)
     user_velocity_and_clock_drift = calc_user_velocity_and_clock_drift(
-        sat_positions_and_velocities, ξ, healthy_states, H)
+        sat_positions_and_velocities, ξ, healthy_states, times, H)
     position = ECEF(ξ[1], ξ[2], ξ[3])
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
