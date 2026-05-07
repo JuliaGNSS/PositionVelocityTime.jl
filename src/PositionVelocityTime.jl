@@ -32,7 +32,7 @@ export calc_pvt,
     get_frequency_offset
 
 """
-    SatelliteState{CP<:Real}
+    SatelliteState{CP<:Real,D<:GNSSDecoderState,S<:AbstractGNSS}
 
 Combines the GNSS decoder state with code and carrier phase measurements for a single satellite.
 
@@ -50,9 +50,9 @@ Combines the GNSS decoder state with code and carrier phase measurements for a s
 The second constructor extracts code phase, carrier Doppler, and carrier phase from a
 `Tracking.SatState`.
 """
-@kwdef struct SatelliteState{CP<:Real}
-    decoder::GNSSDecoder.GNSSDecoderState
-    system::AbstractGNSS
+@kwdef struct SatelliteState{CP<:Real,D<:GNSSDecoder.GNSSDecoderState,S<:AbstractGNSS}
+    decoder::D
+    system::S
     code_phase::CP
     carrier_doppler::typeof(1.0Hz)
     carrier_phase::CP = 0.0
