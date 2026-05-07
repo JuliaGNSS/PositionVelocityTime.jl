@@ -496,6 +496,11 @@ BitIntegers.@define_integers 320
     @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 9
     @test get_frequency_offset(pvt, get_center_frequency(galileo_e1b)) ≈ -(1675.63Hz + freq_offset) atol = 0.01Hz
+
+    warm_pvt = calc_pvt(states, pvt)
+    @test get_LLA(warm_pvt) ≈ get_LLA(pvt)
+    @test warm_pvt.time ≈ pvt.time
+    @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
 
 @testset "PVT GPS L1 with frequency offset of $freq_offset" for freq_offset in (0.0Hz, 500Hz, -1000Hz)
@@ -1427,4 +1432,9 @@ end
     @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 2.5
     @test get_frequency_offset(pvt, get_center_frequency(gpsl1)) ≈ -(1632.59Hz + freq_offset) atol = 0.01Hz
+
+    warm_pvt = calc_pvt(states, pvt)
+    @test get_LLA(warm_pvt) ≈ get_LLA(pvt)
+    @test warm_pvt.time ≈ pvt.time
+    @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
