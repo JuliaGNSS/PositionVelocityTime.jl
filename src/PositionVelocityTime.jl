@@ -239,7 +239,7 @@ function calc_pvt(
     )
     sat_positions = map(get_sat_position, sat_positions_and_velocities)
     pseudo_ranges, reference_time = calc_pseudo_ranges(times)
-    ξ, rmse = user_position(sat_positions, pseudo_ranges)
+    ξ, rmse = user_position(sat_positions, pseudo_ranges, prev_ξ)
     user_velocity_and_clock_drift =
         calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, healthy_states)
     position = ECEF(ξ[1], ξ[2], ξ[3])
