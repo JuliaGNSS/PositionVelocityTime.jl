@@ -133,9 +133,16 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, st
         e = calc_e(get_sat_position(sat_pv), ξ)
         y[j] = -(doppler * λ - clock_drift * SPEEDOFLIGHT - dot(e, get_sat_velocity(sat_pv)))
     end
-    HtH = SMatrix{4,4}(H' * H)
-    Hty = SVector{4}(H' * y)
-    HtH \ Hty
+    _solve_velocity_qr(Val(n), H, y)
+end
+
+@generated function _solve_velocity_qr(::Val{n}, H, y) where {n}
+    quote
+        Hs = SMatrix{$n, 4}(H)
+        ys = SVector{$n}(y)
+        F = qr(Hs)
+        SMatrix{4,4}(F.R) \ (F.Q' * ys)
+    end
 end
 
 get_sat_position(x) = x.position
