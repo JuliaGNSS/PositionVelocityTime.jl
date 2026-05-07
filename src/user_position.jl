@@ -6,11 +6,10 @@ $SIGNATURES
 `ξ`: Combination of estimated user position and time correction
 `sat_positions`: Satellite Positions
 """
-function calc_ρ_hat(sat_positions, ξ)
+function calc_ρ_hat!(ρ, sat_positions, ξ)
     rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
     tc = ξ[4]
     n = size(sat_positions, 2)
-    ρ = Vector{Float64}(undef, n)
     for j in 1:n
         sat_pos = SVector{3}(sat_positions[1, j], sat_positions[2, j], sat_positions[3, j])
         travel_time = norm(sat_pos - rₙ) / SPEEDOFLIGHT
@@ -53,9 +52,8 @@ $SIGNATURES
 `ξ`: Combination of estimated user position and time correction
 `sat_positions`: Matrix of satellite positions
 """
-function calc_H(sat_positions, ξ)
+function calc_H!(H, sat_positions, ξ)
     n = size(sat_positions, 2)
-    H = Matrix{Float64}(undef, n, 4)
     for j in 1:n
         sat_pos = SVector{3}(view(sat_positions, :, j))
         e = calc_e(sat_pos, ξ)
@@ -66,6 +64,9 @@ function calc_H(sat_positions, ξ)
     end
     return H
 end
+
+calc_H(sat_positions, ξ) =
+    calc_H!(Matrix{Float64}(undef, size(sat_positions, 2), 4), sat_positions, ξ)
 
 """
 Calculates the dilution of precision for a given geometry matrix H
@@ -106,7 +107,10 @@ Calculates the user position by least squares method. The algorithm is based on 
 function user_position(sat_positions, ρ, prev_ξ = zeros(4))
     sat_positions_mat = reduce(hcat, sat_positions)
 
-    ξ_fit_ols = curve_fit(calc_ρ_hat, calc_H, sat_positions_mat, ρ, collect(prev_ξ))
+    ξ_fit_ols = curve_fit(
+        calc_ρ_hat!, calc_H!, sat_positions_mat, ρ, collect(prev_ξ);
+        inplace = true,
+    )
     #    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
     #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions_mat, ρ, wt, collect(prev_ξ))
     rmse = sqrt(mean(ξ_fit_ols.resid .^ 2))
