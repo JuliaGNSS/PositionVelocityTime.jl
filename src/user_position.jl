@@ -74,7 +74,7 @@ $SIGNATURES
 `H_GEO`: Geometry matrix
 """
 function calc_DOP(H_GEO)
-    D = inv(Symmetric(collect(H_GEO' * H_GEO)))
+    D = inv(SMatrix{4,4}(H_GEO' * H_GEO))
     if D[4, 4] < 0 ||
         D[3, 3] < 0 ||
         D[1, 1] + D[2, 2] < 0 ||
@@ -120,7 +120,7 @@ $SIGNATURES
 
 Calculates the user velocity and clock drift
 """
-function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, states, H)
+function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, states, times, H)
     center_frequency = get_center_frequency(first(states).system)
     λ = SPEEDOFLIGHT / upreferred(center_frequency / Hz)
     n = length(states)
@@ -129,7 +129,7 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, st
         state = states[j]
         sat_pv = sat_positions_and_velocities[j]
         doppler = upreferred(state.carrier_doppler / Hz)
-        clock_drift = calc_satellite_clock_drift(state)
+        clock_drift = calc_satellite_clock_drift(state.decoder, times[j])
         e = calc_e(get_sat_position(sat_pv), ξ)
         y[j] = -(doppler * λ - clock_drift * SPEEDOFLIGHT - dot(e, get_sat_velocity(sat_pv)))
     end
