@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.4](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v1.0.3...v1.0.4) (2026-05-07)
+
+
+### Performance Improvements
+
+* only apply geodesic acceleration on cold start (iszero prev_ξ) ([d73e3fa](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/d73e3fad9f2eed486c34fb0797198b6931181793))
+* use geodesic acceleration in LM solve for user_position ([ac14723](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/ac14723e722a4ad66adcf5261bafc2c1fab94393))
+
 ## [1.0.3](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v1.0.2...v1.0.3) (2026-05-07)
 
 
