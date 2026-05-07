@@ -137,13 +137,24 @@ Calculates the user position by least squares method. The algorithm is based on 
 function user_position(sat_positions, ρ, prev_ξ = zeros(4))
     sat_positions_mat = reduce(hcat, sat_positions)
 
-    ξ_fit_ols = curve_fit(
-        calc_ρ_hat!, calc_H!, sat_positions_mat, ρ, collect(prev_ξ);
-        inplace = true,
-        avv! = (dir_deriv, p, v) -> calc_Avv!(dir_deriv, sat_positions_mat, p, v),
-        lambda = 0.0,
-        min_step_quality = 0.0,
-    )
+    # Geodesic acceleration helps when starting far from the optimum (cold start
+    # from origin, ~6e6 m away) by trading per-iteration work for fewer iterations.
+    # When prev_ξ is already near-converged, the extra Avv! evals are pure overhead.
+    # Detect cold by checking the default zeros(4) sentinel.
+    ξ_fit_ols = if iszero(prev_ξ)
+        curve_fit(
+            calc_ρ_hat!, calc_H!, sat_positions_mat, ρ, collect(prev_ξ);
+            inplace = true,
+            avv! = (dir_deriv, p, v) -> calc_Avv!(dir_deriv, sat_positions_mat, p, v),
+            lambda = 0.0,
+            min_step_quality = 0.0,
+        )
+    else
+        curve_fit(
+            calc_ρ_hat!, calc_H!, sat_positions_mat, ρ, collect(prev_ξ);
+            inplace = true,
+        )
+    end
     #    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
     #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions_mat, ρ, wt, collect(prev_ξ))
     rmse = sqrt(mean(ξ_fit_ols.resid .^ 2))
