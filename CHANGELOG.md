@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v1.0.4...v1.0.5) (2026-05-07)
+
+
+### Performance Improvements
+
+* avoid materializing healthy_states via findall + view ([263801d](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/263801d469c5f0e2207e46cdb989103899d53e00))
+
 ## [1.0.4](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v1.0.3...v1.0.4) (2026-05-07)
 
 
