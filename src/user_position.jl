@@ -7,14 +7,17 @@ $SIGNATURES
 `sat_positions`: Satellite Positions
 """
 function calc_ρ_hat(sat_positions, ξ)
-    rₙ = ξ[1:3]
+    rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
     tc = ξ[4]
-
-    map(eachcol(sat_positions)) do sat_pos
+    n = size(sat_positions, 2)
+    ρ = Vector{Float64}(undef, n)
+    for j in 1:n
+        sat_pos = SVector{3}(sat_positions[1, j], sat_positions[2, j], sat_positions[3, j])
         travel_time = norm(sat_pos - rₙ) / SPEEDOFLIGHT
         rotated_sat_pos = rotate_by_earth_rotation(sat_pos, travel_time)
-        norm(rotated_sat_pos - rₙ) + tc
+        ρ[j] = norm(rotated_sat_pos - rₙ) + tc
     end
+    return ρ
 end
 
 function rotate_by_earth_rotation(sat_pos, Δt)
@@ -36,7 +39,7 @@ $SIGNATURES
 `sat_pos`: Single satellite positions
 """
 function calc_e(sat_pos, ξ)
-    rₙ = ξ[1:3]
+    rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
     travel_time = norm(sat_pos - rₙ) / SPEEDOFLIGHT
     rotated_sat_pos = rotate_by_earth_rotation(sat_pos, travel_time)
     (rₙ - rotated_sat_pos) / norm(rₙ - rotated_sat_pos)
@@ -51,7 +54,17 @@ $SIGNATURES
 `sat_positions`: Matrix of satellite positions
 """
 function calc_H(sat_positions, ξ)
-    mapreduce(sat_pos -> [transpose(calc_e(sat_pos, ξ)) 1], vcat, eachcol(sat_positions))
+    n = size(sat_positions, 2)
+    H = Matrix{Float64}(undef, n, 4)
+    for j in 1:n
+        sat_pos = SVector{3}(view(sat_positions, :, j))
+        e = calc_e(sat_pos, ξ)
+        H[j, 1] = e[1]
+        H[j, 2] = e[2]
+        H[j, 3] = e[3]
+        H[j, 4] = 1.0
+    end
+    return H
 end
 
 """
@@ -107,19 +120,22 @@ $SIGNATURES
 
 Calculates the user velocity and clock drift
 """
-function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, states)
-    sat_positions = map(get_sat_position, sat_positions_and_velocities)
-    sat_positions_mat = reduce(hcat, sat_positions)
-    sat_clock_drifts = map(calc_satellite_clock_drift, states)
-    sat_dopplers = map(x -> upreferred(x.carrier_doppler / Hz), states)
-    H = collect(calc_H(sat_positions_mat, ξ))
+function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, states, H)
     center_frequency = get_center_frequency(first(states).system)
     λ = SPEEDOFLIGHT / upreferred(center_frequency / Hz)
-    y =
-        -(sat_dopplers * λ -
-        sat_clock_drifts * SPEEDOFLIGHT -
-        map(x -> dot(calc_e(get_sat_position(x), ξ), get_sat_velocity(x)), sat_positions_and_velocities))
-    H \ y
+    n = length(states)
+    y = Vector{Float64}(undef, n)
+    for j in 1:n
+        state = states[j]
+        sat_pv = sat_positions_and_velocities[j]
+        doppler = upreferred(state.carrier_doppler / Hz)
+        clock_drift = calc_satellite_clock_drift(state)
+        e = calc_e(get_sat_position(sat_pv), ξ)
+        y[j] = -(doppler * λ - clock_drift * SPEEDOFLIGHT - dot(e, get_sat_velocity(sat_pv)))
+    end
+    HtH = SMatrix{4,4}(H' * H)
+    Hty = SVector{4}(H' * y)
+    HtH \ Hty
 end
 
 get_sat_position(x) = x.position

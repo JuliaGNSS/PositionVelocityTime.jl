@@ -240,8 +240,10 @@ function calc_pvt(
     sat_positions = map(get_sat_position, sat_positions_and_velocities)
     pseudo_ranges, reference_time = calc_pseudo_ranges(times)
     ξ, rmse = user_position(sat_positions, pseudo_ranges, prev_ξ)
-    user_velocity_and_clock_drift =
-        calc_user_velocity_and_clock_drift(sat_positions_and_velocities, ξ, healthy_states)
+    sat_positions_mat = reduce(hcat, sat_positions)
+    H = calc_H(sat_positions_mat, ξ)
+    user_velocity_and_clock_drift = calc_user_velocity_and_clock_drift(
+        sat_positions_and_velocities, ξ, healthy_states, H)
     position = ECEF(ξ[1], ξ[2], ξ[3])
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
@@ -263,7 +265,7 @@ function calc_pvt(
 
     sat_infos = SatInfo.(sat_positions, times)
 
-    dop = calc_DOP(calc_H(reduce(hcat, sat_positions), ξ))
+    dop = calc_DOP(H)
     if dop.GDOP < 0
         return prev_pvt
     end
