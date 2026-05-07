@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v1.0.0...v1.0.1) (2026-05-07)
+
+
+### Performance Improvements
+
+* parameterize SatelliteState on decoder and system types ([1fc631f](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/1fc631f3cbefe886a4893cff6b29961408f13a10))
+
 # [0.3.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v0.2.2...v0.3.0) (2026-03-24)
 
 
