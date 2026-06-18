@@ -11,6 +11,11 @@ using Unitful: Hz
 BitIntegers.@define_integers 288
 BitIntegers.@define_integers 320
 
+# GNSSSignals renamed GPSL1 -> GPSL1CA in v2. AirspeedVelocity runs this script
+# against both the PR and the base revision, which may resolve either GNSSSignals
+# major version, so pick whichever GPS L1 C/A type this version provides.
+const GPSL1CASystem = isdefined(GNSSSignals, :GPSL1CA) ? GNSSSignals.GPSL1CA : GNSSSignals.GPSL1
+
 "5 Galileo E1B satellites over Aachen, 2021-05-31 (from test/pvt.jl)."
 function make_galileo_states()
     galileo_e1b = GalileoE1B()
@@ -506,7 +511,7 @@ end
 
 "9 GPS L1 satellites over Aachen, 2021-05-31 (from test/pvt.jl)."
 function make_gps_states()
-    gpsl1 = GPSL1CA()
+    gpsl1 = GPSL1CASystem()
     states = [
         SatelliteState(;
             decoder = GNSSDecoderState(
