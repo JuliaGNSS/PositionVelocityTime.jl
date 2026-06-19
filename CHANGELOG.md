@@ -1,5 +1,24 @@
 # Changelog
 
+# [2.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v1.0.6...v2.0.0) (2026-06-19)
+
+
+* feat!: migrate to Tracking 2 (GNSSSignals 2, GNSSDecoder 1.3) ([b4bec52](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/b4bec520b5680e57b91aaed737356f6322e215b1))
+
+
+### Bug Fixes
+
+* **benchmark:** pick GPS L1 type by GNSSSignals version ([57e5520](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/57e552088bc572d8caca42728a043f3707b17738))
+* **benchmark:** update fixtures for GNSSDecoder 1.3 / GNSSSignals 2 ([0387b36](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/0387b3627a3f63f603cfdbdbaebc2e523d27a5fc))
+
+
+### BREAKING CHANGES
+
+* drops support for GNSSSignals 1 and Tracking 1; the core
+API now requires the v2 ecosystem.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+
 ## [1.0.6](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v1.0.5...v1.0.6) (2026-05-07)
 
 
