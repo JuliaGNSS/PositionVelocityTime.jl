@@ -8,7 +8,6 @@ using CoordinateTransformations,
     AstroTime,
     LsqFit,
     StaticArrays,
-    Tracking,
     Unitful,
     Statistics,
     Dates
@@ -33,44 +32,32 @@ export calc_pvt,
     get_frequency_offset
 
 """
-    SatelliteState{CP<:Real,D<:GNSSDecoderState,S<:AbstractGNSS}
+    SatelliteState{CP<:Real,D<:GNSSDecoderState,S<:AbstractGNSSSignal}
 
 Combines the GNSS decoder state with code and carrier phase measurements for a single satellite.
 
 # Fields
 - `decoder::GNSSDecoderState`: GNSS decoder state containing decoded navigation data
-- `system::AbstractGNSS`: GNSS system (e.g., `GPSL1()`, `GalileoE1B()`)
+- `system::AbstractGNSSSignal`: GNSS system (e.g., `GPSL1CA()`, `GalileoE1B()`)
 - `code_phase::CP`: Code phase measurement
 - `carrier_doppler`: Carrier Doppler frequency in Hz
 - `carrier_phase::CP`: Carrier phase measurement (default: `0.0`)
 
 # Constructors
     SatelliteState(; decoder, system, code_phase, carrier_doppler, carrier_phase=0.0)
-    SatelliteState(decoder, system, sat_state::SatState)
+    SatelliteState(decoder, system, sat_state)
 
 The second constructor extracts code phase, carrier Doppler, and carrier phase from a
-`Tracking.SatState`.
+`Tracking` satellite state (`Tracking.SatState` for Tracking ≤ 1, `Tracking.TrackedSat` for
+Tracking ≥ 2). It is provided by a package extension that is loaded automatically once
+`Tracking` is available, so `Tracking` is only a weak dependency of this package.
 """
-@kwdef struct SatelliteState{CP<:Real,D<:GNSSDecoder.GNSSDecoderState,S<:AbstractGNSS}
+@kwdef struct SatelliteState{CP<:Real,D<:GNSSDecoder.GNSSDecoderState,S<:AbstractGNSSSignal}
     decoder::D
     system::S
     code_phase::CP
     carrier_doppler::typeof(1.0Hz)
     carrier_phase::CP = 0.0
-end
-
-function SatelliteState(
-    decoder::GNSSDecoder.GNSSDecoderState,
-    system::AbstractGNSS,
-    sat_state::SatState,
-)
-    SatelliteState(
-        decoder,
-        system,
-        get_code_phase(sat_state),
-        get_carrier_doppler(sat_state),
-        get_carrier_phase(sat_state),
-    )
 end
 
 """
