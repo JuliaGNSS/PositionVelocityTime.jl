@@ -494,14 +494,25 @@ BitIntegers.@define_integers 320
     # this test stays valid as the wall clock drifts past 2030 (when the
     # default `now()` anchor would start picking the wrong rollover cycle
     # for these archived fixtures).
-    pvt = calc_pvt(states; approximate_year = 2021)
+    pvt = calc_pvt(
+        states;
+        approximate_year = 2021,
+        enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false,
+    )
     expected_lla = LLA(; lat = 50.778851672464015, lon = 6.065568885758519, alt = 289.4069805158367)
     @test pvt.position ≈ ECEFfromLLA(wgs84)(expected_lla) rtol = 1e-8
     @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 9
     @test get_frequency_offset(pvt, get_center_frequency(galileo_e1b)) ≈ -(1675.63Hz + freq_offset) atol = 0.01Hz
 
-    warm_pvt = calc_pvt(states, pvt; approximate_year = 2021)
+    warm_pvt = calc_pvt(
+        states,
+        pvt;
+        approximate_year = 2021,
+        enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false,
+    )
     @test get_LLA(warm_pvt) ≈ get_LLA(pvt)
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
@@ -1432,14 +1443,25 @@ end
 
     # Fixture data was recorded on 2021-05-31. See the note on the
     # Galileo testset above for why we pin `approximate_year`.
-    pvt = calc_pvt(states; approximate_year = 2021)
+    pvt = calc_pvt(
+        states;
+        approximate_year = 2021,
+        enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false,
+    )
     expected_lla = LLA(; lat = 50.77885249310784, lon = 6.0656199911189175, alt = 291.95658091689086)
     @test pvt.position ≈ ECEFfromLLA(wgs84)(expected_lla) rtol = 1e-8
     @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 2.5
     @test get_frequency_offset(pvt, get_center_frequency(gpsl1)) ≈ -(1632.59Hz + freq_offset) atol = 0.01Hz
 
-    warm_pvt = calc_pvt(states, pvt; approximate_year = 2021)
+    warm_pvt = calc_pvt(
+        states,
+        pvt;
+        approximate_year = 2021,
+        enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false,
+    )
     @test get_LLA(warm_pvt) ≈ get_LLA(pvt)
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
