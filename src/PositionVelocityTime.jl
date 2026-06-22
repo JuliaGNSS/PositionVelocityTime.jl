@@ -186,13 +186,27 @@ end
 """
     calc_pvt(states::AbstractVector{<:SatelliteState},
              prev_pvt::PVTSolution = PVTSolution();
-             approximate_year::Integer = year(now(UTC))) -> PVTSolution
+             approximate_year::Integer = year(now(UTC)),
+             enable_ionospheric_correction::Bool = true,
+             enable_tropospheric_correction::Bool = true) -> PVTSolution
 
 Calculate Position, Velocity, and Time (PVT) from GNSS satellite measurements.
 
 Requires at least 4 healthy satellites from the same GNSS system. Uses least-squares
 estimation for position and time, and solves for velocity and clock drift from
 carrier Doppler measurements.
+
+Unless disabled via `enable_ionospheric_correction`, the ionospheric delay is
+corrected automatically using only the coefficients decoded from the navigation
+messages. A single model is chosen for the whole solve and applied to every
+satellite: NTCM-G if Galileo Effective Ionisation Level coefficients have been
+decoded (the more accurate model), otherwise the Klobuchar model if GPS L1 α/β
+have been decoded, otherwise no correction. See
+[`select_ionospheric_correction`](@ref) and [`ionospheric_delay`](@ref).
+
+Unless disabled via `enable_tropospheric_correction`, the tropospheric delay is
+corrected with the blind Saastamoinen model (no broadcast coefficients needed).
+See [`tropospheric_delay`](@ref).
 
 # Arguments
 - `states`: Vector of [`SatelliteState`](@ref) for observed satellites
@@ -206,6 +220,12 @@ carrier Doppler measurements.
   ±9 years of the actual observation date works. Defaults to the current
   UTC year, which is correct for live signals; for processing archived
   recordings, pass the rough year of the recording.
+- `enable_ionospheric_correction`: when `true` (default), apply the automatic
+  ionospheric correction described above. Set to `false` to skip it entirely
+  and solve from the raw pseudoranges (e.g. for diagnostics or when an external
+  correction is applied elsewhere).
+- `enable_tropospheric_correction`: when `true` (default), apply the Saastamoinen
+  tropospheric correction. Set to `false` to skip it.
 
 # Returns
 A [`PVTSolution`](@ref) containing position, velocity, time, DOP values, and
@@ -219,6 +239,8 @@ function calc_pvt(
     states::AbstractVector{<:SatelliteState},
     prev_pvt::PVTSolution = PVTSolution();
     approximate_year::Integer = year(now(UTC)),
+    enable_ionospheric_correction::Bool = true,
+    enable_tropospheric_correction::Bool = true,
 )
     length(states) < 4 &&
         throw(ArgumentError("You'll need at least 4 satellites to calculate PVT"))
@@ -238,7 +260,62 @@ function calc_pvt(
     )
     sat_positions = map(get_sat_position, sat_positions_and_velocities)
     pseudo_ranges, reference_time = calc_pseudo_ranges(times)
-    ξ, rmse = user_position(sat_positions, pseudo_ranges, prev_ξ)
+    # Atmospheric corrections, summed per satellite and subtracted from the
+    # pseudoranges. The ionospheric model is chosen for the whole solve from the
+    # coefficients decoded across the constellation (NTCM-G if Galileo coefficients
+    # are available, else Klobuchar if GPS α/β are available, else none; see
+    # `select_ionospheric_correction`); the troposphere uses the blind Saastamoinen
+    # model (see `tropospheric_delay`). A single corrected solve is enough: the
+    # delays depend on position only through the satellite elevation/azimuth (and,
+    # for the troposphere, the user height), and ∂delay/∂position is negligible over
+    # the metre-level position uncertainty (a 15 m shift moves the elevation by
+    # ~1e-5°), so delays predicted at a nearby position are accurate to well under a
+    # millimetre — no iterate-to-convergence needed.
+    correction =
+        enable_ionospheric_correction ? select_ionospheric_correction(healthy_states) :
+        nothing
+    function predict_atmospheric_delays(position)
+        user_pos = ECEF(position[1], position[2], position[3])
+        # The user position is the same for every satellite, so the geodetic
+        # coordinates and the ENU transform are computed once per epoch and reused.
+        user_lla = LLAfromECEF(wgs84)(user_pos)
+        enu_from_ecef = ENUfromECEF(user_pos, wgs84)
+        map(healthy_states, sat_positions) do state, sat_pos
+            elevation, azimuth = _elevation_azimuth(enu_from_ecef, sat_pos)
+            iono = ionospheric_delay(
+                correction,
+                state.system,
+                elevation,
+                azimuth,
+                user_lla,
+                reference_time,
+            )
+            tropo =
+                enable_tropospheric_correction ?
+                tropospheric_delay(elevation, user_lla) : 0.0
+            iono + tropo
+        end
+    end
+    ξ, rmse = if iszero(prev_ξ)
+        # Cold start: no prior position, and the Klobuchar model is undefined near
+        # the geocenter, so first obtain an approximate fix from an uncorrected
+        # solve, then re-solve once with the delay-corrected pseudoranges (only if
+        # there is anything to correct, so the uncorrected case stays a single solve).
+        ξ_uncorrected, rmse_uncorrected =
+            user_position(sat_positions, pseudo_ranges, prev_ξ)
+        atmospheric_delays = predict_atmospheric_delays(ξ_uncorrected)
+        any(!iszero, atmospheric_delays) ?
+        user_position(sat_positions, pseudo_ranges .- atmospheric_delays, ξ_uncorrected) :
+        (ξ_uncorrected, rmse_uncorrected)
+    else
+        # Warm start: predict the delays from the previous (already metre-accurate)
+        # position before solving, so ξ never needs a post-solve correction.
+        user_position(
+            sat_positions,
+            pseudo_ranges .- predict_atmospheric_delays(prev_ξ),
+            prev_ξ,
+        )
+    end
     sat_positions_mat = reduce(hcat, sat_positions)
     H = calc_H(sat_positions_mat, ξ)
     user_velocity_and_clock_drift = calc_user_velocity_and_clock_drift(
@@ -360,4 +437,6 @@ end
 include("user_position.jl")
 include("sat_time.jl")
 include("sat_position.jl")
+include("ionosphere.jl")
+include("troposphere.jl")
 end
