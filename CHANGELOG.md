@@ -1,5 +1,12 @@
 # Changelog
 
+# [2.1.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v2.0.0...v2.1.0) (2026-06-22)
+
+
+### Features
+
+* ionospheric and tropospheric corrections in calc_pvt ([#38](https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/38)) ([c2a74e0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/c2a74e008d96fafedc247609cff8022119afd0eb))
+
 # [2.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v1.0.6...v2.0.0) (2026-06-19)
 
 
