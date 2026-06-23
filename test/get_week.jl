@@ -1,13 +1,13 @@
 using PositionVelocityTime: get_week
-using GNSSDecoder: GNSSDecoderState, GPSL1Data
+using GNSSDecoder: GNSSDecoderState, GPSL1CAData
 using GNSSSignals: GPSL1CA, GalileoE1B
 
-# Build a minimal GNSSDecoderState{GPSL1Data} with the given broadcast
+# Build a minimal GNSSDecoderState{GPSL1CAData} with the given broadcast
 # 10-bit `trans_week`. `get_week` only reads `decoder.data.trans_week`
 # so the rest of the state can stay at its default zero values.
 function decoder_with_trans_week(trans_week)
     base = GNSSDecoderState(GPSL1CA(), 1)
-    GNSSDecoderState(base; data = GPSL1Data(base.data; trans_week))
+    GNSSDecoderState(base; data = GPSL1CAData(base.data; trans_week))
 end
 
 @testset "get_week resolves GPS L1 week-rollover ambiguity" begin

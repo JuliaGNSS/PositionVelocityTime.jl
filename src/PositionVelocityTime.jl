@@ -374,7 +374,7 @@ function get_frequency_offset(pvt::PVTSolution, base_frequency)
 end
 
 function get_system_start_time(
-    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1Data},
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1CAData},
 )
     TAIEpoch(1980, 1, 6, 0, 0, 19.0) # There were 19 leap seconds at 01/06/1999 compared to UTC
 end
@@ -386,7 +386,7 @@ function get_system_start_time(
 end
 
 """
-    get_week(decoder::GNSSDecoderState{<:GPSL1Data}; approximate_year)
+    get_week(decoder::GNSSDecoderState{<:GPSL1CAData}; approximate_year)
 
 Return the absolute GPS week number for a GPSL1 decoder, resolving the
 1024-week rollover ambiguity using `approximate_year` as a calendar
@@ -405,7 +405,7 @@ For Galileo, the broadcast WN is 12 bits and does not need this
 treatment in any practical operational scenario.
 """
 function get_week(
-    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1Data};
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1CAData};
     approximate_year::Integer = year(now(UTC)),
 )
     # GPS week 0 begins 1980-01-06. Compute the integer week count from

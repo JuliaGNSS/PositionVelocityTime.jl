@@ -36,7 +36,7 @@ function calc_satellite_clock_drift(decoder::GNSSDecoder.GNSSDecoderState, t)
 end
 
 function correct_by_group_delay(
-    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1Data},
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1CAData},
     t,
 )
     t - decoder.data.T_GD

@@ -1,13 +1,9 @@
-BitIntegers.@define_integers 288
-BitIntegers.@define_integers 320
 @testset "PVT Galileo E1B with frequency offset of $freq_offset" for freq_offset in (0.0Hz, 500Hz, -1000Hz)
     galileo_e1b = GalileoE1B()
     states = [
         SatelliteState(;
             decoder = GNSSDecoderState(
                 2,
-                uint288"0x4001ec23bff8485200005ec5ff7a895805f4d37fe877968040ae99fffd20b00d205dcf80",
-                uint288"0xd2a6aec5828003d8477ff090a40000bd8bfef512b00be9a6ffd0ef2d00815d33fffa4160",
                 GNSSDecoder.GalileoE1BData(
                     WN = 1136,
                     TOW = 132769,
@@ -91,7 +87,6 @@ BitIntegers.@define_integers 320
                     -4.442807309e-10,
                 ),
                 GNSSDecoder.GalileoE1BCache(),
-                49,
                 1549,
                 false,
             ),
@@ -103,8 +98,6 @@ BitIntegers.@define_integers 320
         SatelliteState(;
             decoder = GNSSDecoderState(
                 4,
-                uint288"0xc3ffc21fe800f025ffffeba64010c2fcff43fd5002fd6eaff7f228c000c1e9fe5bc6460f",
-                uint288"0xd158f0c583c003de017ff0fda00001459bfef3d0300bc02affd029150080dd73fff3e160",
                 GNSSDecoder.GalileoE1BData(
                     WN = 1136,
                     TOW = 132769,
@@ -188,7 +181,6 @@ BitIntegers.@define_integers 320
                     -4.442807309e-10,
                 ),
                 GNSSDecoder.GalileoE1BCache(),
-                46,
                 1546,
                 true,
             ),
@@ -200,8 +192,6 @@ BitIntegers.@define_integers 320
         SatelliteState(;
             decoder = GNSSDecoderState(
                 11,
-                uint288"0x8007b086ffe1b77000036397fde280e017a75dffa08a320100aa47ffeec2c03481373e00",
-                uint288"0xd4878bc5834003d8437ff0dbb80001b1cbfef140700bd3aeffd0451900805523fff76160",
                 GNSSDecoder.GalileoE1BData(
                     WN = 1136,
                     TOW = 132769,
@@ -285,7 +275,6 @@ BitIntegers.@define_integers 320
                     -4.442807309e-10,
                 ),
                 GNSSDecoder.GalileoE1BCache(),
-                51,
                 1551,
                 false,
             ),
@@ -297,8 +286,6 @@ BitIntegers.@define_integers 320
         SatelliteState(;
             decoder = GNSSDecoderState(
                 25,
-                uint288"0x7fff0d5ea003cad0ffffe78900422343fd0b07400be9b7bfdf65a700010ba7f96fe9183f",
-                uint288"0xd1dbd245820003ca857ff0d4bc000061dbfef772f00bd3e2ffd0592100826963fffbd160",
                 GNSSDecoder.GalileoE1BData(
                     WN = 1136,
                     TOW = 132769,
@@ -382,7 +369,6 @@ BitIntegers.@define_integers 320
                     -4.442807309e-10,
                 ),
                 GNSSDecoder.GalileoE1BCache(),
-                48,
                 1548,
                 true,
             ),
@@ -394,8 +380,6 @@ BitIntegers.@define_integers 320
         SatelliteState(;
             decoder = GNSSDecoderState(
                 30,
-                uint288"0xa7ff845f3001e40b7fffe54480215fd1fe85d2a005fd7cdfefff5b800197d3fcb7a08c1f",
-                uint288"0xd3f0160582c003dd067ff0dfa40000d5dbfef501700bd16affd0141900800523fff34160",
                 GNSSDecoder.GalileoE1BData(
                     WN = 1136,
                     TOW = 132769,
@@ -479,7 +463,6 @@ BitIntegers.@define_integers 320
                     -4.442807309e-10,
                 ),
                 GNSSDecoder.GalileoE1BCache(),
-                47,
                 1547,
                 true,
             ),
@@ -524,9 +507,7 @@ end
         SatelliteState(;
             decoder = GNSSDecoderState(
                 7,
-                uint320"0xe2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c07090f36c308b01c020ace4d54",
-                uint320"0x0048b01c020ace2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c07090f36c308b",
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -564,7 +545,7 @@ end
                     IODE_Sub_3 = "01000110",
                     i_dot = 1.657211886669833e-10,
                 ),
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -602,7 +583,7 @@ end
                     IODE_Sub_3 = "01000110",
                     i_dot = 1.657211886669833e-10,
                 ),
-                GNSSDecoder.GPSL1Constants(
+                GNSSDecoder.GPSL1CAConstants(
                     300,
                     0x8b,
                     8,
@@ -613,8 +594,7 @@ end
                     3.986005e14,
                     -4.442807633e-10,
                 ),
-                GNSSDecoder.GPSL1Cache(),
-                60,
+                GNSSDecoder.GPSL1CACache(),
                 360,
                 false,
             ),
@@ -626,9 +606,7 @@ end
         SatelliteState(;
             decoder = GNSSDecoderState(
                 8,
-                uint320"0xe2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c07090f36c308b01c020ace4d54",
-                uint320"0xaf88b01c020ace2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c07090f36c308b",
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -666,7 +644,7 @@ end
                     IODE_Sub_3 = "01100111",
                     i_dot = -1.353627812603161e-10,
                 ),
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -704,7 +682,7 @@ end
                     IODE_Sub_3 = "01100111",
                     i_dot = -1.353627812603161e-10,
                 ),
-                GNSSDecoder.GPSL1Constants(
+                GNSSDecoder.GPSL1CAConstants(
                     300,
                     0x8b,
                     8,
@@ -715,8 +693,7 @@ end
                     3.986005e14,
                     -4.442807633e-10,
                 ),
-                GNSSDecoder.GPSL1Cache(),
-                60,
+                GNSSDecoder.GPSL1CACache(),
                 360,
                 false,
             ),
@@ -728,9 +705,7 @@ end
         SatelliteState(;
             decoder = GNSSDecoderState(
                 10,
-                uint320"0x1d3db86b3655d4396b13e1f30d99b57860edf0be15870e004a0193f8f59c1513374fe3fdf531b2ab",
-                uint320"0xdf48b01c020ace2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c070a63eaecc8b",
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -768,7 +743,7 @@ end
                     IODE_Sub_3 = "00101000",
                     i_dot = 3.893019302737323e-11,
                 ),
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -806,7 +781,7 @@ end
                     IODE_Sub_3 = "00101000",
                     i_dot = 3.893019302737323e-11,
                 ),
-                GNSSDecoder.GPSL1Constants(
+                GNSSDecoder.GPSL1CAConstants(
                     300,
                     0x8b,
                     8,
@@ -817,8 +792,7 @@ end
                     3.986005e14,
                     -4.442807633e-10,
                 ),
-                GNSSDecoder.GPSL1Cache(),
-                60,
+                GNSSDecoder.GPSL1CACache(),
                 360,
                 true,
             ),
@@ -830,9 +804,7 @@ end
         SatelliteState(;
             decoder = GNSSDecoderState(
                 15,
-                uint320"0xe2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c07084f478988b01c020ace4d54",
-                uint320"0x4fc8b01c020ace2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c07084f478988b",
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -870,7 +842,7 @@ end
                     IODE_Sub_3 = "01011001",
                     i_dot = 3.010839699272994e-10,
                 ),
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -908,7 +880,7 @@ end
                     IODE_Sub_3 = "01011001",
                     i_dot = 3.010839699272994e-10,
                 ),
-                GNSSDecoder.GPSL1Constants(
+                GNSSDecoder.GPSL1CAConstants(
                     300,
                     0x8b,
                     8,
@@ -919,8 +891,7 @@ end
                     3.986005e14,
                     -4.442807633e-10,
                 ),
-                GNSSDecoder.GPSL1Cache(),
-                60,
+                GNSSDecoder.GPSL1CACache(),
                 360,
                 false,
             ),
@@ -932,9 +903,7 @@ end
         SatelliteState(;
             decoder = GNSSDecoderState(
                 16,
-                uint320"0xe2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c07084f478988b01c020ace4d54",
-                uint320"0x9d88b01c020ace2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c07084f478988b",
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -972,7 +941,7 @@ end
                     IODE_Sub_3 = "00100010",
                     i_dot = -2.95012288445966e-10,
                 ),
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -1010,7 +979,7 @@ end
                     IODE_Sub_3 = "00100010",
                     i_dot = -2.95012288445966e-10,
                 ),
-                GNSSDecoder.GPSL1Constants(
+                GNSSDecoder.GPSL1CAConstants(
                     300,
                     0x8b,
                     8,
@@ -1021,8 +990,7 @@ end
                     3.986005e14,
                     -4.442807633e-10,
                 ),
-                GNSSDecoder.GPSL1Cache(),
-                60,
+                GNSSDecoder.GPSL1CACache(),
                 360,
                 false,
             ),
@@ -1034,9 +1002,7 @@ end
         SatelliteState(;
             decoder = GNSSDecoderState(
                 18,
-                uint320"0x1d3db86b3655d4396b13e1f30d99b57860edf0be15870e004a0193f8f729761f374fe3fdf531b2ab",
-                uint320"0x9b08b01c020ace2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c0708d689e0c8b",
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -1074,7 +1040,7 @@ end
                     IODE_Sub_3 = "11100001",
                     i_dot = -1.0071848104329588e-10,
                 ),
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -1112,7 +1078,7 @@ end
                     IODE_Sub_3 = "11100001",
                     i_dot = -1.0071848104329588e-10,
                 ),
-                GNSSDecoder.GPSL1Constants(
+                GNSSDecoder.GPSL1CAConstants(
                     300,
                     0x8b,
                     8,
@@ -1123,8 +1089,7 @@ end
                     3.986005e14,
                     -4.442807633e-10,
                 ),
-                GNSSDecoder.GPSL1Cache(),
-                60,
+                GNSSDecoder.GPSL1CACache(),
                 360,
                 true,
             ),
@@ -1136,9 +1101,7 @@ end
         SatelliteState(;
             decoder = GNSSDecoderState(
                 23,
-                uint320"0x1d3db86b3655d4396b13e1f30d99b57860edf0be15870e004a0193f8f6f0c93cf74fe3fdf531b2ab",
-                uint320"0x8fc8b01c020ace2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c07090f36c308b",
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -1176,7 +1139,7 @@ end
                     IODE_Sub_3 = "11101110",
                     i_dot = 3.107272287505937e-11,
                 ),
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -1214,7 +1177,7 @@ end
                     IODE_Sub_3 = "11101110",
                     i_dot = 3.107272287505937e-11,
                 ),
-                GNSSDecoder.GPSL1Constants(
+                GNSSDecoder.GPSL1CAConstants(
                     300,
                     0x8b,
                     8,
@@ -1225,8 +1188,7 @@ end
                     3.986005e14,
                     -4.442807633e-10,
                 ),
-                GNSSDecoder.GPSL1Cache(),
-                60,
+                GNSSDecoder.GPSL1CACache(),
                 360,
                 true,
             ),
@@ -1238,9 +1200,7 @@ end
         SatelliteState(;
             decoder = GNSSDecoderState(
                 26,
-                uint320"0x1d3db86b3655d4396b13e1f30d99b57860edf0be15870e004a0193f8f729761f374fe3fdf531b2ab",
-                uint320"0x3ac8b01c020ace2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c0708d689e0c8b",
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -1278,7 +1238,7 @@ end
                     IODE_Sub_3 = "01101110",
                     i_dot = -3.328710082707509e-10,
                 ),
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -1316,7 +1276,7 @@ end
                     IODE_Sub_3 = "01101110",
                     i_dot = -3.328710082707509e-10,
                 ),
-                GNSSDecoder.GPSL1Constants(
+                GNSSDecoder.GPSL1CAConstants(
                     300,
                     0x8b,
                     8,
@@ -1327,8 +1287,7 @@ end
                     3.986005e14,
                     -4.442807633e-10,
                 ),
-                GNSSDecoder.GPSL1Cache(),
-                60,
+                GNSSDecoder.GPSL1CACache(),
                 360,
                 true,
             ),
@@ -1340,9 +1299,7 @@ end
         SatelliteState(;
             decoder = GNSSDecoderState(
                 27,
-                uint320"0xe2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c070a63eaecc8b01c020ace4d54",
-                uint320"0x75c8b01c020ace2c24794c9aa2bc694ec1e0cf2664a879f120f41ea78f1ffb5fe6c070a63eaecc8b",
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -1380,7 +1337,7 @@ end
                     IODE_Sub_3 = "01001110",
                     i_dot = -1.2286226056345314e-10,
                 ),
-                GNSSDecoder.GPSL1Data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -1418,7 +1375,7 @@ end
                     IODE_Sub_3 = "01001110",
                     i_dot = -1.2286226056345314e-10,
                 ),
-                GNSSDecoder.GPSL1Constants(
+                GNSSDecoder.GPSL1CAConstants(
                     300,
                     0x8b,
                     8,
@@ -1429,8 +1386,7 @@ end
                     3.986005e14,
                     -4.442807633e-10,
                 ),
-                GNSSDecoder.GPSL1Cache(),
-                60,
+                GNSSDecoder.GPSL1CACache(),
                 360,
                 false,
             ),

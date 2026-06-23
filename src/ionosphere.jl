@@ -30,7 +30,7 @@ const _GPS_L1_FREQUENCY = GNSSSignals.get_center_frequency(GPSL1CA())
 
 The eight Klobuchar ionospheric coefficients decoded from a GPS L1 navigation
 message, in IS-GPS-200 SI units (seconds and seconds·semicircle⁻ⁿ). The field
-names mirror `GNSSDecoder.GPSL1Data` (`α_0…α_3`, `β_0…β_3`).
+names mirror `GNSSDecoder.GPSL1CAData` (`α_0…α_3`, `β_0…β_3`).
 """
 struct KlobucharParams
     α_0::Float64
@@ -64,7 +64,7 @@ Klobuchar α/β decoded from a GPS L1 navigation message, or `nothing` if they h
 not been broadcast yet (subframe 4, page 18) or the decoder is not GPS L1.
 """
 klobuchar_params(decoder) = nothing
-function klobuchar_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1Data})
+function klobuchar_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1CAData})
     d = decoder.data
     (isnothing(d.α_0) || isnothing(d.β_0)) && return nothing
     return KlobucharParams(d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)

@@ -1,5 +1,5 @@
 
-using Test, PositionVelocityTime, GNSSDecoder, AstroTime, BitIntegers, GNSSSignals, Geodesy, Dates
+using Test, PositionVelocityTime, GNSSDecoder, AstroTime, GNSSSignals, Geodesy, Dates
 using Unitful: Hz
 
 include("aqua.jl")

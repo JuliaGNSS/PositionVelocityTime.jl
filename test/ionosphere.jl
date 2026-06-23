@@ -59,7 +59,7 @@ end
         dec = GNSSDecoderState(GPSL1CA(), 1)
         GNSSDecoder.GNSSDecoderState(
             dec;
-            data = GNSSDecoder.GPSL1Data(
+            data = GNSSDecoder.GPSL1CAData(
                 dec.data;
                 α_0 = α[1],
                 α_1 = α[2],
