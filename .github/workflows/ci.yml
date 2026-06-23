@@ -40,3 +40,22 @@ jobs:
           disable_search: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  integration:
+    name: Integration (real-data PVT fix)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - name: Cache Flexiband L125 capture prefix
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/flexiband-l125
+          key: flexiband-l125-roof-210s-l1-prefix-v1
+      - uses: julia-actions/julia-runtest@v1
+        env:
+          PVT_RUN_INTEGRATION_TEST: 'true'
+          PVT_TESTDATA_DIR: ${{ runner.temp }}/flexiband-l125
