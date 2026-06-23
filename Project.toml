@@ -24,11 +24,14 @@ Tracking = "10b2438b-ffd4-5096-aa58-44041d5c8f3b"
 PositionVelocityTimeTrackingExt = "Tracking"
 
 [compat]
+Acquisition = "2"
 Aqua = "0.8"
 AstroTime = "0.7"
+CodecZlib = "0.7"
 CoordinateTransformations = "0.6"
 Dates = "1"
 DocStringExtensions = "0.6, 0.7, 0.8, 0.9"
+Downloads = "1"
 GNSSDecoder = "2"
 GNSSSignals = "2"
 Geodesy = "0.5, 1.0"
@@ -42,9 +45,12 @@ Unitful = "1"
 julia = "1.10"
 
 [extras]
+Acquisition = "d4bbf60b-102b-5ffb-8f97-a7ea5817e69f"
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"
+Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Tracking = "10b2438b-ffd4-5096-aa58-44041d5c8f3b"
 
 [targets]
-test = ["Test", "Aqua", "Tracking"]
+test = ["Acquisition", "Aqua", "CodecZlib", "Downloads", "Test", "Tracking"]
