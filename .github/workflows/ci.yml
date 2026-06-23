@@ -18,8 +18,11 @@ jobs:
         os:
           - ubuntu-latest
         include:
-          - os: windows-latest
-            version: '1'
+          # windows-latest is unsupported since GNSSDecoder 2: it depends on
+          # Aff3ct, whose aff3ct_jll ships no Windows binaries. Restore this
+          # entry once Aff3ct gains Windows support.
+          #- os: windows-latest
+          #  version: '1'
           - os: macOS-latest
             version: '1'
     steps:

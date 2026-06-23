@@ -1,11 +1,5 @@
 using LinearAlgebra: norm
 
-# Exact-width unsigned types backing the captured decoder bit buffers
-# (288-bit for Galileo E1B, 320-bit for GPS L1 C/A). Guarded so the file is
-# self-contained yet does not clash with the same definitions in `pvt.jl`.
-isdefined(@__MODULE__, :UInt288) || BitIntegers.@define_integers 288
-isdefined(@__MODULE__, :UInt320) || BitIntegers.@define_integers 320
-
 # Ground truth position
 const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
 
@@ -16,9 +10,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
             SatelliteState(;
                 decoder = GNSSDecoderState(
                     9,
-                    uint320"0xfffffac0000014ffffaf741b36875df7ac0111755517d5cdf8e80000ed4d11000f800004f20e38e3",
-                    uint320"0xf208baaa8beae71d80000000000000f8d15980b47fffffd6000000a7fffd7ba0d9b43aefbd60088b",
-                    GNSSDecoder.GPSL1Data(
+                    GNSSDecoder.GPSL1CAData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -64,7 +56,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = nothing,
                         β_3 = nothing,
                     ),
-                    GNSSDecoder.GPSL1Data(
+                    GNSSDecoder.GPSL1CAData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -110,7 +102,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = -65536.0,
                         β_3 = -393216.0,
                     ),
-                    GNSSDecoder.GPSL1Constants(
+                    GNSSDecoder.GPSL1CAConstants(
                         300,
                         0x8b,
                         8,
@@ -121,8 +113,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         3.986005e14,
                         -4.442807633e-10,
                     ),
-                    GNSSDecoder.GPSL1Cache(),
-                    173,
+                    GNSSDecoder.GPSL1CACache(),
                     173,
                     false,
                 ),
@@ -134,9 +125,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
             SatelliteState(;
                 decoder = GNSSDecoderState(
                     11,
-                    uint320"0x00000000000000000050d81b3686120853ef6e8aaae82a320717fffe20cd0c5197800004f20e38e3",
-                    uint320"0xf208baaa8beae71d800000000000017f5f5201ecfffffffffffffffffffd793f264bcf6fbd60848b",
-                    GNSSDecoder.GPSL1Data(
+                    GNSSDecoder.GPSL1CAData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -182,7 +171,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = nothing,
                         β_3 = nothing,
                     ),
-                    GNSSDecoder.GPSL1Data(
+                    GNSSDecoder.GPSL1CAData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -228,7 +217,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = -65536.0,
                         β_3 = -393216.0,
                     ),
-                    GNSSDecoder.GPSL1Constants(
+                    GNSSDecoder.GPSL1CAConstants(
                         300,
                         0x8b,
                         8,
@@ -239,8 +228,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         3.986005e14,
                         -4.442807633e-10,
                     ),
-                    GNSSDecoder.GPSL1Cache(),
-                    173,
+                    GNSSDecoder.GPSL1CACache(),
                     173,
                     true,
                 ),
@@ -252,9 +240,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
             SatelliteState(;
                 decoder = GNSSDecoderState(
                     17,
-                    uint320"0xffffffffffffffffffaf27e4c979edf7ac1091755517d5cdf8e800019ad6016e98bffffb190e38e3",
-                    uint320"0xf208baaa8beae71d8000000000000367d702b006fffffffffffffffffffd793f264bcf6fbd60848b",
-                    GNSSDecoder.GPSL1Data(
+                    GNSSDecoder.GPSL1CAData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -300,7 +286,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = nothing,
                         β_3 = nothing,
                     ),
-                    GNSSDecoder.GPSL1Data(
+                    GNSSDecoder.GPSL1CAData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -346,7 +332,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = -65536.0,
                         β_3 = -393216.0,
                     ),
-                    GNSSDecoder.GPSL1Constants(
+                    GNSSDecoder.GPSL1CAConstants(
                         300,
                         0x8b,
                         8,
@@ -357,8 +343,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         3.986005e14,
                         -4.442807633e-10,
                     ),
-                    GNSSDecoder.GPSL1Cache(),
-                    173,
+                    GNSSDecoder.GPSL1CACache(),
                     173,
                     false,
                 ),
@@ -370,9 +355,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
             SatelliteState(;
                 decoder = GNSSDecoderState(
                     27,
-                    uint320"0xfffffac0000014ffffaf741b36875df7ac0111755517d5cdf8e80000eafce6d996400004e6f1c71c",
-                    uint320"0xf208baaa8beae71d80000000000003d8fb25beea7fffffd6000000a7fffd7ba0d9b43aefbd60088b",
-                    GNSSDecoder.GPSL1Data(
+                    GNSSDecoder.GPSL1CAData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -418,7 +401,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = nothing,
                         β_3 = nothing,
                     ),
-                    GNSSDecoder.GPSL1Data(
+                    GNSSDecoder.GPSL1CAData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -464,7 +447,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = -65536.0,
                         β_3 = -393216.0,
                     ),
-                    GNSSDecoder.GPSL1Constants(
+                    GNSSDecoder.GPSL1CAConstants(
                         300,
                         0x8b,
                         8,
@@ -475,8 +458,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         3.986005e14,
                         -4.442807633e-10,
                     ),
-                    GNSSDecoder.GPSL1Cache(),
-                    173,
+                    GNSSDecoder.GPSL1CACache(),
                     173,
                     false,
                 ),
@@ -514,8 +496,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
             SatelliteState(;
                 decoder = GNSSDecoderState(
                     5,
-                    uint288"0xbfffffed00000047fffffe10000004bfffffeb04200f832fffe1e3c9ff809f5803ef0640",
-                    uint288"0xc00bdee5802000000c7fffffc4000000f7fffffda0000008ffffffc200000097fffffd60",
                     GNSSDecoder.GalileoE1BData(
                         WN = 1082,
                         TOW = 259279,
@@ -605,7 +585,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         -4.442807309e-10,
                     ),
                     GNSSDecoder.GalileoE1BCache(),
-                    141,
                     1391,
                     false,
                 ),
@@ -617,8 +596,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
             SatelliteState(;
                 decoder = GNSSDecoderState(
                     6,
-                    uint288"0xf7fffffda0000008ffffffc200000097fffffd608401f065fffc3c793ff013eb007de0c8",
-                    uint288"0xc00be565802000000c7fffffc4000000f7fffffda0000008ffffffc200000097fffffd60",
                     GNSSDecoder.GalileoE1BData(
                         WN = 1082,
                         TOW = 259279,
@@ -708,7 +685,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         -4.442807309e-10,
                     ),
                     GNSSDecoder.GalileoE1BCache(),
-                    138,
                     1388,
                     false,
                 ),
@@ -720,8 +696,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
             SatelliteState(;
                 decoder = GNSSDecoderState(
                     20,
-                    uint288"0x080000025ffffff70000003dffffff680000029f7bfe0f9a0003c386c00fec14ff821f37",
-                    uint288"0xc00bc465802000000c7fffffc4000000f7fffffda0000008ffffffc200000097fffffd60",
                     GNSSDecoder.GalileoE1BData(
                         WN = 1082,
                         TOW = 259279,
@@ -811,7 +785,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         -4.442807309e-10,
                     ),
                     GNSSDecoder.GalileoE1BCache(),
-                    138,
                     1388,
                     true,
                 ),
@@ -823,8 +796,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
             SatelliteState(;
                 decoder = GNSSDecoderState(
                     22,
-                    uint288"0x080000025ffffff70000003dffffff680000029f7bfe0f9a0003c386c00fec14ff821f37",
-                    uint288"0xc00bf825802000000c7fffffc4000000f7fffffda0000008ffffffc200000097fffffd60",
                     GNSSDecoder.GalileoE1BData(
                         WN = 1082,
                         TOW = 259279,
@@ -914,7 +885,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         -4.442807309e-10,
                     ),
                     GNSSDecoder.GalileoE1BCache(),
-                    138,
                     1388,
                     true,
                 ),
