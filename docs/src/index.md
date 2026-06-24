@@ -7,7 +7,7 @@ Calculates position, velocity, and time from GNSS satellite measurements.
 - Estimation of user position, velocity, and time
 - Satellite position and velocity calculation from orbital parameters
 - Dilution of Precision (DOP) computation
-- Support for GPS L1 and Galileo E1B
+- Support for GPS L1 and Galileo E1B, including combined multi-GNSS solutions
 
 ## Installation
 
@@ -46,3 +46,9 @@ With at least 4 satellite states, compute the PVT solution:
 pvt = calc_pvt(sat_states)
 lla = get_LLA(pvt)  # latitude, longitude, altitude
 ```
+
+Satellites from different constellations may be passed together. Because each GNSS
+references its broadcasts to its own system time, [`calc_pvt`](@ref) estimates one
+receiver clock bias per GNSS time system, so a combined fix needs at least `3 + M`
+satellites for `M` distinct systems. The per-system clock offsets are reported as
+`pvt.inter_system_biases` relative to `pvt.reference_system`.

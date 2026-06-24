@@ -5,6 +5,7 @@
 ```@docs
 SatelliteState
 PVTSolution
+SatInfo
 ```
 
 ## PVT Computation
@@ -50,5 +51,6 @@ get_tdop
 
 ```@docs
 get_num_used_sats
+get_sat_info
 get_frequency_offset
 ```
