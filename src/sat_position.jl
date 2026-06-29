@@ -1,3 +1,39 @@
+# GPS CNAV / CNAV-2 quasi-Keplerian reference values (IS-GPS-200N CNAV user
+# algorithm; identical in IS-GPS-705J and IS-GPS-800J).
+const GPS_SEMI_MAJOR_AXIS_REFERENCE = 26_559_710.0          # A_REF (m)
+const GPS_RATE_OF_RIGHT_ASCENSION_REFERENCE = -2.6e-9 * π   # Ω̇_REF (rad/s; -2.6e-9 semicircles/s)
+
+"""
+    orbital_elements(data, μ, t_k) -> (; A, sqrt_A, A_dot, n, Ω_dot)
+
+The Keplerian elements that differ between the directly-broadcast ephemerides
+(GPS LNAV `GPSL1CAData`, Galileo I/NAV `GalileoE1BData`) and the quasi-Keplerian
+GPS CNAV/CNAV-2 ephemerides (`GPSCNAVData` for L5 and L2C, `GPSL1C_DData` for
+L1C), evaluated at the time-from-ephemeris `t_k` (seconds):
+
+- `A`: semi-major axis at `t_0e` (m)
+- `sqrt_A`: its square root (m^½); the broadcast `sqrt_A` for the directly-broadcast
+  Keplerian case (no round-trip), `√A` for CNAV/CNAV-2 (which carry no `sqrt_A` field)
+- `A_dot`: its rate (m/s; `0` for the directly-broadcast Keplerian case)
+- `n`: corrected mean motion at `t_k` (rad/s)
+- `Ω_dot`: rate of right ascension (rad/s)
+
+Everything else the propagator needs (`e`, `ω`, `i_0`, `i_dot`, `M_0`, the `C_*`
+harmonic coefficients, `t_0e`) is named identically across all four nav messages
+and read from `data` directly. CNAV recovers `A` from `A_REF + ΔA` (with `Ȧ·t_k`
+added for the radius), the mean motion from `Δn_0 (+ ½ Δṅ_0 t_k)`, and `Ω̇` from
+`Ω̇_REF + ΔΩ̇`.
+"""
+function orbital_elements(data::GNSSDecoder.AbstractGNSSData, μ, t_k)
+    (A = data.sqrt_A^2, sqrt_A = data.sqrt_A, A_dot = 0.0, n = sqrt(μ) / data.sqrt_A^3 + data.Δn, Ω_dot = data.Ω_dot)
+end
+function orbital_elements(data::GPSModernNavData, μ, t_k)
+    A = GPS_SEMI_MAJOR_AXIS_REFERENCE + data.ΔA
+    n = sqrt(μ / A^3) + data.Δn_0 + 0.5 * data.Δn_0_dot * t_k
+    Ω_dot = GPS_RATE_OF_RIGHT_ASCENSION_REFERENCE + data.ΔΩ_dot
+    (A = A, sqrt_A = sqrt(A), A_dot = data.A_dot, n = n, Ω_dot = Ω_dot)
+end
+
 function calc_eccentric_anomaly(mean_anomaly, eccentricity)
     Ek = mean_anomaly
     for k = 1:30
@@ -12,10 +48,9 @@ end
 
 function calc_eccentric_anomaly(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data
-    computed_mean_motion = sqrt(decoder.constants.μ) / data.sqrt_A^3
     time_from_ephemeris_reference_epoch = correct_week_crossovers(t - data.t_0e)
-    corrected_mean_motion = computed_mean_motion + data.Δn
-    mean_anomaly = data.M_0 + corrected_mean_motion * time_from_ephemeris_reference_epoch
+    el = orbital_elements(data, decoder.constants.μ, time_from_ephemeris_reference_epoch)
+    mean_anomaly = data.M_0 + el.n * time_from_ephemeris_reference_epoch
     calc_eccentric_anomaly(mean_anomaly, data.e)
 end
 
@@ -62,10 +97,12 @@ coordinates (meters and m/s respectively).
 function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data
     constants = decoder.constants
-    semi_major_axis = data.sqrt_A^2
     time_from_ephemeris_reference_epoch = correct_week_crossovers(t - data.t_0e)
-    computed_mean_motion = sqrt(decoder.constants.μ) / data.sqrt_A^3
-    corrected_mean_motion = computed_mean_motion + data.Δn
+    el = orbital_elements(data, constants.μ, time_from_ephemeris_reference_epoch)
+    # Semi-major axis at t_k: constant for LNAV/Galileo (A_dot = 0), `A_0 + Ȧ·t_k`
+    # for CNAV/CNAV-2.
+    semi_major_axis = el.A + el.A_dot * time_from_ephemeris_reference_epoch
+    corrected_mean_motion = el.n
     eccentric_anomaly = calc_eccentric_anomaly(decoder, t)
     eccentric_anomaly_dot = corrected_mean_motion / (1.0 - data.e * cos(eccentric_anomaly))
     β = data.e / (1 + sqrt(1 - data.e^2))
@@ -102,6 +139,7 @@ function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderSt
         ) *
         true_anomaly_dot
     corrected_radius_dot =
+        el.A_dot * (1.0 - data.e * cos(eccentric_anomaly)) +
         semi_major_axis * data.e * sin(eccentric_anomaly) * corrected_mean_motion /
         (1.0 - data.e * cos(eccentric_anomaly)) +
         2 *
@@ -130,10 +168,10 @@ function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderSt
         x_position_in_orbital_plane * corrected_argument_of_latitude_dot
 
     corrected_longitude_of_ascending_node =
-        data.Ω_0 + (data.Ω_dot - constants.Ω_dot_e) * time_from_ephemeris_reference_epoch -
+        data.Ω_0 + (el.Ω_dot - constants.Ω_dot_e) * time_from_ephemeris_reference_epoch -
         constants.Ω_dot_e * data.t_0e
 
-    corrected_longitude_of_ascending_node_dot = data.Ω_dot - constants.Ω_dot_e
+    corrected_longitude_of_ascending_node_dot = el.Ω_dot - constants.Ω_dot_e
 
     position = SVector(
         x_position_in_orbital_plane * cos(corrected_longitude_of_ascending_node) -

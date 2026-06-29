@@ -60,25 +60,31 @@ end
 """
     klobuchar_params(decoder) -> Union{KlobucharParams,Nothing}
 
-Klobuchar α/β decoded from a GPS L1 navigation message, or `nothing` if they have
-not been broadcast yet (subframe 4, page 18) or the decoder is not GPS L1.
+Klobuchar α/β decoded from a GPS navigation message (LNAV `GPSL1CAData`, CNAV
+`GPSCNAVData` on L5/L2C, or CNAV-2 `GPSL1C_DData`), or `nothing` if they have not
+been broadcast yet or the decoder is not a GPS signal. The same single-frequency
+Klobuchar model is broadcast on all GPS civil signals.
 """
 klobuchar_params(decoder) = nothing
-function klobuchar_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1CAData})
+function klobuchar_params(decoder::GNSSDecoder.GNSSDecoderState{<:GPSNavData})
     d = decoder.data
-    (isnothing(d.α_0) || isnothing(d.β_0)) && return nothing
+    # All eight coefficients must be present: they are decoded together (subframe 4,
+    # page 18), but guard each so a partially-populated decoder returns `nothing`
+    # rather than throwing when a `nothing` hits a `Float64` field.
+    any(isnothing, (d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)) &&
+        return nothing
     return KlobucharParams(d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)
 end
 
 """
     ntcm_g_params(decoder) -> Union{NTCMGParams,Nothing}
 
-NTCM-G Effective Ionisation Level coefficients decoded from a Galileo E1B
-navigation message, or `nothing` if they (or the week number) have not been
-decoded yet or the decoder is not Galileo E1B.
+NTCM-G Effective Ionisation Level coefficients decoded from a Galileo navigation
+message (I/NAV on E1B or F/NAV on E5a — both broadcast `a_i0…a_i2`), or `nothing`
+if they (or the week number) have not been decoded yet or the decoder is not Galileo.
 """
 ntcm_g_params(decoder) = nothing
-function ntcm_g_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GalileoE1BData})
+function ntcm_g_params(decoder::GNSSDecoder.GNSSDecoderState{<:GalileoNavData})
     d = decoder.data
     (isnothing(d.a_i0) || isnothing(d.a_i1) || isnothing(d.a_i2) || isnothing(d.WN)) &&
         return nothing
@@ -192,9 +198,12 @@ measured clockwise from North. The transform is taken precomputed so it can be b
 once per user position and reused across satellites.
 """
 function _elevation_azimuth(enu_from_ecef::ENUfromECEF, sat_position)
-    enu = enu_from_ecef(ECEF(sat_position))
-    elevation = atan(enu.u, hypot(enu.e, enu.n))
-    azimuth = atan(enu.e, enu.n)
+    sat_enu = get_sat_enu(enu_from_ecef, ECEF(sat_position))
+    elevation = sat_enu.ϕ
+    # `SphericalFromCartesian` measures θ counter-clockwise from East (the ENU +x
+    # axis); the ionospheric models use azimuth measured clockwise from North, i.e.
+    # π/2 − θ. Only cos/sin of the azimuth are used downstream, so the wrap is moot.
+    azimuth = π / 2 - sat_enu.θ
     return elevation, azimuth
 end
 
@@ -236,8 +245,11 @@ end
 # given user geodetic lat/lon and satellite elevation/azimuth [rad].
 function _pierce_point(φ_u, λ_u, elevation, azimuth)
     ψ = π / 2 - elevation - asin(_NTCM_RE / (_NTCM_RE + _NTCM_HI) * cos(elevation))
-    φ_pp = asin(sin(φ_u) * cos(ψ) + cos(φ_u) * sin(ψ) * cos(azimuth))
-    λ_pp = λ_u + asin(sin(ψ) * sin(azimuth) / cos(φ_pp))
+    # Clamp to asin's domain: the φ_pp argument is a unit dot-product that can
+    # overshoot ±1 by a rounding ulp, and the λ_pp argument genuinely diverges as
+    # the pierce point approaches a pole (cos(φ_pp) → 0).
+    φ_pp = asin(clamp(sin(φ_u) * cos(ψ) + cos(φ_u) * sin(ψ) * cos(azimuth), -1.0, 1.0))
+    λ_pp = λ_u + asin(clamp(sin(ψ) * sin(azimuth) / cos(φ_pp), -1.0, 1.0))
     return φ_pp, λ_pp
 end
 
