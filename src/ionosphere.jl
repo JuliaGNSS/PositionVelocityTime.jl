@@ -20,11 +20,6 @@
 #  not just the band it was broadcast on.
 # ===========================================================================
 
-# The frequency the Klobuchar group delay refers to (GPS L1), taken from GNSSSignals
-# so it stays consistent with the per-satellite carrier frequencies used below. Kept
-# as a Hz quantity: only the (f_L1/f) ratio is used, which is dimensionless.
-const _GPS_L1_FREQUENCY = GNSSSignals.get_center_frequency(GPSL1CA())
-
 """
     KlobucharParams(α_0, α_1, α_2, α_3, β_0, β_1, β_2, β_3)
 
@@ -60,25 +55,31 @@ end
 """
     klobuchar_params(decoder) -> Union{KlobucharParams,Nothing}
 
-Klobuchar α/β decoded from a GPS L1 navigation message, or `nothing` if they have
-not been broadcast yet (subframe 4, page 18) or the decoder is not GPS L1.
+Klobuchar α/β decoded from a GPS navigation message (LNAV `GPSL1CAData`, CNAV
+`GPSCNAVData` on L5/L2C, or CNAV-2 `GPSL1C_DData`), or `nothing` if they have not
+been broadcast yet or the decoder is not a GPS signal. The same single-frequency
+Klobuchar model is broadcast on all GPS civil signals.
 """
 klobuchar_params(decoder) = nothing
-function klobuchar_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1CAData})
+function klobuchar_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.AbstractGPSData})
     d = decoder.data
-    (isnothing(d.α_0) || isnothing(d.β_0)) && return nothing
+    # All eight coefficients must be present: they are decoded together (subframe 4,
+    # page 18), but guard each so a partially-populated decoder returns `nothing`
+    # rather than throwing when a `nothing` hits a `Float64` field.
+    any(isnothing, (d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)) &&
+        return nothing
     return KlobucharParams(d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)
 end
 
 """
     ntcm_g_params(decoder) -> Union{NTCMGParams,Nothing}
 
-NTCM-G Effective Ionisation Level coefficients decoded from a Galileo E1B
-navigation message, or `nothing` if they (or the week number) have not been
-decoded yet or the decoder is not Galileo E1B.
+NTCM-G Effective Ionisation Level coefficients decoded from a Galileo navigation
+message (I/NAV on E1B or F/NAV on E5a — both broadcast `a_i0…a_i2`), or `nothing`
+if they (or the week number) have not been decoded yet or the decoder is not Galileo.
 """
 ntcm_g_params(decoder) = nothing
-function ntcm_g_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GalileoE1BData})
+function ntcm_g_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.AbstractGalileoData})
     d = decoder.data
     (isnothing(d.a_i0) || isnothing(d.a_i1) || isnothing(d.a_i2) || isnothing(d.WN)) &&
         return nothing
@@ -106,7 +107,7 @@ function select_ionospheric_correction(states)
 end
 
 """
-    ionospheric_delay(correction, system, elevation, azimuth, lla, gps_time) -> Float64
+    ionospheric_delay(correction, system, elevation, azimuth, lla, time_of_week) -> Float64
 
 Slant ionospheric group delay in metres for one satellite (`system` is the
 satellite's GNSS, used for its carrier frequency), using the constellation-wide
@@ -117,39 +118,38 @@ satellite's GNSS, used for its carrier frequency), using the constellation-wide
 - [`NTCMGParams`](@ref) → NTCM-G model.
 
 The line of sight is given by the satellite `elevation`/`azimuth` (radians) and
-the user geodetic position `lla` (a `Geodesy.LLA`); `gps_time` is the system time
-of week of the measurement in seconds. The geometry is taken precomputed — and
+the user geodetic position `lla` (a `Geodesy.LLA`); `time_of_week` is the measurement's
+system time of week in seconds (GPS time for GPS/Klobuchar, GST for Galileo/NTCM-G —
+they coincide to within the sub-microsecond GGTO, immaterial here). The geometry is taken precomputed — and
 shared across satellites and with [`tropospheric_delay`](@ref) — so a whole-epoch
 correction does the user geodetic conversion only once. Derive the geometry from
 ECEF with `LLAfromECEF(wgs84)(user)` and
 [`_elevation_azimuth`](@ref)`(ENUfromECEF(user, wgs84), sat)`.
 """
-ionospheric_delay(::Nothing, system, elevation, azimuth, lla, gps_time) = 0.0
+ionospheric_delay(::Nothing, system, elevation, azimuth, lla, time_of_week) = 0.0
 
-function ionospheric_delay(p::KlobucharParams, system, elevation, azimuth, lla, gps_time)
+function ionospheric_delay(p::KlobucharParams, system, elevation, azimuth, lla, time_of_week)
     # IS-GPS-200 works in semicircles: lat/lon in deg/180, elevation/azimuth in rad/π.
     l1_seconds = klobuchar_group_delay(
         lla.lat / 180,
         lla.lon / 180,
         elevation / π,
         azimuth / π,
-        gps_time,
+        time_of_week,
         (p.α_0, p.α_1, p.α_2, p.α_3),
         (p.β_0, p.β_1, p.β_2, p.β_3),
     )
     # The Klobuchar broadcast coefficients define the group delay at the GPS L1
     # frequency (IS-GPS-200). The ionospheric delay scales as 1/f², so rescale it
-    # to this satellite's actual carrier frequency — yielding the correct (larger)
-    # delay on lower bands such as L2, L5/E5a and E6. For an L1/E1 signal the
-    # factor is exactly 1. The ratio of two Hz quantities is dimensionless.
-    f = GNSSSignals.get_center_frequency(system)
-    return SPEEDOFLIGHT * l1_seconds * (_GPS_L1_FREQUENCY / f)^2
+    # to this satellite's actual carrier frequency.
+    f = get_center_frequency(system)
+    return SPEEDOFLIGHT * l1_seconds * (get_center_frequency(GPSL1CA) / f)^2
 end
 
-function ionospheric_delay(p::NTCMGParams, system, elevation, azimuth, lla, gps_time)
-    doy, ut = _galileo_doy_and_ut(p.week_number, gps_time)
+function ionospheric_delay(p::NTCMGParams, system, elevation, azimuth, lla, time_of_week)
+    doy, ut = _galileo_doy_and_ut(p.week_number, time_of_week)
     stec = ntcm_g_stec(elevation, azimuth, lla, doy, ut, p.a_i0, p.a_i1, p.a_i2) # TECU
-    f = ustrip(Hz, GNSSSignals.get_center_frequency(system))
+    f = ustrip(Hz, get_center_frequency(system))
     # Eq. 1: group delay [m] = 40.3 / f² · STEC, with STEC in electrons/m² (1 TECU = 1e16).
     return 40.3 / f^2 * stec * 1.0e16
 end
@@ -192,9 +192,12 @@ measured clockwise from North. The transform is taken precomputed so it can be b
 once per user position and reused across satellites.
 """
 function _elevation_azimuth(enu_from_ecef::ENUfromECEF, sat_position)
-    enu = enu_from_ecef(ECEF(sat_position))
-    elevation = atan(enu.u, hypot(enu.e, enu.n))
-    azimuth = atan(enu.e, enu.n)
+    sat_enu = get_sat_enu(enu_from_ecef, ECEF(sat_position))
+    elevation = sat_enu.ϕ
+    # `SphericalFromCartesian` measures θ counter-clockwise from East (the ENU +x
+    # axis); the ionospheric models use azimuth measured clockwise from North, i.e.
+    # π/2 − θ. Only cos/sin of the azimuth are used downstream, so the wrap is moot.
+    azimuth = π / 2 - sat_enu.θ
     return elevation, azimuth
 end
 
@@ -236,8 +239,11 @@ end
 # given user geodetic lat/lon and satellite elevation/azimuth [rad].
 function _pierce_point(φ_u, λ_u, elevation, azimuth)
     ψ = π / 2 - elevation - asin(_NTCM_RE / (_NTCM_RE + _NTCM_HI) * cos(elevation))
-    φ_pp = asin(sin(φ_u) * cos(ψ) + cos(φ_u) * sin(ψ) * cos(azimuth))
-    λ_pp = λ_u + asin(sin(ψ) * sin(azimuth) / cos(φ_pp))
+    # Clamp to asin's domain: the φ_pp argument is a unit dot-product that can
+    # overshoot ±1 by a rounding ulp, and the λ_pp argument genuinely diverges as
+    # the pierce point approaches a pole (cos(φ_pp) → 0).
+    φ_pp = asin(clamp(sin(φ_u) * cos(ψ) + cos(φ_u) * sin(ψ) * cos(azimuth), -1.0, 1.0))
+    λ_pp = λ_u + asin(clamp(sin(ψ) * sin(azimuth) / cos(φ_pp), -1.0, 1.0))
     return φ_pp, λ_pp
 end
 
@@ -322,12 +328,12 @@ function ntcm_g_stec(elevation, azimuth, lla, doy, ut, a_i0, a_i1, a_i2)
 end
 
 # Day of year and universal time (hours) from a Galileo System Time (GST) week
-# number and time of week [s]. GST epoch is 1999-08-22 00:00:00 UTC; GST is
-# continuous (offset from UTC by leap seconds, ~18 s), which is negligible for
-# the day-of-year / UT inputs of NTCM-G.
+# number and time of week [s]. The GST epoch is taken from GNSSSignals
+# (`get_system_start_time(GST())` = 1999-08-21T23:59:47 UTC); GST is continuous
+# (offset from UTC by leap seconds, ~18 s), negligible for the day-of-year / UT
+# inputs of NTCM-G.
 function _galileo_doy_and_ut(week_number, time_of_week)
-    total_seconds = week_number * 604800 + time_of_week
-    days = floor(Int, total_seconds / 86400)
-    ut = (total_seconds - days * 86400) / 3600
-    return dayofyear(Date(1999, 8, 22) + Day(days)), ut
+    epoch = get_system_start_time(GST())
+    t = epoch + Millisecond(round(Int, (week_number * 604800 + time_of_week) * 1000))
+    return dayofyear(t), hour(t) + minute(t) / 60 + second(t) / 3600 + millisecond(t) / 3.6e6
 end
