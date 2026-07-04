@@ -221,10 +221,11 @@ end
     end
 
     @testset "GST week/TOW → day-of-year and UT" begin
-        # 1 week + 12 h past the GST epoch (1999-08-22 00:00 UTC) → 1999-08-29, 12:00
+        # 1 week + 12 h past the GST epoch (1999-08-21T23:59:47 UTC) → 1999-08-29
+        # at 11:59:47 (the epoch is 13 s before midnight, so 13 s before noon here).
         doy, ut = PositionVelocityTime._galileo_doy_and_ut(1, 12 * 3600)
         @test doy == dayofyear(Date(1999, 8, 29))
-        @test ut ≈ 12.0
+        @test ut ≈ 11 + 59 / 60 + 47 / 3600
     end
 
     @testset "selection and delay from a Galileo decoder" begin
