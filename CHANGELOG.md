@@ -1,5 +1,30 @@
 # Changelog
 
+# [3.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v2.2.0...v3.0.0) (2026-07-05)
+
+
+* feat!: multi-GNSS PVT with GPS L2C/L5/L1C and Galileo E5a ([a968fff](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/a968ffff38c41132bef208abbe50a7047d79204f))
+
+
+### BREAKING CHANGES
+
+* `PVTSolution.sats` is now a
+`Dictionary{Tuple{Symbol,Int},SatInfo}` (was `Dict{Int,SatInfo}`); index it
+with `get_sat_info(pvt, signal, prn)`. `SatInfo` gains a `residual` field and
+`calc_DOP` takes the user position and primary clock index. The
+`get_gdop`/`get_pdop`/`get_hdop`/`get_vdop`/`get_tdop` accessors are removed;
+read DOP from the `dop` field instead (e.g. `pvt.dop.GDOP`).
+`get_num_used_sats` is removed: with `sats` keyed by (signal, PRN),
+`length(pvt.sats)` counts measurements, not satellites.
+`get_frequency_offset` is removed: compute it inline as
+`pvt.relative_clock_drift * base_frequency`.
+`PVTSolution.reference_system` and the `inter_system_biases` keys are now
+`GNSSSignals.TimeSystem` values (GPST()/GST()), not :GPS/:Galileo symbols.
+Requires GNSSSignals 3.3 and GNSSDecoder 3.6.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
 # [2.2.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v2.1.0...v2.2.0) (2026-06-23)
 
 
