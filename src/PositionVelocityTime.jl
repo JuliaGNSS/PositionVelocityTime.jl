@@ -552,7 +552,12 @@ function calc_pvt(
 )
     length(states) < 4 &&
         throw(ArgumentError("You'll need at least 4 satellites to calculate PVT"))
-    healthy_indices = findall(x -> is_sat_healthy(x.decoder), states)
+    # Keep a satellite only if its full nav-data set is decoded and it reports healthy.
+    # Checking completeness first guarantees the health bit has been decoded.
+    healthy_indices = findall(
+        x -> is_decoding_completed_for_positioning(x.decoder) && is_sat_healthy(x.decoder),
+        states,
+    )
     length(healthy_indices) < 4 && return prev_pvt
     healthy_states = view(states, healthy_indices)
     num_sats = length(healthy_states)
