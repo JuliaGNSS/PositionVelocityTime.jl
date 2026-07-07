@@ -1,5 +1,25 @@
 # Changelog
 
+# [4.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v3.1.0...v4.0.0) (2026-07-07)
+
+
+* feat!: enrich PVT solution with IFB reference bands, units, and course over ground ([6a528ce](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/6a528ce93978a5c6ab1b829ba3eec364188e1d70))
+
+
+### BREAKING CHANGES
+
+* `PVTSolution` gains a `course_over_ground` field, so the exported
+struct's positional-constructor arity/order and field layout change. Several fields
+are now Unitful quantities rather than bare `Float64` metres: `time_correction`, the
+`inter_system_biases` values and `SatInfo.residual` are `typeof(1.0m)`. And
+`inter_frequency_biases` is now `Dict{Symbol,InterFrequencyBias}` — read `.value`
+(a `typeof(1.0m)`) and `.reference` (the anchor band) instead of a bare `Float64`.
+Consumers doing arithmetic must handle the units (e.g. `ustrip(u"m", x)`), and
+positional construction and reflection-based code must be updated. Reading via
+keyword construction and the accessor fields is otherwise unaffected.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
 # [3.1.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v3.0.0...v3.1.0) (2026-07-06)
 
 
