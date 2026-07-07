@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.0.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.0.0...v4.0.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* gate PVT satellites on decoding completeness ([8fe32d4](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/8fe32d4f29449896e916877be910901b212a659c))
+
 # [4.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v3.1.0...v4.0.0) (2026-07-07)
 
 
