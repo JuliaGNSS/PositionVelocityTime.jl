@@ -1,6 +1,6 @@
 
 using Test, PositionVelocityTime, GNSSDecoder, AstroTime, GNSSSignals, Geodesy, Dates, LinearAlgebra
-using Unitful: Hz
+using Unitful: Hz, m, °, ustrip
 
 include("aqua.jl")
 include("fixtures.jl")

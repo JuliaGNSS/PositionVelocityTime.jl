@@ -6,6 +6,21 @@
     kw = (; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
 
+    # Decompose an uncorrected transmit time `target` (s) into a realistic measurement on
+    # `system` with time-of-week `tow`: whole data symbols go into the bit count and only
+    # the residual (< one data symbol) into the code phase — matching
+    # `calc_uncorrected_time`, which reduces the shared code phase modulo one data symbol.
+    # Packing the whole sub-TOW interval into `code_phase` (as a naive copy would) is
+    # reduced away by that mod, so the copy must spread it across the bit count.
+    function bits_and_code_phase(system, tow, target)
+        datafreq = Float64(GNSSSignals.get_data_frequency(system) / Hz)
+        codefreq = Float64(GNSSSignals.get_code_frequency(system) / Hz)
+        elapsed = target - tow
+        num_bits = floor(Int, elapsed * datafreq)
+        code_phase = (elapsed - num_bits / datafreq) * codefreq
+        (num_bits, code_phase)
+    end
+
     # Build an L5 (E5a) measurement for a Galileo E1B satellite, transmit-time-consistent
     # with it (same ephemeris/clock, BGD matched, observables solved to the same epoch).
     # `ifb_shift_s` injects a uniform receiver L5 delay (seconds); `ggto` (A_0G, seconds)
@@ -21,11 +36,11 @@
             broadcast_group_delay_e1_e5a = d.broadcast_group_delay_e1_e5b,
             signal_health_e5a = GNSSDecoder.signal_ok,
             data_validity_status_e5a = GNSSDecoder.navigation_data_valid, ggto_fields...)
-        dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GalileoE5aDecoderState(state.decoder.prn);
-            data = e5a_data, raw_data = e5a_data, num_bits_after_valid_syncro_sequence = 0)
         target = PositionVelocityTime.calc_uncorrected_time(state) + ifb_shift_s
-        codefreq = Float64(GNSSSignals.get_code_frequency(GalileoE5aI()) / Hz)
-        code_phase = (target - PositionVelocityTime.get_tow(dec)) * codefreq
+        num_bits, code_phase = bits_and_code_phase(GalileoE5aI(), e5a_data.TOW, target)
+        dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GalileoE5aDecoderState(state.decoder.prn);
+            data = e5a_data, raw_data = e5a_data,
+            num_bits_after_valid_syncro_sequence = num_bits)
         SatelliteState(; decoder = dec, system = GalileoE5aI(), code_phase = code_phase,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end
@@ -46,11 +61,11 @@
             C_rc = d.C_rc, C_rs = d.C_rs, C_ic = d.C_ic, C_is = d.C_is, t_0c = d.t_0c,
             a_f0 = d.a_f0, a_f1 = d.a_f1, a_f2 = d.a_f2, T_GD = d.T_GD, ISC_L2C = 0.0,
             l2_health = false)
-        dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GPSL2CMDecoderState(state.decoder.prn);
-            data = l2c_data, raw_data = l2c_data, num_bits_after_valid_syncro_sequence = 0)
         target = PositionVelocityTime.calc_uncorrected_time(state) + ifb_shift_s
-        codefreq = Float64(GNSSSignals.get_code_frequency(GPSL2CM()) / Hz)
-        code_phase = (target - PositionVelocityTime.get_tow(dec)) * codefreq
+        num_bits, code_phase = bits_and_code_phase(GPSL2CM(), l2c_data.TOW, target)
+        dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GPSL2CMDecoderState(state.decoder.prn);
+            data = l2c_data, raw_data = l2c_data,
+            num_bits_after_valid_syncro_sequence = num_bits)
         SatelliteState(; decoder = dec, system = GPSL2CM(), code_phase = code_phase,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end
@@ -94,18 +109,32 @@
         bcl = PositionVelocityTime.band_ifb_layout
         # Disjoint: GPS only on L5, Galileo only on L1 ⇒ two components, no IFB column
         # (each band is the sole band of its component, so its bias folds into a clock).
-        ifb, extra, ncomp = bcl([GPST(), GPST(), GST(), GST()], [:L5, :L5, :L1, :L1])
+        ifb, extra, refs, ncomp = bcl([GPST(), GPST(), GST(), GST()], [:L5, :L5, :L1, :L1])
         @test ncomp == 2
         @test isempty(extra)
+        @test isempty(refs)
         @test all(==(0), ifb)
         # Connected via a constellation spanning both bands ⇒ one component, one IFB.
-        _, extra2, ncomp2 = bcl([GPST(), GPST(), GST(), GST()], [:L1, :L5, :L1, :L5])
+        # L1 and L5 are equally populated ⇒ first-seen (L1) is the reference.
+        _, extra2, refs2, ncomp2 = bcl([GPST(), GPST(), GST(), GST()], [:L1, :L5, :L1, :L5])
         @test ncomp2 == 1
-        @test length(extra2) == 1
+        @test extra2 == [:L5]
+        @test refs2 == [:L1]
         # Single constellation on two bands ⇒ connected by its shared clock ⇒ one IFB.
-        _, extra3, ncomp3 = bcl([GPST(), GPST()], [:L1, :L5])
+        _, extra3, refs3, ncomp3 = bcl([GPST(), GPST()], [:L1, :L5])
         @test ncomp3 == 1
         @test length(extra3) == 1
+        @test refs3 == [:L1]
+        # Disconnected yet one component carries an IFB: GPS on L1+L2 (connected) with
+        # Galileo stranded on L5. The L2 bias is anchored to L1; L5 folds into its clock.
+        ifb4, extra4, refs4, ncomp4 = bcl(
+            [GPST(), GPST(), GPST(), GPST(), GST(), GST()],
+            [:L1, :L1, :L2, :L2, :L5, :L5],
+        )
+        @test ncomp4 == 2
+        @test extra4 == [:L2]
+        @test refs4 == [:L1]
+        @test ifb4 == [0, 0, 1, 1, 0, 0]
     end
 
     @testset "layout count gate accounts for the extra band" begin
@@ -145,10 +174,11 @@
         pvt0 = calc_pvt([e1b; map(as_e5a, e1b)]; kw...)
         @test pvt0.reference_system == GST()
         @test haskey(pvt0.inter_frequency_biases, :L5)
+        @test pvt0.inter_frequency_biases[:L5].reference == :L1
         @test length(pvt0.sats) == 2 * length(ref.sats)
         @test norm(pvt0.position - ref.position) < 1e-2
-        @test abs(pvt0.inter_frequency_biases[:L5]) < 1e-2
-        @test maximum(abs, [info.residual for info in values(pvt0.sats)]) ≈ base atol = 1e-2
+        @test abs(pvt0.inter_frequency_biases[:L5].value) < 1e-2m
+        @test maximum(abs, [info.residual for info in values(pvt0.sats)]) ≈ base atol = 1e-2m
 
         # A uniform 12 m receiver L5 delay (signals appear farther ⇒ earlier transmit
         # time) is absorbed by the IFB, leaving the position and the residuals at the
@@ -156,9 +186,9 @@
         # residuals instead.
         δ = 12.0
         pvtδ = calc_pvt([e1b; map(s -> as_e5a(s; ifb_shift_s = -δ / C), e1b)]; kw...)
-        @test pvtδ.inter_frequency_biases[:L5] ≈ δ atol = 0.05
+        @test pvtδ.inter_frequency_biases[:L5].value ≈ δ * m atol = 0.05m
         @test norm(pvtδ.position - ref.position) < 1e-2
-        @test maximum(abs, [info.residual for info in values(pvtδ.sats)]) ≈ base atol = 0.05
+        @test maximum(abs, [info.residual for info in values(pvtδ.sats)]) ≈ base atol = 0.05m
     end
 
     # GPS two-band fix: L1 C/A + L2C. The L2C copies reproduce each L1 satellite's
@@ -175,18 +205,19 @@
         pvt0 = calc_pvt([gps; map(as_l2c, gps)]; kw...)
         @test pvt0.reference_system == GPST()
         @test haskey(pvt0.inter_frequency_biases, :L2)
+        @test pvt0.inter_frequency_biases[:L2].reference == :L1
         @test length(pvt0.sats) == 2 * length(ref.sats)
         @test norm(pvt0.position - ref.position) < 1e-2
-        @test abs(pvt0.inter_frequency_biases[:L2]) < 1e-2
-        @test maximum(abs, [info.residual for info in values(pvt0.sats)]) ≈ base atol = 1e-2
+        @test abs(pvt0.inter_frequency_biases[:L2].value) < 1e-2m
+        @test maximum(abs, [info.residual for info in values(pvt0.sats)]) ≈ base atol = 1e-2m
 
         # A uniform 12 m receiver L2 delay is absorbed by the IFB, leaving the position
         # and residuals at the baseline.
         δ = 12.0
         pvtδ = calc_pvt([gps; map(s -> as_l2c(s; ifb_shift_s = -δ / C), gps)]; kw...)
-        @test pvtδ.inter_frequency_biases[:L2] ≈ δ atol = 0.05
+        @test pvtδ.inter_frequency_biases[:L2].value ≈ δ * m atol = 0.05m
         @test norm(pvtδ.position - ref.position) < 1e-2
-        @test maximum(abs, [info.residual for info in values(pvtδ.sats)]) ≈ base atol = 0.05
+        @test maximum(abs, [info.residual for info in values(pvtδ.sats)]) ≈ base atol = 0.05m
     end
 
     # Regression for the disjoint-band bug: GPS on L1 only + Galileo on L5 only makes a
@@ -217,12 +248,14 @@
         # With a (correct) broadcast GGTO, the collapse reconnects the bands: a clean
         # inter-frequency bias is recovered and the inter-system bias comes from the GGTO.
         true_isb = connected.inter_system_biases[GST()]
-        gal_l5_ggto = map(s -> as_e5a(s; ggto = -true_isb / C), galileo_e1b_states(0.0Hz))
+        gal_l5_ggto =
+            map(s -> as_e5a(s; ggto = -ustrip(m, true_isb) / C), galileo_e1b_states(0.0Hz))
         pvt_ggto = calc_pvt([gps_l1; gal_l5_ggto]; kw...)
         @test pvt_ggto.reference_system == GPST()              # Galileo collapsed onto GPS
         @test haskey(pvt_ggto.inter_frequency_biases, :L5)   # reconnected ⇒ IFB observable
-        @test pvt_ggto.inter_system_biases[GST()] ≈ true_isb atol = 5
-        @test abs(pvt_ggto.inter_frequency_biases[:L5]) < 5
+        @test pvt_ggto.inter_frequency_biases[:L5].reference == :L1
+        @test pvt_ggto.inter_system_biases[GST()] ≈ true_isb atol = 5m
+        @test abs(pvt_ggto.inter_frequency_biases[:L5].value) < 5m
         @test isfinite(pvt_ggto.dop.GDOP) && 0 < pvt_ggto.dop.GDOP < 1e4
         @test norm(pvt_ggto.position - connected.position) < 10
     end

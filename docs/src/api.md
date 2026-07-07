@@ -6,6 +6,7 @@
 SatelliteState
 PVTSolution
 SatInfo
+InterFrequencyBias
 ```
 
 ## PVT Computation
@@ -62,3 +63,10 @@ receiver-clock grouping (one bias per time system); `GNSSSignals.get_band_id` (e
 `GNSSSignals.get_signal_id` (e.g. `:GPSL1CA`) is the per-signal identity used in the `sats`
 key of [`PVTSolution`](@ref). This package forwards each of the latter two to a
 [`SatelliteState`](@ref).
+
+The receiver inter-frequency biases and their reference bands (reported per
+[`InterFrequencyBias`](@ref)) are laid out from the constellation × band coverage graph:
+
+```@docs
+PositionVelocityTime.band_ifb_layout
+```

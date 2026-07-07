@@ -11,12 +11,13 @@ using CoordinateTransformations,
     Unitful,
     Dates
 
-using Unitful: s, Hz
+using Unitful: s, Hz, m, °, ustrip
 using Dictionaries: Dictionary
 
 export calc_pvt,
     PVTSolution,
     SatInfo,
+    InterFrequencyBias,
     SatelliteState,
     get_LLA,
     get_sat_info,
@@ -129,14 +130,34 @@ satellite used in the fix).
 # Fields
 - `position::ECEF`: Satellite ECEF position at transmit time (metres).
 - `time::Float64`: Satellite transmit time (system time of week, seconds).
-- `residual::Float64`: Post-fit least-squares pseudorange residual (metres) — the
+- `residual::typeof(1.0m)`: Post-fit least-squares pseudorange residual (metres) — the
   modeled minus the (atmosphere-corrected) measured pseudorange. A per-satellite
   fit-quality / outlier indicator.
 """
 struct SatInfo
     position::ECEF
     time::Float64
-    residual::Float64
+    residual::typeof(1.0m)
+end
+
+"""
+    InterFrequencyBias
+
+A receiver inter-frequency bias attached to a [`PVTSolution`](@ref): the differential
+hardware delay of one frequency band's RF chain, together with the band it is measured
+against.
+
+# Fields
+- `value::typeof(1.0m)`: The bias (metres), relative to `reference` — how much longer
+  this band's receiver chain delay is than the reference band's.
+- `reference::Symbol`: The reference band (e.g. `:L1`; see `get_band_id`) whose delay is
+  folded into the clock biases and against which `value` is measured. Chosen per
+  coverage component (see [`band_ifb_layout`](@ref)), so different biases in a
+  disconnected solution can in principle carry different references.
+"""
+struct InterFrequencyBias
+    value::typeof(1.0m)
+    reference::Symbol
 end
 
 """
@@ -147,7 +168,14 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
 # Fields
 - `position::ECEF`: User position in ECEF coordinates (meters)
 - `velocity::ECEF`: User velocity in ECEF coordinates (m/s)
-- `time_correction::Float64`: Estimated receiver clock bias of the reference GNSS
+- `course_over_ground::typeof(1.0°)`: Horizontal direction of travel (degrees), the
+  azimuth of the velocity vector in the local East-North-Up frame at `position` —
+  measured clockwise from true North and wrapped to `[0, 360)°`, following the GNSS
+  course-over-ground (COG) convention. Derived from the velocity alone, so this is the
+  direction of motion, not vehicle heading (which a single-antenna receiver cannot
+  observe). The vertical (Up) velocity component is ignored. `0°` when the horizontal
+  velocity is zero (stationary or purely vertical), where course is undefined.
+- `time_correction::typeof(1.0m)`: Estimated receiver clock bias of the reference GNSS
   (meters). For a multi-GNSS solution this is the bias of `reference_system`;
   other systems' biases are `time_correction + inter_system_biases[system]`.
 - `time::Union{TAIEpoch{Float64}, Nothing}`: Estimated time as a TAI epoch
@@ -162,7 +190,7 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   see `reference_system`.
 - `reference_system::Union{GNSSSignals.TimeSystem, Nothing}`: GNSS time system (e.g.
   `GNSSSignals.GPST()`, `GST()`) that `time` and `time_correction` are referenced to.
-- `inter_system_biases::Dict{GNSSSignals.TimeSystem, Float64}`: For each GNSS time system
+- `inter_system_biases::Dict{GNSSSignals.TimeSystem, typeof(1.0m)}`: For each GNSS time system
   other than `reference_system`, the offset of that system's time scale relative to the reference
   system's (meters) — the inter-system bias. This is a **system / space-segment** effect,
   not a receiver one (this receiver has no inter-system hardware bias): it is the GNSS
@@ -172,26 +200,33 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   GGTO-aided collapse), as that broadcast value may be erroneous. Reference-independent
   (the difference of two entries is the offset between those two systems); empty for a
   single-system solution.
-- `inter_frequency_biases::Dict{Symbol, Float64}`: For each frequency band other than
-  the reference band, the receiver inter-frequency bias relative to it (meters) — the
+- `inter_frequency_biases::Dict{Symbol, InterFrequencyBias}`: For each frequency band
+  other than the reference band, the receiver inter-frequency bias relative to it — the
   differential hardware delay of that band's RF chain, estimated as an extra unknown
   when satellites are processed on more than one band. The key is the band
-  (e.g. `:L1`, `:L5`; see `get_band_id`) and the value is shared across
-  all constellations on that band. Empty for a single-band solution. A solution then
-  needs `n ≥ 3 + M + B` satellites for `M` time systems and `B` extra bands.
+  (e.g. `:L1`, `:L5`; see `get_band_id`) and the value is shared across all
+  constellations on that band. Each [`InterFrequencyBias`](@ref) carries both the bias
+  (in metres) and the reference band it is measured against — the anchor whose delay is
+  folded into the clock biases — so each reported bias's anchor is explicit rather than
+  implicit. The reference is chosen per coverage component (see
+  [`band_ifb_layout`](@ref)), so a disconnected constellation can in principle yield
+  several references. Empty for a single-band solution. A solution then needs
+  `n ≥ 3 + M + B` satellites for `M` time systems and `B` extra bands.
 """
 @kwdef struct PVTSolution
     position::ECEF = ECEF(0, 0, 0)
     velocity::ECEF = ECEF(0, 0, 0)
-    time_correction::Float64 = 0
+    course_over_ground::typeof(1.0°) = 0.0°
+    time_correction::typeof(1.0m) = 0.0m
     time::Union{TAIEpoch{Float64},Nothing} = nothing
     relative_clock_drift::Float64 = 0
     dop::Union{DOP,Nothing} = nothing
     sats::Dictionary{Tuple{Symbol,Int},SatInfo} = Dictionary{Tuple{Symbol,Int},SatInfo}()
     reference_system::Union{GNSSSignals.TimeSystem,Nothing} = nothing
-    inter_system_biases::Dict{GNSSSignals.TimeSystem,Float64} =
-        Dict{GNSSSignals.TimeSystem,Float64}()
-    inter_frequency_biases::Dict{Symbol,Float64} = Dict{Symbol,Float64}()
+    inter_system_biases::Dict{GNSSSignals.TimeSystem,typeof(1.0m)} =
+        Dict{GNSSSignals.TimeSystem,typeof(1.0m)}()
+    inter_frequency_biases::Dict{Symbol,InterFrequencyBias} =
+        Dict{Symbol,InterFrequencyBias}()
 end
 
 """
@@ -233,7 +268,26 @@ get_sat_enu(user_pos_ecef::ECEF, sat_pos_ecef::ECEF) =
     get_sat_enu(ENUfromECEF(user_pos_ecef, wgs84), sat_pos_ecef)
 
 """
-    band_ifb_layout(systems, bands) -> (ifb_indices, extra_bands, num_components)
+    calc_course_over_ground(position::ECEF, velocity::ECEF) -> typeof(1.0°)
+
+Course over ground (degrees): the azimuth of `velocity` in the local East-North-Up
+frame at `position`, measured clockwise from true North and wrapped to `[0, 360)°`,
+following the GNSS COG convention. This is the direction of motion derived from the
+velocity, not vehicle heading. The vertical (Up) component is ignored. Returns `0°`
+when the horizontal velocity is zero (stationary or purely vertical), where course is
+undefined.
+
+`ENUfromECEF` is affine with `position` as its origin (which it maps to zero), so
+applying it to `position + velocity` rotates the velocity vector into the ENU frame
+without introducing any translation.
+"""
+function calc_course_over_ground(position::ECEF, velocity::ECEF)
+    enu_velocity = ENUfromECEF(position, wgs84)(ECEF(position + velocity))
+    rad2deg(mod2pi(atan(enu_velocity[1], enu_velocity[2]))) * °
+end
+
+"""
+    band_ifb_layout(systems, bands) -> (ifb_indices, extra_bands, reference_bands, num_components)
 
 Lay out the receiver inter-frequency biases from the (constellation × band) coverage
 graph. Two bands share a *coverage component* iff some constellation is tracked on
@@ -247,8 +301,9 @@ matrix is always full rank.
 
 `ifb_indices[j]` is satellite `j`'s IFB column (1…`length(extra_bands)`), or `0` for a
 per-component reference band; `extra_bands[i]` is the band of IFB column `i` (ordered
-deterministically); `num_components` is the number of coverage components (`1` ⇔ the
-graph is connected).
+deterministically) and `reference_bands[i]` is the reference band of that column's
+coverage component (the anchor its IFB is measured against); `num_components` is the
+number of coverage components (`1` ⇔ the graph is connected).
 """
 function band_ifb_layout(systems, bands)
     unique_bands = unique(bands)
@@ -278,14 +333,15 @@ function band_ifb_layout(systems, bands)
         end
     end
     extra_bands = filter(b -> reference_of[root(b)] != b, unique_bands)
+    reference_bands = [reference_of[root(b)] for b in extra_bands]
     band_column = Dict(b => i for (i, b) in enumerate(extra_bands))
     ifb_indices = [get(band_column, b, 0) for b in bands]
-    return ifb_indices, extra_bands, length(reference_of)
+    return ifb_indices, extra_bands, reference_bands, length(reference_of)
 end
 
 """
     decide_bias_layout(states, systems, bands, times)
-        -> (bias_columns::BiasColumns, extra_bands, ggto_offsets)
+        -> (bias_columns::BiasColumns, extra_bands, reference_bands, ggto_offsets)
 
 Decide the full least-squares bias layout — one clock column per GNSS time system plus
 the per-band inter-frequency-bias columns from [`band_ifb_layout`](@ref) — and the
@@ -323,15 +379,17 @@ function decide_bias_layout(states, systems, bands, times)
         unique_effective = unique(effective_systems)
         index = Dict(sys => i for (i, sys) in enumerate(unique_effective))
         clock_bias_indices = [index[sys] for sys in effective_systems]
-        ifb_indices, extra_bands, num_components = band_ifb_layout(effective_systems, bands)
+        ifb_indices, extra_bands, reference_bands, num_components =
+            band_ifb_layout(effective_systems, bands)
         (; clock_bias_indices, num_clock_biases = length(unique_effective), ifb_indices,
-            extra_bands, num_components)
+            extra_bands, reference_bands, num_components)
     end
 
     as_result(layout, ggto_offsets) = (
         BiasColumns(layout.clock_bias_indices, layout.num_clock_biases,
             layout.ifb_indices, length(layout.extra_bands)),
         layout.extra_bands,
+        layout.reference_bands,
         ggto_offsets,
     )
 
@@ -514,7 +572,7 @@ function calc_pvt(
 
     bias_layout = decide_bias_layout(healthy_states, systems, bands, times)
     isnothing(bias_layout) && return prev_pvt
-    bias_columns, extra_bands, ggto_offsets = bias_layout
+    bias_columns, extra_bands, reference_bands, ggto_offsets = bias_layout
     (; clock_bias_indices, num_clock_biases) = bias_columns
 
     # Propagating the ephemerides.
@@ -551,14 +609,22 @@ function calc_pvt(
     # absolute bias from the reference bias plus its stored inter-system bias.
     prev_abs_bias(sys) =
         sys == prev_pvt.reference_system ? prev_pvt.time_correction :
-        prev_pvt.time_correction + get(prev_pvt.inter_system_biases, sys, 0.0)
+        prev_pvt.time_correction + get(prev_pvt.inter_system_biases, sys, 0.0m)
     prev_ξ = zeros(num_lsq_params(bias_columns))
     prev_ξ[1], prev_ξ[2], prev_ξ[3] = prev_pvt.position
     for j in 1:num_sats
-        prev_ξ[3+clock_bias_indices[j]] = prev_abs_bias(systems[j])
+        prev_ξ[3+clock_bias_indices[j]] = ustrip(m, prev_abs_bias(systems[j]))
     end
+    # Only warm-start an IFB column from the previous solution when that band's bias was
+    # measured against the same reference band; a reference change (the anchor differs
+    # across epochs) makes the stored value refer to a different quantity, so seed at 0
+    # instead. The IFB enters the design linearly, so a stale seed only costs iterations,
+    # but this keeps the starting point meaningful.
     for (i, band) in enumerate(extra_bands)
-        prev_ξ[3+num_clock_biases+i] = get(prev_pvt.inter_frequency_biases, band, 0.0)
+        prev_ifb = get(prev_pvt.inter_frequency_biases, band, nothing)
+        prev_ξ[3+num_clock_biases+i] =
+            !isnothing(prev_ifb) && prev_ifb.reference == reference_bands[i] ?
+            ustrip(m, prev_ifb.value) : 0.0
     end
 
     # Atmospheric corrections, summed per satellite and subtracted from the
@@ -611,6 +677,7 @@ function calc_pvt(
         user_velocity_and_clock_drift[3],
     )
     relative_clock_drift = user_velocity_and_clock_drift[4] / SPEEDOFLIGHT
+    course_over_ground = calc_course_over_ground(position, velocity)
     time_correction = ξ[3+primary_clock_index]
     # The estimated time correction is negative
     # See https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/8
@@ -625,7 +692,7 @@ function calc_pvt(
         corrected_reference_time - floor(Int, corrected_reference_time),
     )
 
-    sat_infos = SatInfo.(sat_positions, times, residuals)
+    sat_infos = SatInfo.(sat_positions, times, residuals .* m)
 
     dop = calc_DOP(H, position, primary_clock_index)
     if dop.GDOP < 0
@@ -637,19 +704,20 @@ function calc_pvt(
     # GGTO-collapsed system this is the broadcast offset −c·Δt_systems, read from the
     # system's first satellite (the per-satellite offsets differ only by the GGTO
     # drift A_1G over the transmit-time spread — sub-millimetre).
-    inter_system_biases = Dict{GNSSSignals.TimeSystem,Float64}()
+    inter_system_biases = Dict{GNSSSignals.TimeSystem,typeof(1.0m)}()
     for sys in unique_systems
         sys == primary_system && continue
         j = findfirst(==(sys), systems)
         inter_system_biases[sys] =
-            ξ[3+clock_bias_indices[j]] + ggto_offsets[j] - time_correction
+            (ξ[3+clock_bias_indices[j]] + ggto_offsets[j] - time_correction) * m
     end
 
     # Receiver inter-frequency biases relative to the reference band, in meters
     # (the reference band is omitted; its bias is folded into the clock biases).
-    inter_frequency_biases = Dict{Symbol,Float64}()
+    inter_frequency_biases = Dict{Symbol,InterFrequencyBias}()
     for (i, band) in enumerate(extra_bands)
-        inter_frequency_biases[band] = ξ[3+num_clock_biases+i]
+        inter_frequency_biases[band] =
+            InterFrequencyBias(ξ[3+num_clock_biases+i] * m, reference_bands[i])
     end
 
     # Per-satellite `sats` key: (signal id, PRN) — signal-level (not time system), so a
@@ -661,7 +729,8 @@ function calc_pvt(
     PVTSolution(
         position,
         velocity,
-        time_correction,
+        course_over_ground,
+        time_correction * m,
         time,
         relative_clock_drift,
         dop,

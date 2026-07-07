@@ -24,7 +24,15 @@ function calc_uncorrected_time(state::SatelliteState)
     t_bits =
         state.decoder.num_bits_after_valid_syncro_sequence /
         get_data_frequency(state.decoder) * Hz
-    t_code_phase = state.code_phase / get_code_frequency(system) * Hz
+    # The code phase is shared across the same-band signals of a jointly tracked
+    # satellite and can run up to a whole data symbol of chips. That whole-symbol part
+    # is already counted by `t_bits` (which uses the decoder's data-symbol rate), so
+    # reduce the code phase to the residual within one data symbol to avoid
+    # double-counting it. A no-op for a single-signal sat, whose code phase is already
+    # below one data symbol of chips.
+    chips_per_symbol =
+        ustrip(Hz, get_code_frequency(system)) / ustrip(Hz, get_data_frequency(state.decoder))
+    t_code_phase = mod(state.code_phase, chips_per_symbol) / get_code_frequency(system) * Hz
     t_carrier_phase = state.carrier_phase / get_center_frequency(system) * Hz
 
     t_tow + t_bits + t_code_phase + t_carrier_phase
