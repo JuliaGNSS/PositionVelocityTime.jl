@@ -1,39 +1,3 @@
-"""
-    orbital_elements(data, μ, t_k) -> (; A, sqrt_A, A_dot, n, Ω_dot)
-
-The Keplerian elements that differ between the directly-broadcast ephemerides
-(GPS LNAV `GPSL1CAData`, Galileo I/NAV `GalileoE1BData`) and the quasi-Keplerian
-GPS CNAV/CNAV-2 ephemerides (`GPSCNAVData` for L5 and L2C, `GPSL1C_DData` for
-L1C), evaluated at the time-from-ephemeris `t_k` (seconds):
-
-- `A`: semi-major axis at `t_0e` (m)
-- `sqrt_A`: its square root (m^½); the broadcast `sqrt_A` for the directly-broadcast
-  Keplerian case (no round-trip), `√A` for CNAV/CNAV-2 (which carry no `sqrt_A` field)
-- `A_dot`: its rate (m/s; `0` for the directly-broadcast Keplerian case)
-- `n`: corrected mean motion at `t_k` (rad/s)
-- `Ω_dot`: rate of right ascension (rad/s)
-
-Everything else the propagator needs (`e`, `ω`, `i_0`, `i_dot`, `M_0`, the `C_*`
-harmonic coefficients, `t_0e`) is named identically across all four nav messages
-and read from `data` directly. CNAV recovers `A` from `A_REF + ΔA` (with `Ȧ·t_k`
-added for the radius), the mean motion from `Δn_0 (+ ½ Δṅ_0 t_k)`, and `Ω̇` from
-`Ω̇_REF + ΔΩ̇`.
-"""
-function orbital_elements(data::GNSSDecoder.AbstractGNSSData, μ, t_k)
-    (A = data.sqrt_A^2, sqrt_A = data.sqrt_A, A_dot = 0.0, n = sqrt(μ) / data.sqrt_A^3 + data.Δn, Ω_dot = data.Ω_dot)
-end
-function orbital_elements(data::GPSModernNavData, μ, t_k)
-    # Quasi-Keplerian reference values from the CNAV user algorithm (IS-GPS-200N;
-    # identical in IS-GPS-705J and IS-GPS-800J); the broadcast fields are deltas off
-    # these.
-    A_REF = 26_559_710.0        # m
-    Ω_dot_REF = -2.6e-9 * π     # rad/s (-2.6e-9 semicircles/s)
-    A = A_REF + data.ΔA
-    n = sqrt(μ / A^3) + data.Δn_0 + 0.5 * data.Δn_0_dot * t_k
-    Ω_dot = Ω_dot_REF + data.ΔΩ_dot
-    (A = A, sqrt_A = sqrt(A), A_dot = data.A_dot, n = n, Ω_dot = Ω_dot)
-end
-
 function calc_eccentric_anomaly(mean_anomaly, eccentricity)
     Ek = mean_anomaly
     for k = 1:30
@@ -46,13 +10,15 @@ function calc_eccentric_anomaly(mean_anomaly, eccentricity)
     return Ek
 end
 
-function calc_eccentric_anomaly(decoder::GNSSDecoder.GNSSDecoderState, t)
-    data = decoder.data
-    time_from_ephemeris_reference_epoch = correct_week_crossovers(t - data.t_0e)
-    el = orbital_elements(data, decoder.constants.μ, time_from_ephemeris_reference_epoch)
-    mean_anomaly = data.M_0 + el.n * time_from_ephemeris_reference_epoch
-    calc_eccentric_anomaly(mean_anomaly, data.e)
+function calc_eccentric_anomaly(eph::Ephemeris, t)
+    time_from_ephemeris_reference_epoch = correct_week_crossovers(t - eph.t_0e)
+    n = eph.n_0 + eph.n_dot_half * time_from_ephemeris_reference_epoch
+    mean_anomaly = eph.M_0 + n * time_from_ephemeris_reference_epoch
+    calc_eccentric_anomaly(mean_anomaly, eph.e)
 end
+
+calc_eccentric_anomaly(decoder::GNSSDecoder.GNSSDecoderState, t) =
+    calc_eccentric_anomaly(Ephemeris(decoder), t)
 
 """
     calc_satellite_position(decoder::GNSSDecoder.GNSSDecoderState, t)
@@ -78,6 +44,7 @@ end
 
 """
     calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderState, t)
+    calc_satellite_position_and_velocity(eph::Ephemeris, t)
     calc_satellite_position_and_velocity(state::SatelliteState)
 
 Calculate the satellite ECEF position and velocity from orbital parameters at time `t`.
@@ -87,6 +54,8 @@ for argument of latitude, radius, and inclination) to propagate the satellite ep
 
 # Arguments
 - `decoder`: GNSS decoder state containing ephemeris data
+- `eph`: An already-extracted [`Ephemeris`](@ref) — the form `calc_pvt` uses to reuse
+  one extraction per satellite across the clock and position kernels
 - `t`: Transmission time in system time (seconds)
 - `state`: A [`SatelliteState`](@ref) combining decoder, system, and phase measurements
 
@@ -94,65 +63,63 @@ for argument of latitude, radius, and inclination) to propagate the satellite ep
 A named tuple `(position, velocity)` where each is an `SVector{3, Float64}` in ECEF
 coordinates (meters and m/s respectively).
 """
-function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderState, t)
-    data = decoder.data
-    constants = decoder.constants
-    time_from_ephemeris_reference_epoch = correct_week_crossovers(t - data.t_0e)
-    el = orbital_elements(data, constants.μ, time_from_ephemeris_reference_epoch)
+function calc_satellite_position_and_velocity(eph::Ephemeris, t)
+    time_from_ephemeris_reference_epoch = correct_week_crossovers(t - eph.t_0e)
     # Semi-major axis at t_k: constant for LNAV/Galileo (A_dot = 0), `A_0 + Ȧ·t_k`
-    # for CNAV/CNAV-2.
-    semi_major_axis = el.A + el.A_dot * time_from_ephemeris_reference_epoch
-    corrected_mean_motion = el.n
-    eccentric_anomaly = calc_eccentric_anomaly(decoder, t)
-    eccentric_anomaly_dot = corrected_mean_motion / (1.0 - data.e * cos(eccentric_anomaly))
-    β = data.e / (1 + sqrt(1 - data.e^2))
+    # for CNAV/CNAV-2; same for the mean motion and its rate `n_dot_half`.
+    semi_major_axis = eph.A + eph.A_dot * time_from_ephemeris_reference_epoch
+    corrected_mean_motion = eph.n_0 + eph.n_dot_half * time_from_ephemeris_reference_epoch
+    mean_anomaly = eph.M_0 + corrected_mean_motion * time_from_ephemeris_reference_epoch
+    eccentric_anomaly = calc_eccentric_anomaly(mean_anomaly, eph.e)
+    eccentric_anomaly_dot = corrected_mean_motion / (1.0 - eph.e * cos(eccentric_anomaly))
+    β = eph.e / (1 + sqrt(1 - eph.e^2))
     true_anomaly =
         eccentric_anomaly +
         2 * atan(β * sin(eccentric_anomaly) / (1 - β * cos(eccentric_anomaly)))
     true_anomaly_dot =
         sin(eccentric_anomaly) *
         eccentric_anomaly_dot *
-        (1.0 + data.e * cos(true_anomaly)) /
-        (sin(true_anomaly) * (1.0 - data.e * cos(eccentric_anomaly)))
-    argument_of_latitude = true_anomaly + data.ω
+        (1.0 + eph.e * cos(true_anomaly)) /
+        (sin(true_anomaly) * (1.0 - eph.e * cos(eccentric_anomaly)))
+    argument_of_latitude = true_anomaly + eph.ω
     argrument_of_latitude_correction =
-        data.C_us * sin(2 * argument_of_latitude) +
-        data.C_uc * cos(2 * argument_of_latitude)
+        eph.C_us * sin(2 * argument_of_latitude) +
+        eph.C_uc * cos(2 * argument_of_latitude)
     radius_correction =
-        data.C_rs * sin(2 * argument_of_latitude) +
-        data.C_rc * cos(2 * argument_of_latitude)
+        eph.C_rs * sin(2 * argument_of_latitude) +
+        eph.C_rc * cos(2 * argument_of_latitude)
     inclination_correction =
-        data.C_is * sin(2 * argument_of_latitude) +
-        data.C_ic * cos(2 * argument_of_latitude)
+        eph.C_is * sin(2 * argument_of_latitude) +
+        eph.C_ic * cos(2 * argument_of_latitude)
     corrected_argument_of_latitude = argument_of_latitude + argrument_of_latitude_correction
     corrected_radius =
-        semi_major_axis * (1 - data.e * cos(eccentric_anomaly)) + radius_correction
+        semi_major_axis * (1 - eph.e * cos(eccentric_anomaly)) + radius_correction
     corrected_inclination =
-        data.i_0 + inclination_correction + data.i_dot * time_from_ephemeris_reference_epoch
+        eph.i_0 + inclination_correction + eph.i_dot * time_from_ephemeris_reference_epoch
 
     corrected_argument_of_latitude_dot =
         true_anomaly_dot +
         2 *
         (
-            data.C_us * cos(2 * corrected_argument_of_latitude) -
-            data.C_uc * sin(2 * corrected_argument_of_latitude)
+            eph.C_us * cos(2 * corrected_argument_of_latitude) -
+            eph.C_uc * sin(2 * corrected_argument_of_latitude)
         ) *
         true_anomaly_dot
     corrected_radius_dot =
-        el.A_dot * (1.0 - data.e * cos(eccentric_anomaly)) +
-        semi_major_axis * data.e * sin(eccentric_anomaly) * corrected_mean_motion /
-        (1.0 - data.e * cos(eccentric_anomaly)) +
+        eph.A_dot * (1.0 - eph.e * cos(eccentric_anomaly)) +
+        semi_major_axis * eph.e * sin(eccentric_anomaly) * corrected_mean_motion /
+        (1.0 - eph.e * cos(eccentric_anomaly)) +
         2 *
         (
-            data.C_rs * cos(2 * corrected_argument_of_latitude) -
-            data.C_rc * sin(2 * corrected_argument_of_latitude)
+            eph.C_rs * cos(2 * corrected_argument_of_latitude) -
+            eph.C_rc * sin(2 * corrected_argument_of_latitude)
         ) *
         true_anomaly_dot
     corrected_inclination_dot =
-        data.i_dot +
+        eph.i_dot +
         (
-            data.C_is * cos(2 * corrected_argument_of_latitude) -
-            data.C_ic * sin(2 * corrected_argument_of_latitude)
+            eph.C_is * cos(2 * corrected_argument_of_latitude) -
+            eph.C_ic * sin(2 * corrected_argument_of_latitude)
         ) *
         2 *
         true_anomaly_dot
@@ -168,10 +135,10 @@ function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderSt
         x_position_in_orbital_plane * corrected_argument_of_latitude_dot
 
     corrected_longitude_of_ascending_node =
-        data.Ω_0 + (el.Ω_dot - constants.Ω_dot_e) * time_from_ephemeris_reference_epoch -
-        constants.Ω_dot_e * data.t_0e
+        eph.Ω_0 + (eph.Ω_dot - eph.Ω_dot_e) * time_from_ephemeris_reference_epoch -
+        eph.Ω_dot_e * eph.t_0e
 
-    corrected_longitude_of_ascending_node_dot = el.Ω_dot - constants.Ω_dot_e
+    corrected_longitude_of_ascending_node_dot = eph.Ω_dot - eph.Ω_dot_e
 
     position = SVector(
         x_position_in_orbital_plane * cos(corrected_longitude_of_ascending_node) -
@@ -220,13 +187,17 @@ function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderSt
     (position = position, velocity = velocity)
 end
 
+calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderState, t) =
+    calc_satellite_position_and_velocity(Ephemeris(decoder), t)
+
 function calc_satellite_position(state::SatelliteState)
     pos_and_vel = calc_satellite_position_and_velocity(state)
     pos_and_vel.position
 end
 function calc_satellite_position_and_velocity(state::SatelliteState)
-    t = calc_corrected_time(state)
-    calc_satellite_position_and_velocity(state.decoder, t)
+    clock = ClockModel(state.decoder, state.system)
+    t = calc_corrected_time(state, clock)
+    calc_satellite_position_and_velocity(clock.ephemeris, t)
 end
 
 function calc_pseudo_ranges(times)

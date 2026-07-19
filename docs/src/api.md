@@ -24,6 +24,19 @@ calc_satellite_position_and_velocity
 get_sat_enu
 ```
 
+## Ephemeris Extraction
+
+[`calc_pvt`](@ref) extracts each satellite's decoded broadcast orbit and clock model
+into concrete structs once per solve — a function barrier over the decoder's
+`Union{Nothing, …}` data fields that keeps the propagation and clock kernels
+allocation-free. These types are internal; they are documented here for reference.
+
+```@docs
+PositionVelocityTime.Ephemeris
+PositionVelocityTime.ClockModel
+PositionVelocityTime.orbital_terms
+```
+
 ## Atmospheric Corrections
 
 These corrections are applied automatically by [`calc_pvt`](@ref); they are

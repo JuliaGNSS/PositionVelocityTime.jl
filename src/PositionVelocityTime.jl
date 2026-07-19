@@ -30,7 +30,7 @@ const SPEEDOFLIGHT = 299792458.0
 # The GPS CNAV family (CNAV on L5/L2C, CNAV-2 on L1C): both broadcast the full week
 # number (no 1024-week rollover) and a quasi-Keplerian ephemeris (A_REF + ΔA,
 # Ω̇_REF + ΔΩ̇, …) rather than LNAV's directly-broadcast Keplerian elements — so
-# `orbital_elements` and the full-week `get_week` dispatch on this union.
+# `orbital_terms` and the full-week `get_week` dispatch on this union.
 const GPSModernNavData = Union{GNSSDecoder.GPSCNAVData,GNSSDecoder.GPSL1C_DData}
 
 """
@@ -562,7 +562,15 @@ function calc_pvt(
     healthy_states = view(states, healthy_indices)
     num_sats = length(healthy_states)
 
-    times = map(calc_corrected_time, healthy_states)
+    # One concrete [`ClockModel`](@ref) (with its [`Ephemeris`](@ref)) extraction per
+    # satellite, shared by the clock correction, the orbit propagation and the
+    # clock-drift lookup below. This is the Union{Nothing,…}-field → Float64 function
+    # barrier that keeps all the Kepler math allocation-free; it also gives the
+    # downstream maps a concrete element type even when `states` is heterogeneous
+    # (mixed constellations).
+    clock_models = map(state -> ClockModel(state.decoder, state.system), healthy_states)
+
+    times = map(calc_corrected_time, healthy_states, clock_models)
 
     # Classify each satellite by the GNSSSignals keys that drive the solution.
     # `get_time_system` (`GPST()`/`GST()`) groups the receiver clock bias — one per time
@@ -582,8 +590,8 @@ function calc_pvt(
 
     # Propagating the ephemerides.
     sat_positions_and_velocities = map(
-        (state, time) -> calc_satellite_position_and_velocity(state.decoder, time),
-        healthy_states,
+        (clock, time) -> calc_satellite_position_and_velocity(clock.ephemeris, time),
+        clock_models,
         times,
     )
     sat_positions = map(get_sat_position, sat_positions_and_velocities)
@@ -674,7 +682,7 @@ function calc_pvt(
     end
     H = calc_H(sat_positions_mat, ξ, bias_columns)
     user_velocity_and_clock_drift = calc_user_velocity_and_clock_drift(
-        sat_positions_and_velocities, healthy_states, times, H)
+        sat_positions_and_velocities, healthy_states, clock_models, times, H)
     position = ECEF(ξ[1], ξ[2], ξ[3])
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
@@ -810,6 +818,9 @@ function get_LLA(pvt::PVTSolution)
     LLAfromECEF(wgs84)(pvt.position)
 end
 
+# `ephemeris.jl` first: the `Ephemeris` struct appears in method signatures of the
+# files that follow.
+include("ephemeris.jl")
 include("user_position.jl")
 include("sat_time.jl")
 include("sat_position.jl")
