@@ -38,25 +38,27 @@ function calc_uncorrected_time(state::SatelliteState)
     t_tow + t_bits + t_code_phase + t_carrier_phase
 end
 
-function calc_relativistic_correction(decoder::GNSSDecoder.GNSSDecoderState, t)
-    data = decoder.data
-    time_from_ephemeris_reference_epoch = correct_week_crossovers(t - data.t_0e)
-    # √A from the effective elements: the broadcast `sqrt_A` directly for LNAV/Galileo,
-    # `√(A_REF + ΔA)` for CNAV/CNAV-2 (which carry no `sqrt_A` field).
-    el = orbital_elements(data, decoder.constants.μ, time_from_ephemeris_reference_epoch)
-    E = calc_eccentric_anomaly(decoder, t)
-    decoder.constants.F * data.e * el.sqrt_A * sin(E)
+# √A from the effective elements: the broadcast `sqrt_A` directly for LNAV/Galileo,
+# `√(A_REF + ΔA)` for CNAV/CNAV-2 (which carry no `sqrt_A` field).
+function calc_relativistic_correction(eph::Ephemeris, t)
+    E = calc_eccentric_anomaly(eph, t)
+    eph.F * eph.e * eph.sqrt_A * sin(E)
+end
+calc_relativistic_correction(decoder::GNSSDecoder.GNSSDecoderState, t) =
+    calc_relativistic_correction(Ephemeris(decoder), t)
+
+# The signal's group delay is already folded into `clock.group_delay` (see
+# [`ClockModel`](@ref)), so the correction is applied as a plain constant here.
+function correct_clock(clock::ClockModel, t)
+    Δtr = calc_relativistic_correction(clock.ephemeris, t)
+    Δt = clock.a_f0 + clock.a_f1 * (t - clock.t_0c) + clock.a_f2 * (t - clock.t_0c)^2 + Δtr
+    t - (Δt - clock.group_delay)
 end
 
-function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, system, t)
-    Δtr = calc_relativistic_correction(decoder, t)
-    Δt =
-        decoder.data.a_f0 +
-        decoder.data.a_f1 * (t - decoder.data.t_0c) +
-        decoder.data.a_f2 * (t - decoder.data.t_0c)^2 +
-        Δtr
-    t - correct_by_group_delay(decoder, system, Δt)
-end
+correct_clock(decoder::GNSSDecoder.GNSSDecoderState, system, t) =
+    correct_clock(ClockModel(decoder, system), t)
+
+calc_satellite_clock_drift(clock::ClockModel, t) = clock.a_f1 + clock.a_f2 * t * 2
 
 function calc_satellite_clock_drift(decoder::GNSSDecoder.GNSSDecoderState, t)
     decoder.data.a_f1 +
@@ -147,9 +149,14 @@ correct_by_group_delay(
     t,
 ) = t - decoder.data.broadcast_group_delay_e1_e5a
 
-function calc_corrected_time(state::SatelliteState)
+calc_corrected_time(state::SatelliteState) =
+    calc_corrected_time(state, ClockModel(state.decoder, state.system))
+
+# The two-argument form lets `calc_pvt` reuse its per-satellite [`ClockModel`](@ref)
+# extraction instead of re-extracting per call.
+function calc_corrected_time(state::SatelliteState, clock::ClockModel)
     approximated_time = calc_uncorrected_time(state)
-    correct_clock(state.decoder, state.system, approximated_time)
+    correct_clock(clock, approximated_time)
 end
 
 """

@@ -231,7 +231,13 @@ drift of the inter-system time offset (e.g. the GGTO rate `A_1G`), which is
 every satellite constrain the four unknowns instead of spending a column per
 system.
 """
-function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states, times, H)
+function calc_user_velocity_and_clock_drift(
+    sat_positions_and_velocities,
+    states,
+    clock_models,
+    times,
+    H,
+)
     num_sats = length(states)
     # Normal-equations form of the 4-unknown velocity + clock-drift least squares.
     # The velocity design row is [eₓ e_y e_z 1]: the line-of-sight unit vector (H's
@@ -248,7 +254,7 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
         sat_pv = sat_positions_and_velocities[j]
         λ = SPEEDOFLIGHT / upreferred(get_center_frequency(state.system) / Hz)
         doppler = upreferred(state.carrier_doppler / Hz)
-        clock_drift = calc_satellite_clock_drift(state.decoder, times[j])
+        clock_drift = calc_satellite_clock_drift(clock_models[j], times[j])
         # Line-of-sight unit vector, already computed for the position solve and
         # stored in H's first three columns (calc_H) — no need to recompute calc_e.
         e = SVector{3}(view(H, j, 1:3))
