@@ -1,5 +1,12 @@
 # Changelog
 
+# [4.1.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.0.1...v4.1.0) (2026-07-26)
+
+
+### Features
+
+* support Tracking 4 ([d35afec](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/d35afec))
+
 ## [4.0.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.0.0...v4.0.1) (2026-07-07)
 
 
