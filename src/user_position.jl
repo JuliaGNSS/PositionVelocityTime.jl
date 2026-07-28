@@ -118,6 +118,43 @@ function calc_Avv!(dir_deriv, sat_positions, ξ, v)
 end
 
 """
+    positive_definite_cholesky(A::Symmetric) -> Union{Cholesky,Nothing}
+
+Cholesky factorization of `A`, or `nothing` when `A` is not positive definite to within
+the rank tolerance below. Used to solve and invert the normal-equations matrices of this
+package (`HᵀH` for a design matrix `H`), which are positive definite exactly when `H`
+has full column rank — so `nothing` means the geometry left some parameter
+unobservable, and the epoch cannot be solved.
+
+Cholesky is the right factorization for a symmetric positive definite matrix (≈2×
+cheaper than a general or symmetric-indefinite one, and numerically faithful), and
+`check = false` reports the non-positive-definite case instead of throwing. `issuccess`
+alone is not a sufficient test, for two reasons:
+
+  - StaticArrays accepts a pivot of exactly zero (its check is `pivot ≥ 0`) and returns
+    a "successful" factor whose diagonal contains that zero — the triangular solve that
+    follows then throws the very `SingularException` this is meant to avoid.
+  - A rank-deficient design usually does not produce an exactly zero pivot at all:
+    rounding leaves a tiny positive one instead, and the factorization "succeeds" with a
+    solution made of rounding noise (velocities of 1e8 m/s and the like).
+
+Both are caught by a relative rank tolerance on the Cholesky diagonal, which for a
+normal-equations matrix is on the scale of `H`'s singular values — so its
+smallest-to-largest ratio is ~`1/cond(H)`. A rank-deficient design leaves the ratio at
+rounding level (~1e-8 for `Float64`, or exactly 0), whereas even a barely usable GNSS
+geometry stays above ~1e-3; `cbrt(eps)` ≈ 6e-6 sits between the two with orders of
+magnitude of margin either way. The test costs a few comparisons and does not allocate.
+
+$SIGNATURES
+"""
+function positive_definite_cholesky(A::Symmetric)
+    F = cholesky(A; check = false)
+    issuccess(F) || return nothing
+    pivots = diag(F.U)
+    minimum(pivots) > cbrt(eps(eltype(pivots))) * maximum(pivots) ? F : nothing
+end
+
+"""
 Calculates the dilution of precision for a given geometry matrix H
 
 `H_GEO` has `3 + num_clock_biases + num_ifb` columns (three position partials, one per
@@ -130,8 +167,8 @@ by the rotation). `GDOP` spans all parameters; `TDOP` reports the clock variance
 primary (reference) system — see [`PVTSolution`](@ref) — while the other systems' clock
 (inter-system-bias) and the inter-frequency-bias variances enter `GDOP` only.
 
-A rank-deficient geometry makes `HᵀH` singular (not positive definite); a
-non-throwing Cholesky detects this and the function returns the sentinel
+A rank-deficient geometry makes `HᵀH` singular (not positive definite);
+[`positive_definite_cholesky`](@ref) detects this and the function returns the sentinel
 `DOP(-1, …)` instead of erroring.
 
 $SIGNATURES
@@ -140,14 +177,12 @@ $SIGNATURES
 `primary_clock_index`: Index (1…num_clock_biases) of the clock column whose variance is reported as TDOP
 """
 function calc_DOP(H_GEO, user_pos::ECEF, primary_clock_index = 1)
-    # HᵀH is symmetric positive definite iff H has full column rank. Cholesky is
-    # the right factorization for an SPD matrix (≈2× cheaper than a general or
-    # symmetric-indefinite inverse, and numerically faithful), and `check = false`
-    # lets a rank-deficient (singular) geometry fail gracefully via `issuccess`
-    # instead of throwing. The inverse of an SPD matrix is itself SPD, so the DOP
-    # variances on the diagonal are then guaranteed non-negative.
-    F = cholesky(Symmetric(H_GEO' * H_GEO); check = false)
-    issuccess(F) || return DOP(-1, -1, -1, -1, -1)
+    # HᵀH is symmetric positive definite iff H has full column rank, so a
+    # rank-deficient (singular) geometry fails gracefully here instead of throwing —
+    # see `positive_definite_cholesky`. The inverse of an SPD matrix is itself SPD, so
+    # the DOP variances on the diagonal are then guaranteed non-negative.
+    F = positive_definite_cholesky(Symmetric(H_GEO' * H_GEO))
+    isnothing(F) && return DOP(-1, -1, -1, -1, -1)
     D = inv(F)
 
     # Rotate the ECEF position covariance into the local ENU (East, North, Up)
@@ -230,6 +265,9 @@ drift of the inter-system time offset (e.g. the GGTO rate `A_1G`), which is
 ~1e-6 m/s — far below the Doppler velocity resolution. Using one common drift lets
 every satellite constrain the four unknowns instead of spending a column per
 system.
+
+Requires a geometry whose position design `H` has full column rank — the caller
+establishes that with [`calc_DOP`](@ref) before calling this; see the comment at the solve.
 """
 function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states, times, H)
     num_sats = length(states)
@@ -257,7 +295,17 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
         HtH += a * a'
         Hty += a * yⱼ
     end
-    HtH \ Hty
+    # `HtH` is positive definite whenever the position design `H` has full column rank,
+    # which `calc_pvt` has established via `calc_DOP` before calling this: writing the
+    # velocity design as `A = H·T` — `T` keeps H's three position columns, sums its clock
+    # columns into the drift column and drops the IFB columns — `T` has orthogonal columns
+    # of norms 1, 1, 1, √M, so `null(T) = {0}` and a full-rank `H` gives a full-rank `A`
+    # (with `cond(A) ≤ √M·cond(H)`). Hence a plain Cholesky solve, no rank test of its own.
+    #
+    # This is why `calc_pvt` must keep the DOP check *ahead* of this call: with the order
+    # reversed, a rank-deficient geometry reaches the solve below and throws
+    # `SingularException` — the failure this arrangement exists to prevent.
+    cholesky(Symmetric(HtH)) \ Hty
 end
 
 get_sat_position(x) = x.position

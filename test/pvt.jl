@@ -74,8 +74,9 @@ function with_ggto(state; A_0G, A_1G = 0.0, t_0G = 0, WN_0G = 0)
     )
 end
 
-# Relabels a SatelliteState's decoder PRN. The PRN is not used in the solve, only
-# as the `sats`-dict key, so this isolates the (system, PRN) keying behaviour.
+# Relabels a SatelliteState's decoder PRN. Nothing in the least-squares solve depends on
+# the PRN — it identifies a satellite, as the `sats`-dict key and for the layout's
+# distinct-satellite count — so this isolates that identity from the measurements.
 function with_prn(state, prn)
     d = state.decoder
     new_decoder = GNSSDecoder.GNSSDecoderState(;
@@ -184,6 +185,15 @@ end
     @test pvt.reference_system == GPST()
     @test Set(keys(pvt.inter_system_biases)) == Set([GST()])
 
+    # A satellite is identified as (time system, PRN) for the layout's
+    # distinct-satellite count, not by PRN alone: a Galileo satellite sharing a GPS PRN
+    # is still the fourth distinct satellite the collapsed layout needs, so relabelling
+    # it leaves the fix untouched (PRN-only identity would count three and bail).
+    collided = with_prn(with_ggto(gal[1]; A_0G = Δ), gps[1].decoder.prn)
+    pvt_collided = calc_pvt([gps[1:3]; [collided]]; approximate_year = 2021,
+        enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    @test pvt_collided.position == pvt.position
+
     # A single Galileo satellite carrying the GGTO is enough to collapse the
     # whole Galileo set: here only the first of two Galileo satellites has it.
     @test !PositionVelocityTime.ggto_available(gal[2].decoder)
@@ -275,4 +285,87 @@ end
     @test cog(10.0, 0.0, 7.0) ≈ cog(10.0, 0.0, 0.0)
     # Always wrapped to [0, 360)°.
     @test 0° ≤ cog(-3.0, -4.0, 0.0) < 360°
+end
+
+# Regression: a degenerate geometry must be reported, not thrown out of a least-squares
+# solve as a SingularException. Observed while processing a dual-band recording, where an
+# epoch's geometry left the velocity normal equations singular and the 4×4 solve threw
+# before the epoch could be rejected.
+@testset "degenerate geometry is rejected without throwing" begin
+    @testset "positive_definite_cholesky rejects what is not positive definite" begin
+        pdc = PositionVelocityTime.positive_definite_cholesky
+        @test !isnothing(pdc(Symmetric([2.0 0.0; 0.0 3.0])))     # positive definite
+        @test isnothing(pdc(Symmetric([1.0 1.0; 1.0 1.0])))      # semidefinite: zero pivot
+        @test isnothing(pdc(Symmetric([1.0 0.0; 0.0 -1.0])))     # indefinite
+        # Ill-conditioned to the point of being rank deficient in Float64: the pivot is
+        # positive, so `issuccess` alone would accept it and return rounding noise.
+        @test isnothing(pdc(Symmetric([1.0 0.0; 0.0 1e-14])))
+        # A poor but genuinely solvable geometry is still accepted (cond(HᵀH) = 1e6).
+        @test !isnothing(pdc(Symmetric([1.0 0.0; 0.0 1e-6])))
+    end
+
+    @testset "the geometry checks follow the design matrix rank" begin
+        # `calc_DOP` and the velocity solve both decide rank through the normal-equations
+        # matrix, so that is what these cases exercise.
+        full_rank(H) = !isnothing(
+            PositionVelocityTime.positive_definite_cholesky(Symmetric(H' * H)))
+        @test full_rank([1.0 0.0 1.0; 0.0 1.0 1.0; 1.0 1.0 0.0])
+        @test !full_rank(repeat([1.0 0.0 1.0], 3))               # identical rows
+        # A single-band, single-system position design over three satellites: four
+        # columns constrained by three lines of sight is always rank deficient — the shape
+        # the layout's distinct-satellite condition rejects before the solve.
+        @test !full_rank([1.0 0.0 0.0 1.0; 0.0 1.0 0.0 1.0; 0.0 0.0 1.0 1.0])
+
+        # The case no satellite count can see: four *distinct* satellites — plenty for the
+        # 3 + 1 unknowns — whose lines of sight lie on a common cone (equal projection onto
+        # z), which puts the clock column in their span.
+        c = 0.5
+        s = sqrt(1 - c^2)
+        cone = [s 0.0 c; 0.0 s c; -s 0.0 c; 0.0 -s c]
+        @test !full_rank([cone ones(4)])
+        # Tilting one satellite off the cone restores full rank.
+        tilted = [cone[1:3, :]; normalize([0.0, -s, 2c])']
+        @test full_rank([tilted ones(4)])
+    end
+
+    # The velocity solve assumes a full-rank position design (its caller establishes that
+    # with `calc_DOP` first), so what is pinned here is the implication it relies on: a
+    # degenerate line-of-sight set is degenerate for the velocity design too, and would
+    # reach a singular solve if the DOP check were ever moved after it.
+    @testset "a degenerate line-of-sight set is degenerate for the velocity design" begin
+        states = gps_l1_states(0.0Hz)[1:4]
+        times = map(PositionVelocityTime.calc_corrected_time, states)
+        sat_pvs = map(
+            (state, time) ->
+                PositionVelocityTime.calc_satellite_position_and_velocity(state.decoder, time),
+            states,
+            times,
+        )
+        # Only H's first three columns — the line-of-sight unit vectors — are read; the
+        # per-system clock columns are collapsed into a single drift column internally,
+        # so one trailing column of ones stands in for them here.
+        design(dirs) = reduce(vcat, [[normalize(d)' 1.0] for d in dirs])
+        velocity_and_drift(dirs) = PositionVelocityTime.calc_user_velocity_and_clock_drift(
+            sat_pvs, states, times, design(dirs))
+
+        # Four well-spread directions ⇒ solvable: a finite [vx, vy, vz, ċ].
+        solution = velocity_and_drift(
+            [[1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0]])
+        @test length(solution) == 4
+        @test all(isfinite, solution)
+
+        # The degenerate cases are stated on the design matrix, since the solve itself no
+        # longer tests rank. Two distinct directions (a satellite tracked on a second band
+        # repeats its line of sight) leave the position columns rank deficient.
+        solvable(dirs) = !isnothing(PositionVelocityTime.positive_definite_cholesky(
+            Symmetric(design(dirs)' * design(dirs))))
+        @test !solvable([[1.0, 0.2, 0.9], [1.0, 0.2, 0.9], [0.3, -1.0, 0.5], [0.3, -1.0, 0.5]])
+
+        # Three independent directions on a common cone (equal projection onto z) put the
+        # drift column in their span, leaving the fourth pivot exactly zero — the shape
+        # that produced SingularException(4) from the 4×4 solve.
+        c = 0.5
+        s = sqrt(1 - c^2)
+        @test !solvable([[s, 0.0, c], [0.0, s, c], [-s, 0.0, c], [0.0, -s, c]])
+    end
 end
