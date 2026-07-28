@@ -348,11 +348,14 @@ the per-band inter-frequency-bias columns from [`band_ifb_layout`](@ref) — and
 known per-satellite range offsets. Returns `nothing` when the constellation cannot be
 solved. The decision is observability-driven, not merely count-driven:
 
-- When the coverage graph is connected and `n ≥ 3 + num_systems + num_ifb`, estimate
-  everything independently: the inter-system offset and the receiver inter-frequency
-  biases are observed directly from the geometry, so neither inherits the broadcast-GGTO
-  error (the satellite group delays are already removed per satellite upstream, so the
-  per-band column carries the receiver chain).
+- When the coverage graph is connected and the satellites suffice for the unknowns
+  (`n ≥ 3 + num_systems + num_ifb` measurements, of which `3 + num_systems` must come
+  from *distinct* satellites — extra bands of an already-tracked satellite add
+  inter-frequency-bias information, not geometry), estimate everything independently: the
+  inter-system offset and the receiver inter-frequency biases are observed directly from
+  the geometry, so neither inherits the broadcast-GGTO error (the satellite group delays
+  are already removed per satellite upstream, so the per-band column carries the receiver
+  chain).
 - Otherwise merge the Galileo clock onto GPS via the broadcast GGTO when a Galileo
   satellite carries it. This removes a clock unknown (the scarce-satellite case) and
   reconnects a disjoint GPS/Galileo band split (the disconnected case — where a band's
@@ -367,13 +370,29 @@ solved. The decision is observability-driven, not merely count-driven:
   only the bias decomposition is ambiguous. Else return `nothing`.
 
 Because `band_ifb_layout` never creates an unobservable IFB column, every returned
-layout yields a full-rank design matrix — the degenerate disjoint-band case is removed
-structurally, not caught after the fact.
+layout is structurally sound — the degenerate disjoint-band case is removed by
+construction, not caught after the fact. The satellite conditions above are structural
+too, and thus necessary but not sufficient: a returned layout can still have degenerate
+*geometry* (lines of sight that span too little), which no satellite count can see. That
+is left to the checks `calc_pvt` makes on the solved geometry — the DOP's positive-definite
+test and the velocity solve's own — rather than pre-screened.
 """
 function decide_bias_layout(states, systems, bands, times)
     num_sats = length(states)
+    # Distinct physical satellites, identified by `(time system, PRN)` — a PRN is only
+    # unique within its GNSS. A satellite tracked on several frequency bands appears once
+    # per band in `states` but supplies a single line of sight, its repeats differing from
+    # it solely in an inter-frequency-bias column. Only distinct satellites can therefore
+    # constrain the geometry and clock unknowns, while the inter-frequency biases live on
+    # the repeats — hence the two conditions in `enough_satellites` below.
+    num_distinct_sats = length(unique(zip(systems, (state.decoder.prn for state in states))))
+    # Both are necessary for a full-rank design (`H` has `3 + M + B` columns, and its rows
+    # take only `num_distinct_sats` distinct values outside the IFB columns), neither is
+    # sufficient: the geometry itself can still be degenerate, which `calc_pvt` screens
+    # for once the design matrix exists.
     enough_satellites(layout) =
-        num_sats >= 3 + layout.num_clock_biases + length(layout.extra_bands)
+        num_sats >= 3 + layout.num_clock_biases + length(layout.extra_bands) &&
+        num_distinct_sats >= 3 + layout.num_clock_biases
 
     function bias_layout_for(effective_systems)
         unique_effective = unique(effective_systems)
@@ -491,9 +510,12 @@ band beyond a reference band (shared across constellations on that band; see
 extra bands. Position and time are found by least squares; velocity and clock drift
 are solved from carrier Doppler.
 
-A solution requires `n ≥ 3 + M + B` healthy satellites (each system needs at least
-one satellite, and a system contributing a single satellite spends it entirely
-on that system's clock bias). When that condition fails but both GPS and Galileo
+A solution requires `n ≥ 3 + M + B` healthy satellite measurements (each system needs at
+least one satellite, and a system contributing a single satellite spends it entirely
+on that system's clock bias), of which `3 + M` must come from *distinct* satellites: a
+satellite tracked on several bands supplies one line of sight, and its extra
+measurements constrain the inter-frequency biases rather than the geometry. When either
+condition fails but both GPS and Galileo
 are present and the Galileo message carries the GGTO (Galileo–GPS Time Offset),
 the Galileo clock bias is collapsed onto GPS using the broadcast offset, which
 makes a 4-satellite GPS+Galileo fix possible. Estimating an independent bias is
@@ -536,9 +558,11 @@ See [`tropospheric_delay`](@ref).
 
 # Returns
 A [`PVTSolution`](@ref) containing position, velocity, time, DOP values, and
-satellite information. Returns `prev_pvt` if too few healthy satellites are
-available to solve the constellation (including the GGTO fallback) or if the
-GDOP is negative.
+satellite information. Returns `prev_pvt` if the epoch cannot be solved: too few healthy
+satellites to solve the constellation (including the GGTO fallback and the
+distinct-satellite condition — a satellite tracked on several bands supplies one line of
+sight, so measurements alone are not enough), a geometry whose solved design matrix is
+rank deficient (reported as a negative GDOP).
 
 # Throws
 - `ArgumentError`: If fewer than 4 satellite states are provided
@@ -645,6 +669,7 @@ function calc_pvt(
     # entirely and the solve runs on the raw pseudoranges.
     correct_atmosphere =
         !isnothing(ionospheric_correction) || enable_tropospheric_correction
+
     ξ, residuals = if iszero(prev_ξ)
         # Cold start: no prior position, and the Klobuchar model is undefined near
         # the geocenter, so first obtain an approximate fix from an uncorrected
@@ -673,9 +698,21 @@ function calc_pvt(
         user_position(sat_positions_mat, corrected_ranges, bias_columns, prev_ξ)
     end
     H = calc_H(sat_positions_mat, ξ, bias_columns)
+    position = ECEF(ξ[1], ξ[2], ξ[3])
+
+    # Check the geometry at the converged position — the DOP is reported to the caller, and
+    # a rank deficiency here (negative GDOP) means `ξ` is meaningless, so nothing should be
+    # derived from it. The satellite conditions in `decide_bias_layout` already reject the
+    # count-shaped degeneracies before the solve; this catches what a count cannot see.
+    #
+    # This check must stay ahead of the velocity solve: it is what makes that solve's
+    # normal-equations matrix positive definite (see `calc_user_velocity_and_clock_drift`),
+    # and with the order reversed a degenerate geometry throws `SingularException` there.
+    dop = calc_DOP(H, position, primary_clock_index)
+    dop.GDOP < 0 && return prev_pvt
+
     user_velocity_and_clock_drift = calc_user_velocity_and_clock_drift(
         sat_positions_and_velocities, healthy_states, times, H)
-    position = ECEF(ξ[1], ξ[2], ξ[3])
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
         user_velocity_and_clock_drift[2],
@@ -698,11 +735,6 @@ function calc_pvt(
     )
 
     sat_infos = SatInfo.(sat_positions, times, residuals .* m)
-
-    dop = calc_DOP(H, position, primary_clock_index)
-    if dop.GDOP < 0
-        return prev_pvt
-    end
 
     # Inter-system biases relative to the reference (primary) system's clock, in
     # meters. The reference is omitted (its bias is `time_correction`); for a

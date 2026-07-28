@@ -70,6 +70,24 @@
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end
 
+    # GPS L5 (CNAV) copy of a GPS L1 C/A satellite — the L2C copy above on the L5 band:
+    # the same CNAV message type, with the L5 group delay (ISC_L5I5 = 0) and L5 health
+    # in place of the L2 ones. Only used to build a third band.
+    function as_l5i(state)
+        l2c = as_l2c(state)
+        d = l2c.decoder.data
+        l5_data = GNSSDecoder.GPSCNAVData(;
+            (f => getfield(d, f) for f in fieldnames(GNSSDecoder.GPSCNAVData))...,
+            ISC_L2C = nothing, l2_health = nothing, ISC_L5I5 = 0.0, l5_health = false)
+        target = PositionVelocityTime.calc_uncorrected_time(state)
+        num_bits, code_phase = bits_and_code_phase(GPSL5I(), l5_data.TOW, target)
+        dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GPSL5IDecoderState(state.decoder.prn);
+            data = l5_data, raw_data = l5_data,
+            num_bits_after_valid_syncro_sequence = num_bits)
+        SatelliteState(; decoder = dec, system = GPSL5I(), code_phase = code_phase,
+            carrier_doppler = 0.0Hz, carrier_phase = 0.0)
+    end
+
     @testset "user_position recovers per-band IFB and per-system clocks" begin
         user = ECEFfromLLA(wgs84)(LLA(50.1, 8.7, 120.0))
         ecef_from_enu = ECEFfromENU(user, wgs84)
@@ -137,17 +155,32 @@
         @test ifb4 == [0, 0, 1, 1, 0, 0]
     end
 
-    @testset "layout count gate accounts for the extra band" begin
-        # GPS-only (no GGTO collapse possible), dummy states: 3 position + 1 clock +
-        # num_ifb unknowns. The decoder is only touched on the GGTO path, never reached
-        # for a GPS-only constellation, so plain integers stand in for the states.
+    @testset "layout gate counts both measurements and distinct satellites" begin
+        # GPS-only (no GGTO collapse possible): 3 position + 1 clock + num_ifb unknowns.
+        # Beyond the PRN of each state, the decoder is touched only on the GGTO path,
+        # never reached for a GPS-only constellation, so PRN-carrying stand-ins suffice.
         decide = PositionVelocityTime.decide_bias_layout
-        # Dual-band GPS ⇒ 1 IFB ⇒ needs 5 satellites; 4 is too few.
-        @test decide(collect(1:5), fill(GPST(), 5), [:L1, :L5, :L1, :L5, :L1], zeros(5)) !==
-              nothing
-        @test decide(collect(1:4), fill(GPST(), 4), [:L1, :L5, :L1, :L5], zeros(4)) === nothing
+        gate(prns, bands) = decide([(; decoder = (; prn = prn)) for prn in prns],
+            fill(GPST(), length(prns)), bands, zeros(length(prns)))
+
+        # Dual-band GPS ⇒ 1 IFB ⇒ needs 5 measurements; 4 is too few.
+        @test gate(1:5, [:L1, :L5, :L1, :L5, :L1]) !== nothing
+        @test gate(1:4, [:L1, :L5, :L1, :L5]) === nothing
         # Single-band GPS ⇒ no IFB ⇒ 4 satellites suffice.
-        @test decide(collect(1:4), fill(GPST(), 4), fill(:L1, 4), zeros(4)) !== nothing
+        @test gate(1:4, fill(:L1, 4)) !== nothing
+
+        # The measurement count alone is not enough. Only distinct satellites can
+        # constrain the 3 position + 1 clock unknowns, because the extra bands of an
+        # already-tracked satellite repeat its line of sight: two satellites on three
+        # bands (6 ≥ 3 + 1 + 2) and three satellites on two bands (6 ≥ 3 + 1 + 1) both
+        # clear the measurement count while remaining unsolvable.
+        @test gate([1, 1, 1, 2, 2, 2], [:L1, :L2, :L5, :L1, :L2, :L5]) === nothing
+        @test gate([1, 1, 2, 2, 3, 3], [:L1, :L5, :L1, :L5, :L1, :L5]) === nothing
+        # Four distinct satellites on two bands clear both conditions, and so does the
+        # leanest dual-frequency constellation: four satellites on L1, one of them also
+        # tracked on L5 — that repeat is what makes the IFB observable.
+        @test gate([1, 1, 2, 2, 3, 3, 4, 4], repeat([:L1, :L5], 4)) !== nothing
+        @test gate([1, 2, 3, 4, 1], [:L1, :L1, :L1, :L1, :L5]) !== nothing
     end
 
     @testset "single-band fix reports no inter-frequency bias" begin
@@ -258,5 +291,34 @@
         @test abs(pvt_ggto.inter_frequency_biases[:L5].value) < 5m
         @test isfinite(pvt_ggto.dop.GDOP) && 0 < pvt_ggto.dop.GDOP < 1e4
         @test norm(pvt_ggto.position - connected.position) < 10
+    end
+
+    # Regression, end to end through calc_pvt: two real satellites tracked on three bands
+    # clear the measurement count (6 ≥ 3 + 1 clock + 2 IFB) with two lines of sight, so
+    # the design matrix is rank deficient and the epoch is unsolvable. calc_pvt must skip
+    # it (return `prev_pvt`) rather than throw — while the layout gate still counted
+    # measurements only, the epoch reached the solve and its cold-start step, which is
+    # undamped and factorises HᵀH directly, threw SingularException out of LsqFit.
+    @testset "unsolvable triple-band geometry is skipped, not thrown" begin
+        gps = gps_l1_states(0.0Hz)
+        two = gps[1:2]
+        states = [two; map(as_l2c, two); map(as_l5i, two)]
+        systems = map(state -> GNSSSignals.get_time_system(state.system), states)
+        bands = map(state -> GNSSSignals.get_band_id(state.system), states)
+        times = map(PositionVelocityTime.calc_corrected_time, states)
+        # All six measurements are usable and clear the measurement count, and it is the
+        # distinct-satellite condition — two satellites for 3 + 1 unknowns — that rejects
+        # the constellation as unsolvable.
+        @test all(PositionVelocityTime.is_sat_healthy(state.decoder) for state in states)
+        @test bands == [:L1, :L1, :L2, :L2, :L5, :L5]
+        @test length(states) >= 3 + 1 + 2
+        @test PositionVelocityTime.decide_bias_layout(states, systems, bands, times) ===
+              nothing
+
+        ref = calc_pvt(gps; kw...)                      # L1-only GPS fix, as previous PVT
+        @test calc_pvt(states, ref; kw...) === ref      # warm start: previous fix kept
+        cold = calc_pvt(states; kw...)                  # cold start: nothing to fall back on
+        @test isempty(cold.sats)
+        @test iszero(cold.position)
     end
 end
