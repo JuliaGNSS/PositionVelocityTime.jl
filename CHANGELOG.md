@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.1.0...v4.1.1) (2026-07-29)
+
+
+### Bug Fixes
+
+* reject degenerate PVT geometries instead of throwing ([c83ff9a](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/c83ff9a4a44af818d496127901123981533d29a8))
+
 # [4.1.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.0.1...v4.1.0) (2026-07-26)
 
 
