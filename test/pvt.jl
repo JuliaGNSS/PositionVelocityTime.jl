@@ -74,6 +74,27 @@ function with_ggto(state; A_0G, A_1G = 0.0, t_0G = 0, WN_0G = 0)
     )
 end
 
+# Marks a GPS L1 C/A SatelliteState's decoder unhealthy: the six health bits are the
+# subframe-1 SV health word, and a set MSB (nav data bad) is what `is_sat_healthy`
+# rejects. GNSSDecoder 3 renamed the field `svhealth` -> `sv_health`, as in
+# `fixtures.jl`'s `gps_l1ca_data`.
+function with_health_bad(state)
+    d = state.decoder
+    unhealthy(data) =
+        :sv_health in fieldnames(GNSSDecoder.GPSL1CAData) ?
+        GNSSDecoder.GPSL1CAData(data; sv_health = "100000") :
+        GNSSDecoder.GPSL1CAData(data; svhealth = "100000")
+    new_decoder = GNSSDecoder.GNSSDecoderState(
+        d; raw_data = unhealthy(d.raw_data), data = unhealthy(d.data))
+    SatelliteState(;
+        decoder = new_decoder,
+        system = state.system,
+        code_phase = state.code_phase,
+        carrier_doppler = state.carrier_doppler,
+        carrier_phase = state.carrier_phase,
+    )
+end
+
 # Relabels a SatelliteState's decoder PRN. Nothing in the least-squares solve depends on
 # the PRN — it identifies a satellite, as the `sats`-dict key and for the layout's
 # distinct-satellite count — so this isolates that identity from the measurements.
@@ -217,6 +238,20 @@ end
     @test PositionVelocityTime.ggto_available(g.decoder)
     @test !PositionVelocityTime.ggto_available(gal[1].decoder)
     @test !PositionVelocityTime.ggto_available(gps[1].decoder)
+
+    # calc_ggto_range_offsets turns the decoder `decide_bias_layout` selected into the
+    # per-satellite range corrections: −c·GGTO for the collapsed (Galileo) satellites at
+    # their own transmit times, zero for the anchor system's. An independent layout
+    # (`nothing`) needs no conversion at all.
+    offset_systems = [GPST(), GST(), GPST(), GST()]
+    offset_times = [100.0, 200.0, 300.0, 400.0]
+    offsets = PositionVelocityTime.calc_ggto_range_offsets(
+        g.decoder, offset_systems, offset_times)
+    @test offsets[[1, 3]] == [0.0, 0.0]
+    @test offsets[[2, 4]] ≈
+          [-C * PositionVelocityTime.calc_ggto_offset(g.decoder, t) for t in (200.0, 400.0)]
+    @test PositionVelocityTime.calc_ggto_range_offsets(
+        nothing, offset_systems, offset_times) == zeros(4)
 end
 
 @testset "PVT primary system is the most-populated GNSS" begin
@@ -285,6 +320,34 @@ end
     @test cog(10.0, 0.0, 7.0) ≈ cog(10.0, 0.0, 0.0)
     # Always wrapped to [0, 360)°.
     @test 0° ≤ cog(-3.0, -4.0, 0.0) < 360°
+end
+
+# Every unsolvable epoch takes the same exit — `prev_pvt`, never a throw — whether the
+# shortfall is in the raw satellite count, in how many of them are usable, or in the layout
+# the constellation demands.
+@testset "an unsolvable epoch returns prev_pvt instead of throwing" begin
+    kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false)
+    gps = gps_l1_states(0.0Hz)
+    reference = calc_pvt(gps; kwargs...)
+    @test reference.position != ECEF(0, 0, 0)
+
+    # Too few states to hold 3 position + 1 clock unknown, down to none at all: with no
+    # previous solution the default (origin) one comes back unchanged.
+    for n in 0:3
+        pvt = calc_pvt(gps[1:n]; kwargs...)
+        @test pvt.position == ECEF(0, 0, 0)
+        @test isnothing(pvt.time)
+        @test isempty(pvt.sats)
+        # Given a previous fix, that fix is what is carried forward.
+        @test calc_pvt(gps[1:n], reference; kwargs...) === reference
+    end
+
+    # An unhealthy satellite is dropped before the count is taken, so 4 states carrying
+    # only 3 usable ones exit exactly as 3 states do.
+    unhealthy = [gps[1:3]; [with_health_bad(gps[4])]]
+    @test length(unhealthy) == 4
+    @test calc_pvt(unhealthy, reference; kwargs...) === reference
 end
 
 # Regression: a degenerate geometry must be reported, not thrown out of a least-squares

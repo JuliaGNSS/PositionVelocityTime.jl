@@ -63,6 +63,34 @@ struct BiasColumns
 end
 
 """
+    BiasLayout
+
+How one epoch's estimated biases are laid out, as decided by
+[`decide_bias_layout`](@ref): the design-matrix columns, the bands its
+inter-frequency-bias columns belong to, and the source of the range offsets a
+GGTO-collapsed layout needs.
+
+# Fields
+- `bias_columns::BiasColumns`: the per-satellite column assignment (see
+  [`BiasColumns`](@ref)).
+- `extra_bands::Vector{Symbol}`: band of each inter-frequency-bias column, so
+  `extra_bands[i]` belongs to column `i` of the IFB block.
+- `reference_bands::Vector{Symbol}`: per IFB column, the reference band of its coverage
+  component — the anchor that column's bias is measured against (see
+  [`band_ifb_layout`](@ref)).
+- `ggto_decoder::Union{Nothing,GNSSDecoder.GNSSDecoderState}`: the Galileo decoder whose
+  broadcast GGTO converts the collapsed measurements (see
+  [`calc_ggto_range_offsets`](@ref)), or `nothing` for a layout that estimates every clock
+  bias independently. Declared as a union so one concrete `BiasLayout` covers both.
+"""
+struct BiasLayout
+    bias_columns::BiasColumns
+    extra_bands::Vector{Symbol}
+    reference_bands::Vector{Symbol}
+    ggto_decoder::Union{Nothing,GNSSDecoder.GNSSDecoderState}
+end
+
+"""
     num_lsq_params(bias_columns::BiasColumns) -> Int
 
 Length of the least-squares state vector for `bias_columns`:
@@ -340,13 +368,19 @@ function band_ifb_layout(systems, bands)
 end
 
 """
-    decide_bias_layout(states, systems, bands, times)
-        -> (bias_columns::BiasColumns, extra_bands, reference_bands, ggto_offsets)
+    decide_bias_layout(states, systems, bands) -> Union{BiasLayout,Nothing}
 
 Decide the full least-squares bias layout — one clock column per GNSS time system plus
-the per-band inter-frequency-bias columns from [`band_ifb_layout`](@ref) — and the
-known per-satellite range offsets. Returns `nothing` when the constellation cannot be
-solved. The decision is observability-driven, not merely count-driven:
+the per-band inter-frequency-bias columns from [`band_ifb_layout`](@ref) — and return it
+as a [`BiasLayout`](@ref), whose `ggto_decoder` also carries how a collapsed layout's
+measurements are converted. Returns `nothing` when the constellation cannot be solved.
+
+Every input is a classification of the epoch, never a transmit time: the counts, the
+coverage graph and `ggto_available` are all the decision needs. The offsets its
+`ggto_decoder` enables are built afterwards, once [`calc_pvt`](@ref) has the transmit
+times.
+
+The decision is observability-driven, not merely count-driven:
 
 - When the coverage graph is connected and the satellites suffice for the unknowns
   (`n ≥ 3 + num_systems + num_ifb` measurements, of which `3 + num_systems` must come
@@ -377,14 +411,12 @@ too, and thus necessary but not sufficient: a returned layout can still have deg
 is left to the checks `calc_pvt` makes on the solved geometry — the DOP's positive-definite
 test and the velocity solve's own — rather than pre-screened.
 """
-function decide_bias_layout(states, systems, bands, times)
+function decide_bias_layout(states, systems, bands)
     num_sats = length(states)
     # Distinct physical satellites, identified by `(time system, PRN)` — a PRN is only
-    # unique within its GNSS. A satellite tracked on several frequency bands appears once
-    # per band in `states` but supplies a single line of sight, its repeats differing from
-    # it solely in an inter-frequency-bias column. Only distinct satellites can therefore
-    # constrain the geometry and clock unknowns, while the inter-frequency biases live on
-    # the repeats — hence the two conditions in `enough_satellites` below.
+    # unique within its GNSS. A satellite tracked on several bands appears once per band in
+    # `states` but supplies one line of sight, so only distinct satellites constrain the
+    # geometry and clock unknowns; its repeats constrain the inter-frequency biases.
     num_distinct_sats = length(unique(zip(systems, (state.decoder.prn for state in states))))
     # Both are necessary for a full-rank design (`H` has `3 + M + B` columns, and its rows
     # take only `num_distinct_sats` distinct values outside the IFB columns), neither is
@@ -404,17 +436,17 @@ function decide_bias_layout(states, systems, bands, times)
             extra_bands, reference_bands, num_components)
     end
 
-    as_result(layout, ggto_offsets) = (
+    as_bias_layout(layout, ggto_decoder) = BiasLayout(
         BiasColumns(layout.clock_bias_indices, layout.num_clock_biases,
             layout.ifb_indices, length(layout.extra_bands)),
         layout.extra_bands,
         layout.reference_bands,
-        ggto_offsets,
+        ggto_decoder,
     )
 
     independent_layout = bias_layout_for(systems)
     if independent_layout.num_components == 1 && enough_satellites(independent_layout)
-        return as_result(independent_layout, zeros(num_sats))
+        return as_bias_layout(independent_layout, nothing)
     end
 
     # Connected-but-scarce or disconnected: try the GGTO collapse (merge Galileo onto
@@ -425,23 +457,40 @@ function decide_bias_layout(states, systems, bands, times)
     if (GPST() in systems) && !isnothing(ggto_idx)
         merged_layout = bias_layout_for(map(sys -> sys == GST() ? GPST() : sys, systems))
         if enough_satellites(merged_layout)
-            # Per the OS SIS ICD the GGTO is GST − GPST, so a Galileo transmit time
-            # becomes GPS time by SUBTRACTING it; the modeled range carries −c·GGTO and
-            # the solve yields inter_system_biases[GST()] = −c·(GST − GPST).
-            ggto_decoder = states[ggto_idx].decoder
-            ggto_offsets = zeros(num_sats)
-            for j in 1:num_sats
-                systems[j] == GST() || continue
-                ggto_offsets[j] = -SPEEDOFLIGHT * calc_ggto_offset(ggto_decoder, times[j])
-            end
-            return as_result(merged_layout, ggto_offsets)
+            return as_bias_layout(merged_layout, states[ggto_idx].decoder)
         end
     end
 
     # No collapse available. The independent layout is still observable (its IFBs are
     # component-restricted); use it if there are enough satellites, otherwise unsolvable.
     enough_satellites(independent_layout) ?
-    as_result(independent_layout, zeros(num_sats)) : nothing
+    as_bias_layout(independent_layout, nothing) : nothing
+end
+
+"""
+    calc_ggto_range_offsets(ggto_decoder, systems, times) -> Vector{Float64}
+
+Per-satellite range offsets (metres) that carry a GGTO collapse into the measurements, as
+decided by [`decide_bias_layout`](@ref): all-zero when `ggto_decoder === nothing` (every
+time system keeps its own clock unknown, so no measurement needs converting), and
+otherwise `−c · Δt_systems` for each Galileo satellite, evaluated at its own transmit
+time.
+
+Per the OS SIS ICD the GGTO is `Δt_systems = GST − GPST` (see
+[`calc_ggto_offset`](@ref)), so a Galileo transmit time becomes GPS time by SUBTRACTING
+it; the modeled range therefore carries `−c·GGTO`, and the solve yields
+`inter_system_biases[GST()] = −c·(GST − GPST)`. Which Galileo satellite reports the GGTO
+does not matter — it is one constellation-wide offset — so `decide_bias_layout` picks the
+first decoded copy and it converts every Galileo measurement.
+"""
+function calc_ggto_range_offsets(ggto_decoder, systems, times)
+    offsets = zeros(length(systems))
+    isnothing(ggto_decoder) && return offsets
+    for j in eachindex(systems)
+        systems[j] == GST() || continue
+        offsets[j] = -SPEEDOFLIGHT * calc_ggto_offset(ggto_decoder, times[j])
+    end
+    offsets
 end
 
 """
@@ -562,10 +611,8 @@ satellite information. Returns `prev_pvt` if the epoch cannot be solved: too few
 satellites to solve the constellation (including the GGTO fallback and the
 distinct-satellite condition — a satellite tracked on several bands supplies one line of
 sight, so measurements alone are not enough), a geometry whose solved design matrix is
-rank deficient (reported as a negative GDOP).
-
-# Throws
-- `ArgumentError`: If fewer than 4 satellite states are provided
+rank deficient (reported as a negative GDOP). None of these throw, so a receiver can pass
+whatever it currently tracks each epoch and carry `prev_pvt` forward.
 """
 function calc_pvt(
     states::AbstractVector{<:SatelliteState},
@@ -574,19 +621,14 @@ function calc_pvt(
     enable_ionospheric_correction::Bool = true,
     enable_tropospheric_correction::Bool = true,
 )
-    length(states) < 4 &&
-        throw(ArgumentError("You'll need at least 4 satellites to calculate PVT"))
     # Keep a satellite only if its full nav-data set is decoded and it reports healthy.
     # Checking completeness first guarantees the health bit has been decoded.
     healthy_indices = findall(
         x -> is_decoding_completed_for_positioning(x.decoder) && is_sat_healthy(x.decoder),
         states,
     )
-    length(healthy_indices) < 4 && return prev_pvt
     healthy_states = view(states, healthy_indices)
     num_sats = length(healthy_states)
-
-    times = map(calc_corrected_time, healthy_states)
 
     # Classify each satellite by the GNSSSignals keys that drive the solution.
     # `get_time_system` (`GPST()`/`GST()`) groups the receiver clock bias — one per time
@@ -599,10 +641,14 @@ function calc_pvt(
     systems = map(state -> get_time_system(state.system), healthy_states)
     bands = map(state -> get_band_id(state.system), healthy_states)
 
-    bias_layout = decide_bias_layout(healthy_states, systems, bands, times)
+    # Solvability is decided here. A degenerate geometry, which no count can see, is caught
+    # after the solve by the DOP.
+    bias_layout = decide_bias_layout(healthy_states, systems, bands)
     isnothing(bias_layout) && return prev_pvt
-    bias_columns, extra_bands, reference_bands, ggto_offsets = bias_layout
+    (; bias_columns, extra_bands, reference_bands, ggto_decoder) = bias_layout
     (; clock_bias_indices, num_clock_biases) = bias_columns
+
+    times = map(calc_corrected_time, healthy_states)
 
     # Propagating the ephemerides.
     sat_positions_and_velocities = map(
@@ -631,7 +677,8 @@ function calc_pvt(
     pseudo_ranges, reference_time = calc_pseudo_ranges(times)
     # Apply the known per-satellite GGTO time-system offset (zero unless Galileo was
     # collapsed onto GPS) as a measurement correction, like the atmospheric delays
-    # below.
+    # below. Kept for the inter-system-bias readout at the end.
+    ggto_offsets = calc_ggto_range_offsets(ggto_decoder, systems, times)
     pseudo_ranges = pseudo_ranges .- ggto_offsets
 
     # Seed each clock bias from the previous solution, reconstructing a system's
