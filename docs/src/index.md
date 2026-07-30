@@ -45,7 +45,7 @@ using Tracking
 sat_state = SatelliteState(decoder, gpsl1, sat_state)
 ```
 
-With at least 4 satellite states, compute the PVT solution:
+Compute the PVT solution:
 
 ```julia
 pvt = calc_pvt(sat_states)
@@ -57,3 +57,8 @@ references its broadcasts to its own system time, [`calc_pvt`](@ref) estimates o
 receiver clock bias per GNSS time system, so a combined fix needs at least `3 + M`
 satellites for `M` distinct systems. The per-system clock offsets are reported as
 `pvt.inter_system_biases` relative to `pvt.reference_system`.
+
+If too few healthy satellites are tracked to solve the constellation — or the geometry
+turns out to be degenerate — [`calc_pvt`](@ref) returns the `prev_pvt` it was given (the
+origin solution by default) rather than throwing, so a receiver can hand it whatever it
+currently tracks each epoch and carry the last solution forward.

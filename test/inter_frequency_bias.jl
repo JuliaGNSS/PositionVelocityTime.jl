@@ -161,7 +161,7 @@
         # never reached for a GPS-only constellation, so PRN-carrying stand-ins suffice.
         decide = PositionVelocityTime.decide_bias_layout
         gate(prns, bands) = decide([(; decoder = (; prn = prn)) for prn in prns],
-            fill(GPST(), length(prns)), bands, zeros(length(prns)))
+            fill(GPST(), length(prns)), bands)
 
         # Dual-band GPS ⇒ 1 IFB ⇒ needs 5 measurements; 4 is too few.
         @test gate(1:5, [:L1, :L5, :L1, :L5, :L1]) !== nothing
@@ -305,15 +305,13 @@
         states = [two; map(as_l2c, two); map(as_l5i, two)]
         systems = map(state -> GNSSSignals.get_time_system(state.system), states)
         bands = map(state -> GNSSSignals.get_band_id(state.system), states)
-        times = map(PositionVelocityTime.calc_corrected_time, states)
         # All six measurements are usable and clear the measurement count, and it is the
         # distinct-satellite condition — two satellites for 3 + 1 unknowns — that rejects
         # the constellation as unsolvable.
         @test all(PositionVelocityTime.is_sat_healthy(state.decoder) for state in states)
         @test bands == [:L1, :L1, :L2, :L2, :L5, :L5]
         @test length(states) >= 3 + 1 + 2
-        @test PositionVelocityTime.decide_bias_layout(states, systems, bands, times) ===
-              nothing
+        @test PositionVelocityTime.decide_bias_layout(states, systems, bands) === nothing
 
         ref = calc_pvt(gps; kw...)                      # L1-only GPS fix, as previous PVT
         @test calc_pvt(states, ref; kw...) === ref      # warm start: previous fix kept

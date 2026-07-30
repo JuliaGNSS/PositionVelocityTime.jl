@@ -40,14 +40,14 @@ using Tracking
 sat_state = SatelliteState(decoder, tracking_result)
 ```
 
-For user position computation at least 4 decoded satellites must be provided. 
-
 ## Usage
 
 ### User position calculation
 The function 
 ```julia
-# You need at least 4 satellite states
-calc_PVT(sat_states)
+calc_pvt(sat_states)
 ``` 
-provides a complete position calculation.
+provides a complete position calculation. A fix needs at least 4 healthy, fully decoded
+satellites (more for a multi-GNSS or multi-band set); when the epoch cannot be solved,
+the previous solution is returned unchanged instead of an error, so a receiver can pass
+whatever it currently tracks.
