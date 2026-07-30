@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.2](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.1.1...v4.1.2) (2026-07-30)
+
+
+### Bug Fixes
+
+* skip unsolvable PVT epochs instead of throwing ([8af96c5](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/8af96c516ff0bc4b339ec91a2c68d7b8e6c09626))
+
 ## [4.1.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.1.0...v4.1.1) (2026-07-29)
 
 
