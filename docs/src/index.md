@@ -28,7 +28,7 @@ Decoded data and code phase of a satellite must be combined in the [`SatelliteSt
 ```julia
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
 
-gpsl1 = GPSL1()
+gpsl1 = GPSL1CA()
 sat_state = SatelliteState(
     decoder = decoder,
     system = gpsl1,
@@ -38,11 +38,13 @@ sat_state = SatelliteState(
 )
 ```
 
-Alternatively, pass a `Tracking.SatState` directly:
+Alternatively, pass a `Tracking.TrackedSat` directly — `tracked_sat` is what
+`Tracking.get_sat_state` returns for a tracked satellite, and the code phase, carrier
+Doppler, and carrier phase are read off it:
 
 ```julia
 using Tracking
-sat_state = SatelliteState(decoder, gpsl1, sat_state)
+sat_state = SatelliteState(decoder, gpsl1, tracked_sat)
 ```
 
 Compute the PVT solution:
