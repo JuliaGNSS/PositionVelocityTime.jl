@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.2.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.2.0...v4.2.1) (2026-08-04)
+
+
+### Bug Fixes
+
+* bound satellite elevation in tropospheric model ([678c429](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/678c4294968eac2bf75498a652e907b78d6b52f2))
+
 # [4.2.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.1.2...v4.2.0) (2026-08-03)
 
 
