@@ -109,11 +109,14 @@ function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderSt
     true_anomaly =
         eccentric_anomaly +
         2 * atan(β * sin(eccentric_anomaly) / (1 - β * cos(eccentric_anomaly)))
+    # Singularity-free form of ν̇. The textbook expression carries a `sin E / sin ν`
+    # ratio, which is `0/0 → NaN` at perigee (`E = ν = 0`) and apogee (`E = ν = π`) —
+    # points every satellite sweeps through twice per orbit. Substituting the identity
+    # `sin ν = √(1−e²)·sin E / (1 − e·cos E)` cancels the ratio into the finite
+    # `(1 − e·cos E)/√(1−e²)`, leaving `ν̇ = Ė·(1 + e·cos ν)/√(1−e²)`: identical away
+    # from those points, finite everywhere.
     true_anomaly_dot =
-        sin(eccentric_anomaly) *
-        eccentric_anomaly_dot *
-        (1.0 + data.e * cos(true_anomaly)) /
-        (sin(true_anomaly) * (1.0 - data.e * cos(eccentric_anomaly)))
+        eccentric_anomaly_dot * (1.0 + data.e * cos(true_anomaly)) / sqrt(1.0 - data.e^2)
     argument_of_latitude = true_anomaly + data.ω
     argrument_of_latitude_correction =
         data.C_us * sin(2 * argument_of_latitude) +
