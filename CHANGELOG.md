@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.2.2](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.2.1...v4.2.2) (2026-08-04)
+
+
+### Bug Fixes
+
+* correct clock drift epoch, velocity singularity and carrier-phase unit ([81f785d](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/81f785da09a99eb99514492515c7a78ba7748dd4)), closes [#41](https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/41) [#42](https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/42) [#59](https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/59) [#41](https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/41) [#42](https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/42) [#59](https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/59)
+
 ## [4.2.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.2.0...v4.2.1) (2026-08-04)
 
 
