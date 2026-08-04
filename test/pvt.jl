@@ -12,7 +12,7 @@
         enable_ionospheric_correction = false,
         enable_tropospheric_correction = false,
     )
-    expected_lla = LLA(; lat = 50.778851672464015, lon = 6.065568885758519, alt = 289.4069805158367)
+    expected_lla = LLA(; lat = 50.77885207231635, lon = 6.065568145321566, alt = 289.09688064471146)
     @test pvt.position ≈ ECEFfromLLA(wgs84)(expected_lla) rtol = 1e-8
     @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 9
@@ -41,7 +41,7 @@ end
         enable_ionospheric_correction = false,
         enable_tropospheric_correction = false,
     )
-    expected_lla = LLA(; lat = 50.77885249310784, lon = 6.0656199911189175, alt = 291.95658091689086)
+    expected_lla = LLA(; lat = 50.778851781017025, lon = 6.065622611231713, alt = 291.96260731963366)
     @test pvt.position ≈ ECEFfromLLA(wgs84)(expected_lla) rtol = 1e-8
     @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 2.5
@@ -124,7 +124,7 @@ end
     # Independent inter-system-bias solve: 8 GPS + 5 Galileo satellites, with one
     # clock bias per system (3 + 2 unknowns).
     pvt = calc_pvt(states; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    expected_pos = ECEF(4.0186793403460276e6, 427032.98199905816, 4.918251309950126e6)
+    expected_pos = ECEF(4.0186793226897363e6, 427033.09443239716, 4.918251247796992e6)
     @test pvt.position ≈ expected_pos rtol = 1e-8
     @test pvt.velocity ≈ ECEF(-1.4405743822415678, 0.5393693783528187, -2.135825176671574) atol = 1e-3
     @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.285)

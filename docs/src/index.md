@@ -34,9 +34,12 @@ sat_state = SatelliteState(
     system = gpsl1,
     code_phase = code_phase,
     carrier_doppler = carrier_doppler,
-    carrier_phase = carrier_phase,  # optional
+    carrier_phase = carrier_phase,  # optional, in radians
 )
 ```
+
+`code_phase` is in chips and `carrier_phase` in radians, matching `Tracking`'s
+`get_code_phase` and `get_carrier_phase`.
 
 Alternatively, pass a `Tracking.TrackedSat` directly — `tracked_sat` is what
 `Tracking.get_sat_state` returns for a tracked satellite, and the code phase, carrier

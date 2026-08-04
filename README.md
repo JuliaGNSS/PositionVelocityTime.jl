@@ -29,10 +29,12 @@ sat_state = SatelliteState(
     system = gpsl1,
     code_phase = code_phase,
     carrier_doppler = carrier_doppler,
-    carrier_phase = carrier_phase # optional
+    carrier_phase = carrier_phase # optional, in radians
 )
 ```
 The declaration of `carrier_phase` is optional due to its small effect on the user position.
+`code_phase` is in chips and `carrier_phase` in radians, matching `Tracking`'s
+`get_code_phase` and `get_carrier_phase`.
 
 Alternatively, a `Tracking.TrackedSat` can be passed to `SatelliteState` instead of
 `code_phase`, `carrier_doppler` and `carrier_phase` — `tracked_sat` below is what

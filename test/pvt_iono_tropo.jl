@@ -473,9 +473,17 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         @test PositionVelocityTime.select_ionospheric_correction(states) isa
               PositionVelocityTime.KlobucharParams
 
-        # Corrections are on by default — the fix lands within 0.5 m of the ground truth.
+        # Corrections are on by default — the fix lands within a metre of the ground truth.
+        #
+        # The bound is a metre rather than the decimetres the synthetic geometry might
+        # suggest: these observables carry real captured carrier phases, whose wrapped
+        # fractional cycle shifts each satellite's transmit time by up to half an L1
+        # wavelength. Zeroing them leaves the fix 0.87 m out, so ~1 m is this fixture's own
+        # consistency floor — the tighter 0.5 m held only while the carrier-phase term was
+        # being scaled 2π too large (it read radians as cycles), which happened to pull
+        # this particular constellation towards truth.
         pvt = calc_pvt(states; approximate_year = 2020)
-        @test norm(pvt.position - IONO_TROPO_GROUND_TRUTH) < 0.5
+        @test norm(pvt.position - IONO_TROPO_GROUND_TRUTH) < 1.0
 
         # Disabling the corrections moves the fix several metres off truth, so
         # the corrections demonstrably improve the solution.

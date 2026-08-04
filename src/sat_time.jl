@@ -33,7 +33,10 @@ function calc_uncorrected_time(state::SatelliteState)
     chips_per_symbol =
         ustrip(Hz, get_code_frequency(system)) / ustrip(Hz, get_data_frequency(state.decoder))
     t_code_phase = mod(state.code_phase, chips_per_symbol) / get_code_frequency(system) * Hz
-    t_carrier_phase = state.carrier_phase / get_center_frequency(system) * Hz
+    # `carrier_phase` is in radians (that is what `Tracking.get_carrier_phase` reports and
+    # what the Tracking extension passes on), so convert to cycles before dividing by the
+    # centre frequency — unlike the code phase above, which is already in chips.
+    t_carrier_phase = state.carrier_phase / 2π / get_center_frequency(system) * Hz
 
     t_tow + t_bits + t_code_phase + t_carrier_phase
 end
@@ -58,9 +61,17 @@ function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, system, t)
     t - correct_by_group_delay(decoder, system, Δt)
 end
 
+# Rate of the satellite clock correction: the time derivative of the clock polynomial
+# `correct_clock` applies, so it must be evaluated about the same clock reference epoch
+# `t_0c`. Using `t` instead would offset the `a_f2` term by a spurious `2·a_f2·t_0c` —
+# zero whenever `a_f2 = 0` (the usual GPS broadcast) but up to ~4e-9 s/s (≈1.3 m/s of
+# range rate) at the edge of the broadcast range late in the week, and per-satellite,
+# so it would leak into the estimated velocity rather than the common clock drift.
+#
+# The rate of the relativistic periodic term `Δt_rel = F·e·√A·sin(E)` that
+# `correct_clock` includes is not modelled here; it is at most ~1 mm/s.
 function calc_satellite_clock_drift(decoder::GNSSDecoder.GNSSDecoderState, t)
-    decoder.data.a_f1 +
-    decoder.data.a_f2 * t * 2
+    decoder.data.a_f1 + 2 * decoder.data.a_f2 * (t - decoder.data.t_0c)
 end
 
 # Group-delay / inter-signal correction, selected by the *ranging* signal `system`

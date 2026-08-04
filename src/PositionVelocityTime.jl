@@ -107,9 +107,10 @@ Combines the GNSS decoder state with code and carrier phase measurements for a s
 # Fields
 - `decoder::GNSSDecoderState`: GNSS decoder state containing decoded navigation data
 - `system::AbstractGNSSSignal`: GNSS system (e.g., `GPSL1CA()`, `GalileoE1B()`)
-- `code_phase::CP`: Code phase measurement
+- `code_phase::CP`: Code phase measurement in chips
 - `carrier_doppler`: Carrier Doppler frequency in Hz
-- `carrier_phase::CP`: Carrier phase measurement (default: `0.0`)
+- `carrier_phase::CP`: Carrier phase measurement in radians, matching
+  `Tracking.get_carrier_phase` (default: `0.0`)
 
 # Constructors
     SatelliteState(; decoder, system, code_phase, carrier_doppler, carrier_phase=0.0)

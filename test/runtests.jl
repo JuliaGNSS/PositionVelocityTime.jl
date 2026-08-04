@@ -5,6 +5,7 @@ using Unitful: Hz, m, °, ustrip
 include("aqua.jl")
 include("fixtures.jl")
 include("sat_time.jl")
+include("sat_position.jl")
 include("pvt.jl")
 include("dop.jl")
 include("cnav.jl")
