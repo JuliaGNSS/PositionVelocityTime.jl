@@ -222,7 +222,13 @@ Calculates the user position by least squares method. The algorithm is based on 
 
 Returns `(ξ, residuals)`: the solved state vector
 `ξ = [x, y, z, tc₁, …, ifb₁, …]` and the per-satellite post-fit residual vector
-(modeled minus measured pseudorange, metres), in the same satellite order as `ρ`.
+(measured minus modeled pseudorange, metres), in the same satellite order as `ρ`.
+
+`LsqFit` reports its own residual as `model - data`, so the returned vector negates it.
+Measured − modeled ("observed minus computed") is how GNSS software reports observation
+residuals — RTKLIB's `rescode`, and GNSS-SDR and PocketSDR through it — and the negation
+is the whole of the difference: it is applied to the converged fit, so the solve itself
+is untouched.
 """
 function user_position(sat_positions_mat, ρ, bias_columns::BiasColumns, prev_ξ = zeros(num_lsq_params(bias_columns)))
     model! = (out, x, par) -> calc_ρ_hat!(out, x, par, bias_columns)
@@ -270,7 +276,10 @@ function user_position(sat_positions_mat, ρ, bias_columns::BiasColumns, prev_ξ
     end
     #    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
     #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions_mat, ρ, wt, collect(prev_ξ))
-    return ξ_fit_ols.param, ξ_fit_ols.resid
+    # `-` and not an in-place negation: `resid` aliases the differentiable's own
+    # function-value cache inside `LsqFit`, so mutating it reaches into the library's
+    # internals for the sake of one small vector per epoch.
+    return ξ_fit_ols.param, -ξ_fit_ols.resid
 end
 
 """
@@ -289,10 +298,13 @@ drift of the inter-system time offset (e.g. the GGTO rate `A_1G`), which is
 every satellite constrain the four unknowns instead of spending a column per
 system.
 
-The residuals are `modeled − measured` range rate (m/s), the same orientation as the
+The residuals are `measured − modeled` range rate (m/s), the same orientation as the
 pseudorange residuals of [`user_position`](@ref) and in the same satellite order as
 `states`. They are the range-rate analogue of the post-fit pseudorange residual: a
-per-satellite Doppler-consistency / outlier indicator.
+per-satellite Doppler-consistency / outlier indicator. Measured and modeled are both
+taken in `yⱼ`'s sense below, in which a *receding* satellite reads positive — the same
+quantity and sign as RTKLIB's `resdop` residual, and hence the negative of the
+Doppler-signed range rate a tracking loop works in (see the note at the residual loop).
 
 Requires a geometry whose position design `H` has full column rank — the caller
 establishes that with [`calc_DOP`](@ref) before calling this; see the comment at the solve.
@@ -341,14 +353,21 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
     # `SingularException` — the failure this arrangement exists to prevent.
     velocity_and_drift = cholesky(Symmetric(HtH)) \ Hty
 
-    # Post-fit residual, modeled minus measured: the design row `[e 1]` (rebuilt from
-    # H's line-of-sight columns, as above) applied to the solved state, minus the
-    # measurement stored in the accumulation loop.
+    # Post-fit residual, measured minus modeled: the measurement stored in the
+    # accumulation loop, minus the design row `[e 1]` (rebuilt from H's line-of-sight
+    # columns, as above) applied to the solved state.
+    #
+    # `yⱼ` carries `-doppler * λ`, so it — and this residual with it — runs in the
+    # geometric range-rate sense (positive while the satellite recedes), not the
+    # Doppler-signed sense of a tracking loop's `λ · carrier_doppler`. A consumer that
+    # forms its own rate residual from a loop's Doppler and compares it with this one
+    # has to negate one of the two; magnitudes agree either way. This matches RTKLIB's
+    # `resdop`, which likewise residuates `-lam * D` against a receding-positive model.
     velocity = SVector{3}(
         velocity_and_drift[1], velocity_and_drift[2], velocity_and_drift[3])
     for j in 1:num_sats
         e = SVector{3}(view(H, j, 1:3))
-        rate_residuals[j] = dot(e, velocity) + velocity_and_drift[4] - rate_residuals[j]
+        rate_residuals[j] -= dot(e, velocity) + velocity_and_drift[4]
     end
     return velocity_and_drift, rate_residuals
 end
