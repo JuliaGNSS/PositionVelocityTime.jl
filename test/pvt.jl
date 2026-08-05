@@ -450,3 +450,35 @@ end
             [sinθ, 0.0, cosθ], [0.0, sinθ, cosθ], [-sinθ, 0.0, cosθ], [0.0, -sinθ, cosθ]])
     end
 end
+
+# Regression: the position solve must run to its optimum, not stop at the first step
+# LsqFit's *relative* `x_tol` calls small. `‖ξ‖` is dominated by the clock bias — the
+# ~2e7 m of common range the pseudoranges are referred to — which puts the default
+# tolerance at a ~0.2 m step, and with the default Levenberg-Marquardt damping a first
+# step is only a fraction of the distance to the optimum. A warm start a metre out
+# therefore took one ~10 cm step and reported convergence, returning a fix most of a
+# metre away from the one the very same measurements give from cold. See the solver
+# settings in `user_position`.
+@testset "a warm start converges to the same fix as a cold start" begin
+    kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false)
+    states = gps_l1_states(0.0Hz)
+    cold = calc_pvt(states; kwargs...)
+
+    # Previous solutions displaced by 1 m, 30 m and 100 km. With no position-dependent
+    # correction active the measurements define one optimum, so every start must reach
+    # it — to well under a millimetre, not to within the starting error.
+    for offset in ([1.0, -1.0, 1.0], [30.0, 0.0, -20.0], [1e5, 1e5, -1e5])
+        stale = PVTSolution(;
+            position = ECEF((Vector(cold.position) .+ offset)...),
+            time_correction = cold.time_correction,
+            reference_system = cold.reference_system,
+        )
+        warm = calc_pvt(states, stale; kwargs...)
+        @test norm(warm.position - cold.position) < 1e-4
+        @test warm.time ≈ cold.time
+        # The residuals are those of the converged fit, not of the stale position.
+        @test maximum(abs, [info.residual for info in values(warm.sats)]) ≈
+              maximum(abs, [info.residual for info in values(cold.sats)]) rtol = 1e-6
+    end
+end

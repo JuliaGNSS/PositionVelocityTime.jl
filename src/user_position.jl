@@ -228,8 +228,27 @@ function user_position(sat_positions_mat, ρ, bias_columns::BiasColumns, prev_ξ
     model! = (out, x, par) -> calc_ρ_hat!(out, x, par, bias_columns)
     jacobian! = (J, x, par) -> calc_H!(J, x, par, bias_columns)
 
-    # Geodesic acceleration helps when starting far from the optimum (cold start
-    # from origin, ~6e6 m away) by trading per-iteration work for fewer iterations.
+    # Two departures from LsqFit's Levenberg-Marquardt defaults, both about the scale of
+    # this particular problem:
+    #
+    #  - `x_tol` is a *relative* step tolerance — the iteration stops once a step falls
+    #    below `x_tol·(x_tol + ‖ξ‖)` — and `‖ξ‖` here is dominated not by the position but
+    #    by the clock bias, which carries the ~2e7 m of common range the pseudoranges are
+    #    referred to. The 1e-8 default therefore calls it converged at a step of ~0.2 m,
+    #    so a solve that starts a metre from the optimum — an ordinary warm start from the
+    #    previous epoch — stops most of a metre short of it. 1e-13 puts the threshold at a
+    #    ~2 µm step, still ~1e3 × the rounding resolution of `ξ`.
+    #  - `lambda` is the initial (inverse) trust-region radius, and the default 10 damps
+    #    the first steps to a fraction of the Gauss-Newton step — which is what makes the
+    #    tolerance above bite so early. The pseudorange model is only mildly nonlinear, so
+    #    the full step is a good step here: 1e-8 leaves the iteration effectively
+    #    Gauss-Newton — measured at 2 to 5 iterations to nanometre level from 1 m, 100 km
+    #    or a cold start, against 8 to 16 with the default or with damping switched off
+    #    entirely — while keeping LM's machinery available, since a step that fails to
+    #    improve still grows `lambda` from there.
+    #
+    # Geodesic acceleration additionally helps when starting far from the optimum (cold
+    # start from origin, ~6e6 m away) by trading per-iteration work for fewer iterations.
     # When prev_ξ is already near-converged, the extra Avv! evals are pure overhead.
     # Detect cold by checking the default zeros sentinel (origin position).
     ξ_fit_ols = if iszero(prev_ξ)
@@ -237,13 +256,16 @@ function user_position(sat_positions_mat, ρ, bias_columns::BiasColumns, prev_ξ
             model!, jacobian!, sat_positions_mat, ρ, collect(prev_ξ);
             inplace = true,
             avv! = (dir_deriv, par, v) -> calc_Avv!(dir_deriv, sat_positions_mat, par, v),
-            lambda = 0.0,
+            lambda = 1e-8,
             min_step_quality = 0.0,
+            x_tol = 1e-13,
         )
     else
         curve_fit(
             model!, jacobian!, sat_positions_mat, ρ, collect(prev_ξ);
             inplace = true,
+            lambda = 1e-8,
+            x_tol = 1e-13,
         )
     end
     #    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
