@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.0.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.0.0...v5.0.1) (2026-08-05)
+
+
+### Bug Fixes
+
+* run the position solve to its optimum ([cc487ce](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/cc487ce57641703e01f57faef428bebb02d7f3f1))
+
 # [5.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.3.0...v5.0.0) (2026-08-05)
 
 
