@@ -161,14 +161,14 @@ end
     # A satellite not used in the fix returns `nothing` rather than throwing.
     @test get_sat_info(pvt, :GPSL1CA, 999) === nothing
 
-    # Per-satellite post-fit residuals are exposed via SatInfo (modeled − measured
+    # Per-satellite post-fit residuals are exposed via SatInfo (measured − modeled
     # pseudorange, metres); finite and small for a good fix.
     resids = [info.residual for info in values(pvt.sats)]
     @test length(resids) == length(pvt.sats)
     @test all(isfinite, resids)
     @test maximum(abs, resids) < 10m
 
-    # The rate-domain counterpart from the Doppler solve (modeled − measured range
+    # The rate-domain counterpart from the Doppler solve (measured − modeled range
     # rate, m/s): finite, and metre-per-second-level for a stationary receiver.
     rate_resids = [info.rate_residual for info in values(pvt.sats)]
     @test length(rate_resids) == length(pvt.sats)
@@ -428,7 +428,7 @@ end
         @test all(isfinite, rate_residuals)
         # A post-fit least-squares residual is orthogonal to every column of its design
         # — the line-of-sight columns and the common clock-drift column of ones. That is
-        # what makes it a residual rather than an arbitrary modeled-minus-measured
+        # what makes it a residual rather than an arbitrary measured-minus-modeled
         # difference, so it is pinned directly instead of only by magnitude.
         let A = design([[1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0]])
             @test norm(A' * rate_residuals) < 1e-6
@@ -481,4 +481,73 @@ end
         @test maximum(abs, [info.residual for info in values(warm.sats)]) ≈
               maximum(abs, [info.residual for info in values(cold.sats)]) rtol = 1e-6
     end
+end
+
+@testset "residuals are observed minus computed" begin
+    # The reported orientation is a convention rather than a by-product: `LsqFit`
+    # residuates `model - data`, and the velocity solve's own measurement `yⱼ` carries
+    # `-doppler * λ`, so either domain would report the opposite sign if left to itself.
+    # Both are pinned here in the sense RTKLIB's `rescode` / `resdop` define — a
+    # measurement exceeding the model reads positive — because a silent flip is
+    # invisible to every magnitude-based assertion elsewhere in this suite.
+
+    # ── Pseudorange ──────────────────────────────────────────────────────────────
+    user = [3.9074e6, 3.0684e5, 5.0150e6]
+    dirs = [[0.3, 0.1, 0.95], [-0.6, 0.3, 0.75], [0.2, -0.8, 0.55],
+        [0.7, 0.5, 0.5], [-0.3, -0.5, 0.8], [0.0, 0.9, 0.45]]
+    sat_positions = reduce(hcat, [user .+ 2.0e7 .* normalize(d) for d in dirs])
+    bias_columns = PositionVelocityTime.BiasColumns(ones(Int, 6), 1, zeros(Int, 6), 0)
+    ρ = PositionVelocityTime.calc_ρ_hat!(
+        zeros(6), sat_positions, [user; 30.0], bias_columns)
+    _, resid = PositionVelocityTime.user_position(sat_positions, ρ, bias_columns)
+    @test maximum(abs, resid) < 1e-6   # self-consistent data ⇒ no residual
+
+    # ±100 m on satellite 3's measurement alone. Least squares spreads part of it over
+    # the four unknowns, so the satellite keeps `1 - P₃₃` of it — a fraction, but with
+    # the sign of the perturbation: measuring long reads positive, short negative. (How
+    # large the fraction is depends on the satellite's leverage, so only the sign and
+    # the bound are pinned.)
+    perturbed(δ) = last(PositionVelocityTime.user_position(
+        sat_positions, (ρ_δ = copy(ρ); ρ_δ[3] += δ; ρ_δ), bias_columns))[3]
+    @test 0.0 < perturbed(100.0) < 100.0
+    @test -100.0 < perturbed(-100.0) < 0.0
+    # Antisymmetric to sub-mm: the model is nonlinear in position, so the two do not
+    # mirror each other exactly.
+    @test perturbed(100.0) ≈ -perturbed(-100.0) atol = 1e-3
+
+    # ── Range rate ───────────────────────────────────────────────────────────────
+    # Reported in `yⱼ`'s geometric sense (positive while the satellite recedes), so a
+    # *higher* measured Doppler — closing faster — reads NEGATIVE. This is the pairing
+    # a receiver forming the same residual from its loops' `λ · carrier_doppler` has to
+    # respect; getting it wrong inverts the field without changing any magnitude.
+    states = gps_l1_states(0.0Hz)[1:5]
+    times = map(PositionVelocityTime.calc_corrected_time, states)
+    sat_pvs = map(
+        (state, time) ->
+            PositionVelocityTime.calc_satellite_position_and_velocity(state.decoder, time),
+        states,
+        times,
+    )
+    # Only H's line-of-sight columns and one column of ones are read, and the sign
+    # result holds for any full-rank design, so a spread-out synthetic one is enough.
+    H = reduce(vcat, [[normalize(d)' 1.0] for d in
+        ([1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0],
+            [0.8, -0.3, 0.6])])
+    with_doppler(state, doppler) = PositionVelocityTime.SatelliteState(;
+        decoder = state.decoder,
+        system = state.system,
+        code_phase = state.code_phase,
+        carrier_phase = state.carrier_phase,
+        carrier_doppler = doppler,
+    )
+
+    _, base = PositionVelocityTime.calc_user_velocity_and_clock_drift(
+        sat_pvs, states, times, H)
+    Δdoppler = 50.0Hz
+    faster = copy(states)
+    faster[3] = with_doppler(states[3], states[3].carrier_doppler + Δdoppler)
+    _, closing = PositionVelocityTime.calc_user_velocity_and_clock_drift(
+        sat_pvs, faster, times, H)
+    λ = PositionVelocityTime.SPEEDOFLIGHT / ustrip(Hz, get_center_frequency(states[3].system))
+    @test -λ * ustrip(Hz, Δdoppler) < closing[3] - base[3] < 0.0
 end

@@ -160,13 +160,20 @@ satellite used in the fix).
 - `position::ECEF`: Satellite ECEF position at transmit time (metres).
 - `time::Float64`: Satellite transmit time (system time of week, seconds).
 - `residual::typeof(1.0m)`: Post-fit least-squares pseudorange residual (metres) — the
-  modeled minus the (atmosphere-corrected) measured pseudorange. A per-satellite
+  (atmosphere-corrected) measured minus the modeled pseudorange. A per-satellite
   fit-quality / outlier indicator.
 - `rate_residual::typeof(1.0m/s)`: Post-fit least-squares range-rate residual (metres per
-  second) — the modeled minus the measured range rate of the carrier-Doppler velocity and
+  second) — the measured minus the modeled range rate of the carrier-Doppler velocity and
   clock-drift solve. The rate-domain counterpart of `residual`: it flags a satellite whose
   Doppler disagrees with the velocity fix (cycle slips, dynamics) independently of its
   pseudorange.
+
+Both are *measured minus modeled* ("observed minus computed"), the orientation GNSS
+software reports observation residuals in — RTKLIB's `rescode` / `resdop`, and GNSS-SDR
+and PocketSDR through it. Note that `rate_residual` follows `resdop` in the geometric
+range-rate sense, positive while the satellite recedes; a receiver forming the same
+residual from its tracking loops' `λ · carrier_doppler` works in the opposite sign (see
+`calc_user_velocity_and_clock_drift`, whose `yⱼ` sets that sign).
 """
 struct SatInfo
     position::ECEF
