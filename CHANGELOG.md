@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.0.2](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.0.1...v5.0.2) (2026-08-05)
+
+
+### Bug Fixes
+
+* report residuals as observed minus computed ([1bb2fe8](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/1bb2fe8fe13e478f82f094abe6cd6b00cfb69646))
+
 ## [5.0.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.0.0...v5.0.1) (2026-08-05)
 
 
