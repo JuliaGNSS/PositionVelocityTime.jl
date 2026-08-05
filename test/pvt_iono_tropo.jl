@@ -907,8 +907,12 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         @test PositionVelocityTime.select_ionospheric_correction(states) isa
               PositionVelocityTime.NTCMGParams
 
+        # The fixture observables were generated with the flat-slab 1/sin(el)
+        # tropospheric mapping baked in, so a solve using the Niell mapping (#62)
+        # reproduces the fixture's truth only up to the mapping difference at these
+        # elevations (~0.5 m here) — a fixture-consistency floor, not solver error.
         pvt = calc_pvt(states; approximate_year = 2020)
-        @test norm(pvt.position - IONO_TROPO_GROUND_TRUTH) < 0.5
+        @test norm(pvt.position - IONO_TROPO_GROUND_TRUTH) < 0.7
 
         uncorrected = calc_pvt(
             states;

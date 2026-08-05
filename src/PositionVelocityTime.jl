@@ -511,15 +511,16 @@ end
 
 """
     predict_atmospheric_delays(ξ, states, sat_positions, correction,
-                               reference_time, enable_tropospheric_correction) -> Vector{Float64}
+                               reference_time, doy, enable_tropospheric_correction) -> Vector{Float64}
 
 Per-satellite ionospheric + tropospheric delay (metres), to be subtracted from the
 pseudoranges. The user position is the first three elements of the least-squares
 state vector `ξ = [x, y, z, tc₁, …]` (ECEF, metres); the remaining clock-bias
 components are ignored. `correction` is the constellation-wide ionospheric model
 from [`select_ionospheric_correction`](@ref) (`nothing` skips the ionosphere); the
-troposphere uses the blind Saastamoinen model (see [`tropospheric_delay`](@ref))
-unless `enable_tropospheric_correction` is `false`.
+troposphere uses the blind Saastamoinen zenith delays mapped by the Niell mapping
+functions, whose seasonal term takes the day of year `doy` (see
+[`tropospheric_delay`](@ref)), unless `enable_tropospheric_correction` is `false`.
 
 A single corrected solve is enough: the delays depend on position only through the
 satellite elevation/azimuth (and, for the troposphere, the user height), and
@@ -535,6 +536,7 @@ function predict_atmospheric_delays(
     sat_positions,
     correction,
     reference_time,
+    doy,
     enable_tropospheric_correction,
 )
     user_pos = ECEF(ξ[1], ξ[2], ξ[3])
@@ -551,7 +553,8 @@ function predict_atmospheric_delays(
             reference_time,
         )
         tropo =
-            enable_tropospheric_correction ? tropospheric_delay(elevation, user_lla) : 0.0
+            enable_tropospheric_correction ? tropospheric_delay(elevation, user_lla, doy) :
+            0.0
         iono + tropo
     end
 end
@@ -596,7 +599,8 @@ have been decoded, otherwise no correction. See
 [`select_ionospheric_correction`](@ref) and [`ionospheric_delay`](@ref).
 
 Unless disabled via `enable_tropospheric_correction`, the tropospheric delay is
-corrected with the blind Saastamoinen model (no broadcast coefficients needed).
+corrected with a blind model (no broadcast coefficients needed): Saastamoinen
+zenith delays mapped to the line of sight by the Niell mapping functions.
 See [`tropospheric_delay`](@ref).
 
 # Arguments
@@ -697,6 +701,14 @@ function calc_pvt(
     ggto_offsets = calc_ggto_range_offsets(ggto_decoder, systems, times)
     pseudo_ranges = pseudo_ranges .- ggto_offsets
 
+    # The primary system's week and start epoch date the epoch absolutely: the day of
+    # year feeds the tropospheric mapping's seasonal term here, and week/start epoch
+    # date the reported time after the solve.
+    primary_state = healthy_states[findfirst(==(primary_system), systems)]
+    week = get_week(primary_state.decoder; approximate_year)
+    start_time = system_start_epoch(primary_state.system)
+    doy = _day_of_year(primary_state.system, week, reference_time)
+
     # Seed each clock bias from the previous solution, reconstructing a system's
     # absolute bias from the reference bias plus its stored inter-system bias.
     prev_abs_bias(sys) =
@@ -743,7 +755,7 @@ function calc_pvt(
         if correct_atmosphere
             atmospheric_delays = predict_atmospheric_delays(
                 ξ_uncorrected, healthy_states, sat_positions, ionospheric_correction,
-                reference_time, enable_tropospheric_correction)
+                reference_time, doy, enable_tropospheric_correction)
             user_position(
                 sat_positions_mat, pseudo_ranges .- atmospheric_delays, bias_columns, ξ_uncorrected)
         else
@@ -757,7 +769,7 @@ function calc_pvt(
             correct_atmosphere ?
             pseudo_ranges .- predict_atmospheric_delays(
                 prev_ξ, healthy_states, sat_positions, ionospheric_correction,
-                reference_time, enable_tropospheric_correction) : pseudo_ranges
+                reference_time, doy, enable_tropospheric_correction) : pseudo_ranges
         user_position(sat_positions_mat, corrected_ranges, bias_columns, prev_ξ)
     end
     H = calc_H(sat_positions_mat, ξ, bias_columns)
@@ -788,9 +800,6 @@ function calc_pvt(
     # See https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/8
     corrected_reference_time = reference_time - time_correction / SPEEDOFLIGHT
 
-    primary_state = healthy_states[findfirst(==(primary_system), systems)]
-    week = get_week(primary_state.decoder; approximate_year)
-    start_time = system_start_epoch(primary_state.system)
     # Assumes `start_time.fraction == 0` (true for GPS/Galileo: integer-second origins).
     time = TAIEpoch(
         week * 7 * 24 * 60 * 60 + floor(Int, corrected_reference_time) + start_time.second,

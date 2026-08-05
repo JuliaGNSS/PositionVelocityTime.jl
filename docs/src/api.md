@@ -33,6 +33,8 @@ documented here for reference and for diagnostic use.
 PositionVelocityTime.select_ionospheric_correction
 PositionVelocityTime.ionospheric_delay
 PositionVelocityTime.tropospheric_delay
+PositionVelocityTime.saastamoinen_zenith_delays
+PositionVelocityTime.niell_mapping_functions
 PositionVelocityTime.KlobucharParams
 PositionVelocityTime.NTCMGParams
 PositionVelocityTime._elevation_azimuth
