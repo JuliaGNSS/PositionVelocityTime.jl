@@ -1,5 +1,20 @@
 # Changelog
 
+# [5.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.3.0...v5.0.0) (2026-08-05)
+
+
+* feat!: report post-fit range-rate residuals per satellite ([65aba95](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/65aba951deb6269289046f73c8e921f0bd5a25ab))
+
+
+### BREAKING CHANGES
+
+* `SatInfo` gains a `rate_residual` field, so the exported struct's
+positional-constructor arity/order and field layout change. Keyword construction
+and field access are unaffected; positional construction and reflection-based code
+must be updated.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
 # [4.3.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v4.2.2...v4.3.0) (2026-08-05)
 
 
