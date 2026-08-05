@@ -155,6 +155,28 @@ function positive_definite_cholesky(A::Symmetric)
 end
 
 """
+    ecef_to_enu_rotation(user_pos::ECEF) -> SMatrix{3,3,Float64}
+
+Rotation from ECEF to the local East-North-Up frame at `user_pos`, used to take the
+horizontal/vertical split of a position covariance in the user's tangent plane (both
+[`calc_DOP`](@ref) and [`calc_formal_accuracy`](@ref) need it). It matches Geodesy's
+`ENUfromECEF` convention (verified equal), and is built explicitly here as that is
+marginally cheaper than recovering it from the transform.
+
+$SIGNATURES
+"""
+function ecef_to_enu_rotation(user_pos::ECEF)
+    lla = LLAfromECEF(wgs84)(user_pos)
+    sφ, cφ = sincosd(lla.lat)
+    sλ, cλ = sincosd(lla.lon)
+    @SMatrix [
+        -sλ     cλ      0.0
+        -sφ*cλ  -sφ*sλ  cφ
+        cφ*cλ   cφ*sλ   sφ
+    ]
+end
+
+"""
 Calculates the dilution of precision for a given geometry matrix H
 
 `H_GEO` has `3 + num_clock_biases + num_ifb` columns (three position partials, one per
@@ -187,17 +209,7 @@ function calc_DOP(H_GEO, user_pos::ECEF, primary_clock_index = 1)
 
     # Rotate the ECEF position covariance into the local ENU (East, North, Up)
     # frame so the horizontal/vertical split is taken in the user's tangent plane.
-    # `R` is the ECEF→ENU rotation at the user position; it matches Geodesy's
-    # `ENUfromECEF` convention (verified equal), built explicitly here as it is
-    # marginally cheaper than recovering it from the transform.
-    lla = LLAfromECEF(wgs84)(user_pos)
-    sφ, cφ = sincosd(lla.lat)
-    sλ, cλ = sincosd(lla.lon)
-    R = @SMatrix [
-        -sλ     cλ      0.0
-        -sφ*cλ  -sφ*sλ  cφ
-        cφ*cλ   cφ*sλ   sφ
-    ]
+    R = ecef_to_enu_rotation(user_pos)
     D_enu = R * SMatrix{3,3}(@view D[1:3, 1:3]) * R'
 
     HDOP = sqrt(D_enu[1, 1] + D_enu[2, 2])   # horizontal dop (East² + North²)
@@ -207,6 +219,50 @@ function calc_DOP(H_GEO, user_pos::ECEF, primary_clock_index = 1)
     GDOP = sqrt(tr(D))                       # geometrical dop (all parameters)
 
     return DOP(GDOP, PDOP, VDOP, HDOP, TDOP)
+end
+
+"""
+    calc_formal_accuracy(H, variances, user_pos::ECEF, primary_clock_index = 1)
+
+Formal 1σ accuracy of a solve with design matrix `H` and per-satellite measurement
+`variances` (m²), as a [`FormalAccuracy`](@ref) — or `nothing` when `HᵀWH` is not
+positive definite, i.e. the geometry left a parameter unobservable (the same condition
+`calc_DOP` reports as a negative GDOP).
+
+`C = (HᵀWH)⁻¹`, `W = diag(1/σ²)`, is the covariance of the weighted least-squares
+estimate this package solves (and, for uniform variances, of the ordinary one).
+Because the variances carry metres, so does `C` — this is the *accuracy* counterpart
+of the unitless DOP, which stays purely geometric. The position block is rotated into
+the local ENU frame before the horizontal/vertical split, exactly as in `calc_DOP`;
+the 3D and clock entries are frame independent.
+
+Multiplying `W` by a constant scales `C` by its reciprocal, so a caller's overall
+uncertainty scale sets the reported accuracy while only the *ratios* of the variances
+affect the estimate itself.
+
+$SIGNATURES
+"""
+function calc_formal_accuracy(H, variances, user_pos::ECEF, primary_clock_index = 1)
+    # Weighting with strictly positive weights preserves rank, so this is positive
+    # definite exactly when the geometric `HᵀH` is (which `calc_pvt` has already
+    # checked via `calc_DOP`); the test is kept so a caller cannot reach an
+    # ill-conditioned inverse through this function alone. The bounded σ range of
+    # `pseudorange_variance` also bounds what weighting can cost the conditioning:
+    # `cond(√W·H) ≤ (σ_max/σ_min)·cond(H)`.
+    F = positive_definite_cholesky(Symmetric(H' * Diagonal(inv.(variances)) * H))
+    isnothing(F) && return nothing
+    C = inv(F)
+
+    R = ecef_to_enu_rotation(user_pos)
+    C_enu = R * SMatrix{3,3}(@view C[1:3, 1:3]) * R'
+
+    clock = 3 + primary_clock_index
+    FormalAccuracy(
+        sqrt(C_enu[1, 1] + C_enu[2, 2]) * m,    # horizontal (East² + North²)
+        sqrt(C_enu[3, 3]) * m,                  # vertical (Up)
+        sqrt(C[1, 1] + C[2, 2] + C[3, 3]) * m,  # 3D position (trace, frame invariant)
+        sqrt(C[clock, clock]) * m,              # reference system's clock, as a range
+    )
 end
 
 """
@@ -220,13 +276,34 @@ Calculates the user position by least squares method. The algorithm is based on 
 
 `bias_columns`: The per-satellite [`BiasColumns`](@ref) (clock and inter-frequency-bias columns).
 
+`weights`: Optional per-satellite least-squares weights, i.e. inverse a-priori
+measurement variances `1/σ²` (see [`pseudorange_variance`](@ref)) in the same order as
+`ρ`. `nothing` (the default) is ordinary least squares — every satellite equally
+precise. Weighting minimises `Σ wⱼ·(ρ̂ⱼ − ρⱼ)²` instead of `Σ (ρ̂ⱼ − ρⱼ)²`, so a noisy
+satellite still contributes its geometry but stops pulling the fix as hard as a
+precise one. Only the ratios of the weights matter; a common factor cancels.
+
 Returns `(ξ, residuals)`: the solved state vector
 `ξ = [x, y, z, tc₁, …, ifb₁, …]` and the per-satellite post-fit residual vector
-(modeled minus measured pseudorange, metres), in the same satellite order as `ρ`.
+(modeled minus measured pseudorange, metres), in the same satellite order as `ρ`. The
+residuals are raw metres in both cases — the weight-normalised residuals the solve
+works with internally are scaled back — so a caller comparing residuals across epochs
+compares the same quantity whether or not weights were supplied.
 """
-function user_position(sat_positions_mat, ρ, bias_columns::BiasColumns, prev_ξ = zeros(num_lsq_params(bias_columns)))
-    model! = (out, x, par) -> calc_ρ_hat!(out, x, par, bias_columns)
-    jacobian! = (J, x, par) -> calc_H!(J, x, par, bias_columns)
+function user_position(sat_positions_mat, ρ, bias_columns::BiasColumns,
+    prev_ξ = zeros(num_lsq_params(bias_columns)); weights = nothing)
+    # Weighting is applied by pre-whitening: scaling residual, Jacobian and directional
+    # second derivative of satellite j by √wⱼ turns the ordinary least-squares problem
+    # into the weighted one, since `‖√W(ρ̂−ρ)‖² = Σ wⱼ(ρ̂ⱼ−ρⱼ)²`. That is precisely what
+    # `LsqFit.curve_fit`'s own `wt` argument does internally, done here instead so the
+    # weight convention (inverse variance) is ours and identical across the LsqFit
+    # versions this package supports (0.16 deprecates a bare weight vector in favour of
+    # its own typed wrappers) — and so an unweighted epoch is left strictly unweighted
+    # rather than uniformly weighted, `scale === nothing` making every whitening a no-op.
+    scale = isnothing(weights) ? nothing : sqrt.(weights)
+    model! = (out, x, par) -> whiten!(calc_ρ_hat!(out, x, par, bias_columns), scale)
+    jacobian! = (J, x, par) -> whiten!(calc_H!(J, x, par, bias_columns), scale)
+    ρ_whitened = isnothing(scale) ? ρ : scale .* ρ
 
     # Two departures from LsqFit's Levenberg-Marquardt defaults, both about the scale of
     # this particular problem:
@@ -235,9 +312,10 @@ function user_position(sat_positions_mat, ρ, bias_columns::BiasColumns, prev_ξ
     #    below `x_tol·(x_tol + ‖ξ‖)` — and `‖ξ‖` here is dominated not by the position but
     #    by the clock bias, which carries the ~2e7 m of common range the pseudoranges are
     #    referred to. The 1e-8 default therefore calls it converged at a step of ~0.2 m,
-    #    so a solve that starts a metre from the optimum — an ordinary warm start from the
-    #    previous epoch — stops most of a metre short of it. 1e-13 puts the threshold at a
-    #    ~2 µm step, still ~1e3 × the rounding resolution of `ξ`.
+    #    so a solve that starts a metre from the optimum — an ordinary warm start, or the
+    #    weighted refinement solve `calc_pvt` makes about it — stops most of a metre short
+    #    of it. 1e-13 puts the threshold at a ~2 µm step, still ~1e3 × the rounding
+    #    resolution of `ξ`.
     #  - `lambda` is the initial (inverse) trust-region radius, and the default 10 damps
     #    the first steps to a fraction of the Gauss-Newton step — which is what makes the
     #    tolerance above bite so early. The pseudorange model is only mildly nonlinear, so
@@ -251,27 +329,34 @@ function user_position(sat_positions_mat, ρ, bias_columns::BiasColumns, prev_ξ
     # start from origin, ~6e6 m away) by trading per-iteration work for fewer iterations.
     # When prev_ξ is already near-converged, the extra Avv! evals are pure overhead.
     # Detect cold by checking the default zeros sentinel (origin position).
-    ξ_fit_ols = if iszero(prev_ξ)
+    ξ_fit = if iszero(prev_ξ)
         curve_fit(
-            model!, jacobian!, sat_positions_mat, ρ, collect(prev_ξ);
+            model!, jacobian!, sat_positions_mat, ρ_whitened, collect(prev_ξ);
             inplace = true,
-            avv! = (dir_deriv, par, v) -> calc_Avv!(dir_deriv, sat_positions_mat, par, v),
+            avv! = (dir_deriv, par, v) ->
+                whiten!(calc_Avv!(dir_deriv, sat_positions_mat, par, v), scale),
             lambda = 1e-8,
             min_step_quality = 0.0,
             x_tol = 1e-13,
         )
     else
         curve_fit(
-            model!, jacobian!, sat_positions_mat, ρ, collect(prev_ξ);
+            model!, jacobian!, sat_positions_mat, ρ_whitened, collect(prev_ξ);
             inplace = true,
             lambda = 1e-8,
             x_tol = 1e-13,
         )
     end
-    #    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
-    #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions_mat, ρ, wt, collect(prev_ξ))
-    return ξ_fit_ols.param, ξ_fit_ols.resid
+    residuals = isnothing(scale) ? ξ_fit.resid : ξ_fit.resid ./ scale
+    return ξ_fit.param, residuals
 end
+
+# Fold the per-satellite weight square roots into a residual vector, a Jacobian or a
+# directional-derivative vector — one row (satellite) per entry of `scale`, which
+# broadcasts along the first dimension for the matrix case. `nothing` is the
+# unweighted solve and returns the argument untouched.
+whiten!(out, ::Nothing) = out
+whiten!(out, scale) = (out .*= scale; out)
 
 """
 Computes user velocity
@@ -296,8 +381,14 @@ per-satellite Doppler-consistency / outlier indicator.
 
 Requires a geometry whose position design `H` has full column rank — the caller
 establishes that with [`calc_DOP`](@ref) before calling this; see the comment at the solve.
+
+`weights` are optional per-satellite inverse range-rate variances `1/σ²` (see
+[`range_rate_variance`](@ref)); `nothing` weights every satellite equally. The Doppler
+needs its own variances rather than the pseudorange ones because its noise comes from
+the carrier/frequency loop, not the code loop.
 """
-function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states, times, H)
+function calc_user_velocity_and_clock_drift(
+    sat_positions_and_velocities, states, times, H; weights = nothing)
     num_sats = length(states)
     # Normal-equations form of the 4-unknown velocity + clock-drift least squares.
     # The velocity design row is [eₓ e_y e_z 1]: the line-of-sight unit vector (H's
@@ -326,8 +417,14 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
         a = SVector(e[1], e[2], e[3], 1.0)
         yⱼ = -(doppler * λ - clock_drift * SPEEDOFLIGHT - dot(e, get_sat_velocity(sat_pv)))
         rate_residuals[j] = yⱼ
-        HtH += a * a'
-        Hty += a * yⱼ
+        # Weighted normal equations: `wⱼ` scales this satellite's row of both `HᵀWH` and
+        # `HᵀWy`, the accumulated form of solving with the row scaled by √wⱼ. The residual
+        # stored above is the raw measurement either way, so the post-fit residuals below
+        # stay in m/s rather than becoming weight-normalised.
+        wⱼ = row_weight(weights, j)
+        HtH += wⱼ * a * a'
+        Hty += wⱼ * a * yⱼ
+
     end
     # `HtH` is positive definite whenever the position design `H` has full column rank,
     # which `calc_pvt` has established via `calc_DOP` before calling this: writing the
@@ -335,6 +432,9 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
     # columns into the drift column and drops the IFB columns — `T` has orthogonal columns
     # of norms 1, 1, 1, √M, so `null(T) = {0}` and a full-rank `H` gives a full-rank `A`
     # (with `cond(A) ≤ √M·cond(H)`). Hence a plain Cholesky solve, no rank test of its own.
+    # Weighting does not weaken that argument: the weights are strictly positive and
+    # bounded (`range_rate_variance` clamps σ), so `AᵀWA` is positive definite exactly
+    # when `AᵀA` is, at a bounded cost in conditioning.
     #
     # This is why `calc_pvt` must keep the DOP check *ahead* of this call: with the order
     # reversed, a rank-deficient geometry reaches the solve below and throws
@@ -352,6 +452,12 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
     end
     return velocity_and_drift, rate_residuals
 end
+
+# Weight of measurement row `j`, with `nothing` standing for the unweighted solve. The
+# unweighted case must stay exactly unweighted rather than uniformly weighted: a common
+# factor is mathematically irrelevant but not bit-identical through the solve.
+row_weight(::Nothing, j) = 1.0
+row_weight(weights, j) = weights[j]
 
 get_sat_position(x) = x.position
 get_sat_velocity(x) = x.velocity

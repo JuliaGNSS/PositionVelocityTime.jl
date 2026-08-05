@@ -38,10 +38,27 @@ PositionVelocityTime.NTCMGParams
 PositionVelocityTime._elevation_azimuth
 ```
 
+## Measurement Uncertainty and Weighting
+
+[`calc_pvt`](@ref) solves a weighted least squares whenever a satellite reports its
+C/N₀ (or an explicit variance) on its [`SatelliteState`](@ref); these are the models
+that turn that report into a weight, and the accuracy that comes out of the weighted
+solve.
+
+```@docs
+PositionVelocityTime.pseudorange_variance
+PositionVelocityTime.range_rate_variance
+PositionVelocityTime.has_measurement_uncertainty
+PositionVelocityTime.predict_pseudorange_variances
+PositionVelocityTime.FormalAccuracy
+PositionVelocityTime.calc_formal_accuracy
+```
+
 ## Dilution of Precision
 
 The DOP values are read from the `dop` field of a [`PVTSolution`](@ref), e.g.
-`pvt.dop.GDOP`.
+`pvt.dop.GDOP`. They describe the geometry alone; the measurement uncertainty enters the
+separate [`PositionVelocityTime.FormalAccuracy`](@ref) above.
 
 ```@docs
 PositionVelocityTime.DOP
