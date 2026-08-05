@@ -162,11 +162,17 @@ satellite used in the fix).
 - `residual::typeof(1.0m)`: Post-fit least-squares pseudorange residual (metres) — the
   modeled minus the (atmosphere-corrected) measured pseudorange. A per-satellite
   fit-quality / outlier indicator.
+- `rate_residual::typeof(1.0m/s)`: Post-fit least-squares range-rate residual (metres per
+  second) — the modeled minus the measured range rate of the carrier-Doppler velocity and
+  clock-drift solve. The rate-domain counterpart of `residual`: it flags a satellite whose
+  Doppler disagrees with the velocity fix (cycle slips, dynamics) independently of its
+  pseudorange.
 """
 struct SatInfo
     position::ECEF
     time::Float64
     residual::typeof(1.0m)
+    rate_residual::typeof(1.0m/s)
 end
 
 """
@@ -211,8 +217,9 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
 - `relative_clock_drift::Float64`: Relative receiver clock drift (dimensionless)
 - `dop::Union{DOP, Nothing}`: Dilution of precision values
 - `sats::Dictionary{Tuple{Symbol, Int}, SatInfo}`: Maps `(signal, PRN)` to satellite
-  info — position, transmit time, and post-fit residual (see [`SatInfo`](@ref)). The
-  signal tag (e.g. `:GPSL1CA`, `:GalileoE1B`; see `get_signal_id`) keeps the
+  info — position, transmit time, and the post-fit pseudorange and range-rate
+  residuals (see [`SatInfo`](@ref)). The signal tag (e.g. `:GPSL1CA`,
+  `:GalileoE1B`; see `get_signal_id`) keeps the
   same PRN apart both across constellations (GPS PRN 5 vs Galileo E05) and across
   signals of one constellation (a satellite tracked on GPS L1 C/A and L5 yields two
   entries sharing a PRN). Receiver-clock grouping is by time system, not signal —
@@ -261,7 +268,8 @@ end
 """
     get_sat_info(pvt_solution::PVTSolution, signal::Symbol, prn::Integer) -> Union{SatInfo,Nothing}
 
-Return the [`SatInfo`](@ref) (position, transmit time and post-fit residual) of the
+Return the [`SatInfo`](@ref) (position, transmit time and the post-fit
+pseudorange/range-rate residuals) of the
 satellite with the given `prn` on GNSS `signal` (e.g. `:GPSL1CA`, `:GalileoE1B`; see
 `get_signal_id`), or `nothing` if that satellite was not used in the fix. The
 signal tag is required because the same PRN can belong to different constellations or
@@ -759,7 +767,7 @@ function calc_pvt(
     dop = calc_DOP(H, position, primary_clock_index)
     dop.GDOP < 0 && return prev_pvt
 
-    user_velocity_and_clock_drift = calc_user_velocity_and_clock_drift(
+    user_velocity_and_clock_drift, rate_residuals = calc_user_velocity_and_clock_drift(
         sat_positions_and_velocities, healthy_states, times, H)
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
@@ -782,7 +790,7 @@ function calc_pvt(
         corrected_reference_time - floor(Int, corrected_reference_time),
     )
 
-    sat_infos = SatInfo.(sat_positions, times, residuals .* m)
+    sat_infos = SatInfo.(sat_positions, times, residuals .* m, rate_residuals .* (m/s))
 
     # Inter-system biases relative to the reference (primary) system's clock, in
     # meters. The reference is omitted (its bias is `time_correction`); for a

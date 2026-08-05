@@ -256,8 +256,9 @@ Computes user velocity
 
 $SIGNATURES
 
-Calculates the user velocity and a single receiver clock drift, returned as
-`[vx, vy, vz, ċ]`. Unlike the position solve — which estimates one clock *bias*
+Calculates the user velocity and a single receiver clock drift, returned together with
+the per-satellite post-fit range-rate residuals as `([vx, vy, vz, ċ], rate_residuals)`.
+Unlike the position solve — which estimates one clock *bias*
 per GNSS time system (the inter-system bias / GGTO is metre-level and must be
 resolved) — a single clock *drift* is shared by all satellites regardless of
 GNSS: the receiver has one oscillator, and the only per-system difference is the
@@ -265,6 +266,11 @@ drift of the inter-system time offset (e.g. the GGTO rate `A_1G`), which is
 ~1e-6 m/s — far below the Doppler velocity resolution. Using one common drift lets
 every satellite constrain the four unknowns instead of spending a column per
 system.
+
+The residuals are `modeled − measured` range rate (m/s), the same orientation as the
+pseudorange residuals of [`user_position`](@ref) and in the same satellite order as
+`states`. They are the range-rate analogue of the post-fit pseudorange residual: a
+per-satellite Doppler-consistency / outlier indicator.
 
 Requires a geometry whose position design `H` has full column rank — the caller
 establishes that with [`calc_DOP`](@ref) before calling this; see the comment at the solve.
@@ -281,6 +287,11 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
     # evaluated per satellite from its own carrier frequency.
     HtH = zero(SMatrix{4,4,Float64})
     Hty = zero(SVector{4,Float64})
+    # The normal-equations form does not keep the design rows, so the measurements are
+    # kept here instead and turned into post-fit residuals in place after the solve —
+    # cheaper than a second pass that recomputes each `yⱼ` (Doppler, wavelength and
+    # satellite clock drift) from the decoder.
+    rate_residuals = Vector{Float64}(undef, num_sats)
     for j in 1:num_sats
         state = states[j]
         sat_pv = sat_positions_and_velocities[j]
@@ -292,6 +303,7 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
         e = SVector{3}(view(H, j, 1:3))
         a = SVector(e[1], e[2], e[3], 1.0)
         yⱼ = -(doppler * λ - clock_drift * SPEEDOFLIGHT - dot(e, get_sat_velocity(sat_pv)))
+        rate_residuals[j] = yⱼ
         HtH += a * a'
         Hty += a * yⱼ
     end
@@ -305,7 +317,18 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
     # This is why `calc_pvt` must keep the DOP check *ahead* of this call: with the order
     # reversed, a rank-deficient geometry reaches the solve below and throws
     # `SingularException` — the failure this arrangement exists to prevent.
-    cholesky(Symmetric(HtH)) \ Hty
+    velocity_and_drift = cholesky(Symmetric(HtH)) \ Hty
+
+    # Post-fit residual, modeled minus measured: the design row `[e 1]` (rebuilt from
+    # H's line-of-sight columns, as above) applied to the solved state, minus the
+    # measurement stored in the accumulation loop.
+    velocity = SVector{3}(
+        velocity_and_drift[1], velocity_and_drift[2], velocity_and_drift[3])
+    for j in 1:num_sats
+        e = SVector{3}(view(H, j, 1:3))
+        rate_residuals[j] = dot(e, velocity) + velocity_and_drift[4] - rate_residuals[j]
+    end
+    return velocity_and_drift, rate_residuals
 end
 
 get_sat_position(x) = x.position

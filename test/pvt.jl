@@ -168,6 +168,13 @@ end
     @test all(isfinite, resids)
     @test maximum(abs, resids) < 10m
 
+    # The rate-domain counterpart from the Doppler solve (modeled − measured range
+    # rate, m/s): finite, and metre-per-second-level for a stationary receiver.
+    rate_resids = [info.rate_residual for info in values(pvt.sats)]
+    @test length(rate_resids) == length(pvt.sats)
+    @test all(isfinite, rate_resids)
+    @test maximum(abs, rate_resids) < 10.0m/s
+
     warm_pvt = calc_pvt(states, pvt; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test get_LLA(warm_pvt) ≈ get_LLA(pvt)
     @test warm_pvt.time ≈ pvt.time
@@ -382,12 +389,12 @@ end
         # The case no satellite count can see: four *distinct* satellites — plenty for the
         # 3 + 1 unknowns — whose lines of sight lie on a common cone (equal projection onto
         # z), which puts the clock column in their span.
-        c = 0.5
-        s = sqrt(1 - c^2)
-        cone = [s 0.0 c; 0.0 s c; -s 0.0 c; 0.0 -s c]
+        cosθ = 0.5
+        sinθ = sqrt(1 - cosθ^2)
+        cone = [sinθ 0.0 cosθ; 0.0 sinθ cosθ; -sinθ 0.0 cosθ; 0.0 -sinθ cosθ]
         @test !full_rank([cone ones(4)])
         # Tilting one satellite off the cone restores full rank.
-        tilted = [cone[1:3, :]; normalize([0.0, -s, 2c])']
+        tilted = [cone[1:3, :]; normalize([0.0, -sinθ, 2cosθ])']
         @test full_rank([tilted ones(4)])
     end
 
@@ -411,11 +418,21 @@ end
         velocity_and_drift(dirs) = PositionVelocityTime.calc_user_velocity_and_clock_drift(
             sat_pvs, states, times, design(dirs))
 
-        # Four well-spread directions ⇒ solvable: a finite [vx, vy, vz, ċ].
-        solution = velocity_and_drift(
+        # Four well-spread directions ⇒ solvable: a finite [vx, vy, vz, ċ], plus one
+        # finite post-fit range-rate residual per satellite.
+        solution, rate_residuals = velocity_and_drift(
             [[1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0]])
         @test length(solution) == 4
         @test all(isfinite, solution)
+        @test length(rate_residuals) == length(states)
+        @test all(isfinite, rate_residuals)
+        # A post-fit least-squares residual is orthogonal to every column of its design
+        # — the line-of-sight columns and the common clock-drift column of ones. That is
+        # what makes it a residual rather than an arbitrary modeled-minus-measured
+        # difference, so it is pinned directly instead of only by magnitude.
+        let A = design([[1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0]])
+            @test norm(A' * rate_residuals) < 1e-6
+        end
 
         # The degenerate cases are stated on the design matrix, since the solve itself no
         # longer tests rank. Two distinct directions (a satellite tracked on a second band
@@ -427,8 +444,9 @@ end
         # Three independent directions on a common cone (equal projection onto z) put the
         # drift column in their span, leaving the fourth pivot exactly zero — the shape
         # that produced SingularException(4) from the 4×4 solve.
-        c = 0.5
-        s = sqrt(1 - c^2)
-        @test !solvable([[s, 0.0, c], [0.0, s, c], [-s, 0.0, c], [0.0, -s, c]])
+        cosθ = 0.5
+        sinθ = sqrt(1 - cosθ^2)
+        @test !solvable([
+            [sinθ, 0.0, cosθ], [0.0, sinθ, cosθ], [-sinθ, 0.0, cosθ], [0.0, -sinθ, cosθ]])
     end
 end
