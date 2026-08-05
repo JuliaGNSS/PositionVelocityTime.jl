@@ -1,6 +1,6 @@
 
 using Test, PositionVelocityTime, GNSSDecoder, AstroTime, GNSSSignals, Geodesy, Dates, LinearAlgebra
-using Unitful: Hz, m, s, °, ustrip
+using Unitful: Hz, m, s, °, dBHz, ustrip
 
 include("aqua.jl")
 include("fixtures.jl")
@@ -8,6 +8,7 @@ include("sat_time.jl")
 include("sat_position.jl")
 include("pvt.jl")
 include("dop.jl")
+include("weighted_least_squares.jl")
 include("cnav.jl")
 include("gps_l2c.jl")
 include("galileo_e5a.jl")

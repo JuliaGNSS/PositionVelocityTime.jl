@@ -11,7 +11,7 @@ using CoordinateTransformations,
     Unitful,
     Dates
 
-using Unitful: s, Hz, m, °, ustrip
+using Unitful: s, Hz, m, °, dBHz, ustrip, uconvert
 using Dictionaries: Dictionary
 
 export calc_pvt,
@@ -111,15 +111,26 @@ Combines the GNSS decoder state with code and carrier phase measurements for a s
 - `carrier_doppler`: Carrier Doppler frequency in Hz
 - `carrier_phase::CP`: Carrier phase measurement in radians, matching
   `Tracking.get_carrier_phase` (default: `0.0`)
+- `cn0::Union{Nothing,typeof(1.0dBHz)}`: Carrier-to-noise-density ratio of this
+  measurement, e.g. `42.0dBHz`, matching `Tracking.estimate_cn0` (default: `nothing`,
+  "not reported"). Supplying it lets [`calc_pvt`](@ref) weight this satellite by its
+  measurement uncertainty instead of treating every satellite as equally precise —
+  see [`pseudorange_variance`](@ref). A non-positive level is treated as not
+  reported, as is a non-finite one.
+- `pseudorange_variance::Union{Nothing,typeof(1.0m^2)}`: Optional explicit a-priori
+  variance of this pseudorange, e.g. `(3.0m)^2`, for a caller that owns its own error
+  model. When given it replaces the modeled variance entirely — C/N₀ and elevation
+  are then not consulted for this satellite's position weight (default: `nothing`).
 
 # Constructors
-    SatelliteState(; decoder, system, code_phase, carrier_doppler, carrier_phase=0.0)
-    SatelliteState(decoder, system, sat_state)
+    SatelliteState(; decoder, system, code_phase, carrier_doppler, carrier_phase=0.0,
+                   cn0=nothing, pseudorange_variance=nothing)
+    SatelliteState(decoder, system, sat_state; cn0=…, pseudorange_variance=nothing)
 
-The second constructor extracts code phase, carrier Doppler, and carrier phase from a
-`Tracking` satellite state (`Tracking.TrackedSat`). It is provided by a package extension
-that is loaded automatically once `Tracking` is available, so `Tracking` is only a weak
-dependency of this package.
+The second constructor extracts code phase, carrier Doppler, carrier phase and C/N₀
+from a `Tracking` satellite state (`Tracking.TrackedSat`). It is provided by a package
+extension that is loaded automatically once `Tracking` is available, so `Tracking` is
+only a weak dependency of this package.
 """
 @kwdef struct SatelliteState{CP<:Real,D<:GNSSDecoder.GNSSDecoderState,S<:AbstractGNSSSignal}
     decoder::D
@@ -127,6 +138,8 @@ dependency of this package.
     code_phase::CP
     carrier_doppler::typeof(1.0Hz)
     carrier_phase::CP = 0.0
+    cn0::Union{Nothing,typeof(1.0dBHz)} = nothing
+    pseudorange_variance::Union{Nothing,typeof(1.0m^2)} = nothing
 end
 
 """
@@ -151,6 +164,41 @@ struct DOP
 end
 
 """
+    FormalAccuracy
+
+Formal (1σ) accuracy of a [`PVTSolution`](@ref) in metres: the square-rooted diagonal
+of the least-squares parameter covariance `(HᵀWH)⁻¹`, with the position block rotated
+into the local East-North-Up frame — see [`calc_formal_accuracy`](@ref).
+
+This is the *weighted* counterpart of [`DOP`](@ref) and deliberately a separate
+output. DOP is by definition a purely geometric quantity, `(HᵀH)⁻¹`, and stays that
+way whether or not the epoch was weighted, so it keeps meaning what every receiver
+and textbook means by it; the accuracy here folds in the a-priori measurement
+uncertainty (see [`pseudorange_variance`](@ref)) and so carries units. When no
+satellite reports any uncertainty the weights are uniform and this reduces to the
+familiar DOP × nominal-UERE product.
+
+It is *formal*: it propagates the assumed measurement variances through the geometry
+and says nothing about errors the model does not describe (multipath beyond the model,
+an undetected faulty satellite, broadcast-ephemeris error).
+
+# Fields
+- `horizontal::typeof(1.0m)`: Horizontal 1σ (East² + North²), i.e. the classic HDRMS.
+- `vertical::typeof(1.0m)`: Vertical (Up) 1σ.
+- `position::typeof(1.0m)`: 3D position 1σ (trace of the position block; frame
+  independent, so `≈ hypot(horizontal, vertical)`).
+- `time::typeof(1.0m)`: 1σ of the reported receiver clock bias, as a range (metres);
+  divide by the speed of light for seconds. This is the clock of `reference_system`,
+  matching `DOP.TDOP`.
+"""
+struct FormalAccuracy
+    horizontal::typeof(1.0m)
+    vertical::typeof(1.0m)
+    position::typeof(1.0m)
+    time::typeof(1.0m)
+end
+
+"""
     SatInfo
 
 Per-satellite information attached to a [`PVTSolution`](@ref) (one entry per
@@ -161,18 +209,27 @@ satellite used in the fix).
 - `time::Float64`: Satellite transmit time (system time of week, seconds).
 - `residual::typeof(1.0m)`: Post-fit least-squares pseudorange residual (metres) — the
   modeled minus the (atmosphere-corrected) measured pseudorange. A per-satellite
-  fit-quality / outlier indicator.
+  fit-quality / outlier indicator. This is the **raw** residual in metres, not the
+  weight-normalised one, so it keeps the same meaning whether or not the epoch was
+  weighted; divide it by `pseudorange_sigma` for the normalised residual that fault
+  detection (RAIM) works with.
 - `rate_residual::typeof(1.0m/s)`: Post-fit least-squares range-rate residual (metres per
   second) — the modeled minus the measured range rate of the carrier-Doppler velocity and
   clock-drift solve. The rate-domain counterpart of `residual`: it flags a satellite whose
   Doppler disagrees with the velocity fix (cycle slips, dynamics) independently of its
   pseudorange.
+- `pseudorange_sigma::typeof(1.0m)`: A-priori standard deviation (metres) this
+  satellite's pseudorange was weighted by — its [`pseudorange_variance`](@ref),
+  square-rooted. When no satellite of the epoch reported any uncertainty the solve is
+  unweighted and this is the nominal UERE assumed for the reported accuracy, the same
+  value for every satellite.
 """
 struct SatInfo
     position::ECEF
     time::Float64
     residual::typeof(1.0m)
     rate_residual::typeof(1.0m/s)
+    pseudorange_sigma::typeof(1.0m)
 end
 
 """
@@ -215,10 +272,15 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   other systems' biases are `time_correction + inter_system_biases[system]`.
 - `time::Union{TAIEpoch{Float64}, Nothing}`: Estimated time as a TAI epoch
 - `relative_clock_drift::Float64`: Relative receiver clock drift (dimensionless)
-- `dop::Union{DOP, Nothing}`: Dilution of precision values
+- `dop::Union{DOP, Nothing}`: Dilution of precision values — purely geometric, and
+  unaffected by measurement weighting (see [`FormalAccuracy`](@ref))
+- `accuracy::Union{FormalAccuracy, Nothing}`: Formal 1σ accuracy of this solution in
+  metres (horizontal, vertical, 3D and clock), from the least-squares covariance with
+  the a-priori measurement variances folded in. See [`FormalAccuracy`](@ref)
 - `sats::Dictionary{Tuple{Symbol, Int}, SatInfo}`: Maps `(signal, PRN)` to satellite
-  info — position, transmit time, and the post-fit pseudorange and range-rate
-  residuals (see [`SatInfo`](@ref)). The signal tag (e.g. `:GPSL1CA`,
+  info — position, transmit time, the post-fit pseudorange and range-rate residuals, and
+  the a-priori σ the pseudorange was weighted by (see [`SatInfo`](@ref)). The signal tag
+  (e.g. `:GPSL1CA`,
   `:GalileoE1B`; see `get_signal_id`) keeps the
   same PRN apart both across constellations (GPS PRN 5 vs Galileo E05) and across
   signals of one constellation (a satellite tracked on GPS L1 C/A and L5 yields two
@@ -257,6 +319,7 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
     time::Union{TAIEpoch{Float64},Nothing} = nothing
     relative_clock_drift::Float64 = 0
     dop::Union{DOP,Nothing} = nothing
+    accuracy::Union{FormalAccuracy,Nothing} = nothing
     sats::Dictionary{Tuple{Symbol,Int},SatInfo} = Dictionary{Tuple{Symbol,Int},SatInfo}()
     reference_system::Union{GNSSSignals.TimeSystem,Nothing} = nothing
     inter_system_biases::Dict{GNSSSignals.TimeSystem,typeof(1.0m)} =
@@ -592,6 +655,18 @@ Unless disabled via `enable_tropospheric_correction`, the tropospheric delay is
 corrected with the blind Saastamoinen model (no broadcast coefficients needed).
 See [`tropospheric_delay`](@ref).
 
+Satellites are weighted by their measurement uncertainty rather than treated as equally
+precise, as soon as any of them reports a `cn0` (or an explicit `pseudorange_variance`)
+on its [`SatelliteState`](@ref): the position solve then minimises `Σ (ρ̂ⱼ − ρⱼ)²/σ²ⱼ`
+with σ from the C/N₀- and elevation-dependent model in [`pseudorange_variance`](@ref),
+and the velocity solve is weighted by the Doppler's own
+[`range_rate_variance`](@ref). This matters because code noise is a strong function of
+C/N₀ — an order of magnitude between a 30 dBHz and a 45 dBHz satellite — so a marginal
+satellite can otherwise drag a fix that the strong ones would have pinned down. Reported
+per satellite as `SatInfo.pseudorange_sigma`, and summarised as the solution's formal
+[`FormalAccuracy`](@ref). When no satellite reports either, the solve is the ordinary
+least-squares one it has always been.
+
 # Arguments
 - `states`: Vector of [`SatelliteState`](@ref) for observed satellites. Each
   (signal, PRN) pair must appear at most once — a receiver produces one
@@ -615,9 +690,9 @@ See [`tropospheric_delay`](@ref).
   tropospheric correction. Set to `false` to skip it.
 
 # Returns
-A [`PVTSolution`](@ref) containing position, velocity, time, DOP values, and
-satellite information. Returns `prev_pvt` if the epoch cannot be solved: too few healthy
-satellites to solve the constellation (including the GGTO fallback and the
+A [`PVTSolution`](@ref) containing position, velocity, time, DOP values, formal accuracy,
+and satellite information. Returns `prev_pvt` if the epoch cannot be solved: too few
+healthy satellites to solve the constellation (including the GGTO fallback and the
 distinct-satellite condition — a satellite tracked on several bands supplies one line of
 sight, so measurements alone are not enough), a geometry whose solved design matrix is
 rank deficient (reported as a negative GDOP). None of these throw, so a receiver can pass
@@ -726,32 +801,51 @@ function calc_pvt(
     correct_atmosphere =
         !isnothing(ionospheric_correction) || enable_tropospheric_correction
 
-    ξ, residuals = if iszero(prev_ξ)
-        # Cold start: no prior position, and the Klobuchar model is undefined near
-        # the geocenter, so first obtain an approximate fix from an uncorrected
-        # solve, then re-solve once with the delay-corrected pseudoranges (only if
-        # there is anything to correct, so the uncorrected case stays a single solve).
-        ξ_uncorrected, resid_uncorrected =
-            user_position(sat_positions_mat, pseudo_ranges, bias_columns, prev_ξ)
-        if correct_atmosphere
-            atmospheric_delays = predict_atmospheric_delays(
-                ξ_uncorrected, healthy_states, sat_positions, ionospheric_correction,
-                reference_time, enable_tropospheric_correction)
-            user_position(
-                sat_positions_mat, pseudo_ranges .- atmospheric_delays, bias_columns, ξ_uncorrected)
-        else
-            (ξ_uncorrected, resid_uncorrected)
-        end
-    else
-        # Warm start: predict the delays from the previous (already metre-accurate)
-        # position before solving, so ξ never needs a post-solve correction. With no
-        # active correction, solve directly on the raw pseudoranges.
-        corrected_ranges =
+    # Weight the solve by measurement uncertainty as soon as any satellite carries the
+    # information for it (a C/N₀ or an explicit variance); with none, every weight would
+    # be the same and the epoch is solved by ordinary least squares exactly as before.
+    # See `has_measurement_uncertainty` and [`pseudorange_variance`](@ref).
+    weighted = any(has_measurement_uncertainty, healthy_states)
+
+    # One solve about the measurement model evaluated at `ξ_reference`: both the
+    # atmospheric delays and the a-priori variances depend on position only through the
+    # satellite elevations, so a metre-accurate reference position is enough for either
+    # (see `predict_atmospheric_delays` / `predict_pseudorange_variances`) and neither
+    # needs iterating to convergence. Returns the solved state, the raw (metre) residuals
+    # and the variances the weights came from, which are reported per satellite and set
+    # the scale of the formal accuracy below.
+    function solve_about(ξ_reference)
+        ranges =
             correct_atmosphere ?
             pseudo_ranges .- predict_atmospheric_delays(
-                prev_ξ, healthy_states, sat_positions, ionospheric_correction,
+                ξ_reference, healthy_states, sat_positions, ionospheric_correction,
                 reference_time, enable_tropospheric_correction) : pseudo_ranges
-        user_position(sat_positions_mat, corrected_ranges, bias_columns, prev_ξ)
+        variances =
+            weighted ?
+            predict_pseudorange_variances(ξ_reference, healthy_states, sat_positions) :
+            fill(_NOMINAL_PSEUDORANGE_SIGMA^2, num_sats)
+        ξ_solved, residuals = user_position(
+            sat_positions_mat, ranges, bias_columns, ξ_reference;
+            weights = weighted ? inv.(variances) : nothing)
+        (ξ_solved, residuals, variances)
+    end
+
+    ξ, residuals, pseudorange_variances = if iszero(prev_ξ)
+        # Cold start: no prior position, and both the Klobuchar model and the elevation
+        # part of the variance model need one, so first obtain an approximate fix from an
+        # uncorrected, unweighted solve, then re-solve once about it (only if there is
+        # anything to correct or to weight, so the plain case stays a single solve).
+        ξ_uncorrected, resid_uncorrected =
+            user_position(sat_positions_mat, pseudo_ranges, bias_columns, prev_ξ)
+        if correct_atmosphere || weighted
+            solve_about(ξ_uncorrected)
+        else
+            (ξ_uncorrected, resid_uncorrected, fill(_NOMINAL_PSEUDORANGE_SIGMA^2, num_sats))
+        end
+    else
+        # Warm start: the previous (already metre-accurate) position is the reference, so
+        # ξ never needs a post-solve correction and one solve suffices.
+        solve_about(prev_ξ)
     end
     H = calc_H(sat_positions_mat, ξ, bias_columns)
     position = ECEF(ξ[1], ξ[2], ξ[3])
@@ -767,8 +861,18 @@ function calc_pvt(
     dop = calc_DOP(H, position, primary_clock_index)
     dop.GDOP < 0 && return prev_pvt
 
+    # The DOP stays the purely geometric `(HᵀH)⁻¹`; the formal accuracy is the separate,
+    # metre-valued `(HᵀWH)⁻¹` of the solve that actually ran (see `FormalAccuracy`). Its
+    # positive definiteness follows from the DOP check just made, weights being positive.
+    accuracy = calc_formal_accuracy(H, pseudorange_variances, position, primary_clock_index)
+
+    # The velocity solve is weighted from the Doppler's own variance model — carrier-loop
+    # noise, not code-loop noise — and left unweighted when no C/N₀ was reported.
+    range_rate_weights =
+        weighted ? inv.(map(range_rate_variance, healthy_states)) : nothing
     user_velocity_and_clock_drift, rate_residuals = calc_user_velocity_and_clock_drift(
-        sat_positions_and_velocities, healthy_states, times, H)
+        sat_positions_and_velocities, healthy_states, times, H;
+        weights = range_rate_weights)
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
         user_velocity_and_clock_drift[2],
@@ -790,7 +894,8 @@ function calc_pvt(
         corrected_reference_time - floor(Int, corrected_reference_time),
     )
 
-    sat_infos = SatInfo.(sat_positions, times, residuals .* m, rate_residuals .* (m/s))
+    sat_infos = SatInfo.(sat_positions, times, residuals .* m, rate_residuals .* (m/s),
+        sqrt.(pseudorange_variances) .* m)
 
     # Inter-system biases relative to the reference (primary) system's clock, in
     # meters. The reference is omitted (its bias is `time_correction`); for a
@@ -827,6 +932,7 @@ function calc_pvt(
         time,
         relative_clock_drift,
         dop,
+        accuracy,
         Dictionary(healthy_sat_keys, sat_infos),
         primary_system,
         inter_system_biases,
@@ -903,4 +1009,5 @@ include("sat_time.jl")
 include("sat_position.jl")
 include("ionosphere.jl")
 include("troposphere.jl")
+include("measurement_variance.jl")
 end
