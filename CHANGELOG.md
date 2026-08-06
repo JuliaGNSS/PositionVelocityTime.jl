@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.0.3](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.0.2...v5.0.3) (2026-08-06)
+
+
+### Bug Fixes
+
+* map the tropospheric delay with the Niell mapping functions ([4153e1c](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/4153e1cddbeba9d8439ff5d638d6a862c59d787c)), closes [#62](https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/62)
+
 ## [5.0.2](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.0.1...v5.0.2) (2026-08-05)
 
 
