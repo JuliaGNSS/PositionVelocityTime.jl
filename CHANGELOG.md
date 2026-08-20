@@ -1,5 +1,12 @@
 # Changelog
 
+# [5.2.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.1.0...v5.2.0) (2026-08-20)
+
+
+### Features
+
+* support Tracking 8 ([9fc9e4f](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/9fc9e4f1623fcb3f5258835dee78d20eb7492683)), closes [JuliaGNSS/Tracking.jl#229](https://github.com/JuliaGNSS/Tracking.jl/issues/229)
+
 # [5.1.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.0.3...v5.1.0) (2026-08-18)
 
 
