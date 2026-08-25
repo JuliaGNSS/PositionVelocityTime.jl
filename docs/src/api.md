@@ -36,6 +36,9 @@ PositionVelocityTime.tropospheric_delay
 PositionVelocityTime.saastamoinen_zenith_delays
 PositionVelocityTime.niell_mapping_functions
 PositionVelocityTime.KlobucharParams
+PositionVelocityTime.klobuchar_group_delay
+PositionVelocityTime.BeiDouKlobucharParams
+PositionVelocityTime.beidou_klobuchar_group_delay
 PositionVelocityTime.NTCMGParams
 PositionVelocityTime._elevation_azimuth
 ```

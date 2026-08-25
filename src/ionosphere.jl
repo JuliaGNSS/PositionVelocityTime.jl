@@ -8,9 +8,16 @@
 #  healthy decoders have delivered, and applied to *all* satellites:
 #
 #    - No coefficients decoded            → no correction (0 m for every sat).
-#    - Only Klobuchar (GPS) decoded       → Klobuchar for every sat.
+#    - Only Klobuchar decoded             → Klobuchar for every sat.
 #    - Only NTCM-G (Galileo) decoded      → NTCM-G for every sat.
 #    - Both decoded                       → NTCM-G for every sat (more accurate).
+#
+#  Klobuchar reaches this package from two constellations: GPS on every civil
+#  signal, and BeiDou on the legacy D1/D2 message — as BeiDou's own variant of
+#  the algorithm, referenced to B1I rather than L1 (see
+#  `BeiDouKlobucharParams`). BDS-3's B-CNAV messages instead broadcast BDGIM,
+#  which is not implemented, so a BDS-3-only epoch gets no ionospheric correction
+#  unless a B1I/B3I or GPS satellite is also tracked.
 #
 #  Only data actually decoded from the navigation message is used; there are no
 #  user-supplied fallback coefficients. The ionospheric delay scales as 1/f², so a
@@ -39,6 +46,27 @@ struct KlobucharParams
 end
 
 """
+    BeiDouKlobucharParams(α_0, α_1, α_2, α_3, β_0, β_1, β_2, β_3)
+
+The eight coefficients of BeiDou's own Klobuchar variant, decoded from the legacy
+D1/D2 message (B1I/B3I), in BDS-SIS-ICD-B1I-3.0 §5.2.4.7 SI units (seconds and
+seconds·π⁻ⁿ — per semicircle, exactly like the GPS set). A type of its own rather
+than a [`KlobucharParams`](@ref) because the ICD prescribes a different algorithm,
+not merely different numbers — see [`beidou_klobuchar_group_delay`](@ref) — and
+defines the resulting delay at the B1I carrier (1561.098 MHz) rather than L1.
+"""
+struct BeiDouKlobucharParams
+    α_0::Float64
+    α_1::Float64
+    α_2::Float64
+    α_3::Float64
+    β_0::Float64
+    β_1::Float64
+    β_2::Float64
+    β_3::Float64
+end
+
+"""
     NTCMGParams(a_i0, a_i1, a_i2, week_number::Integer)
 
 The broadcast Galileo Effective Ionisation Level coefficients `a_i0`/`a_i1`/`a_i2`
@@ -53,12 +81,15 @@ struct NTCMGParams
 end
 
 """
-    klobuchar_params(decoder) -> Union{KlobucharParams,Nothing}
+    klobuchar_params(decoder) -> Union{KlobucharParams,BeiDouKlobucharParams,Nothing}
 
 Klobuchar α/β decoded from a GPS navigation message (LNAV `GPSL1CAData`, CNAV
-`GPSCNAVData` on L5/L2C, or CNAV-2 `GPSL1C_DData`), or `nothing` if they have not
-been broadcast yet or the decoder is not a GPS signal. The same single-frequency
-Klobuchar model is broadcast on all GPS civil signals.
+`GPSCNAVData` on L5/L2C, or CNAV-2 `GPSL1C_DData`) or from the BeiDou legacy
+D1/D2 message (`BeiDouDNAVData` on B1I/B3I, see `src/beidou.jl`), or `nothing` if
+they have not been broadcast yet or the decoder carries no Klobuchar set. The same
+single-frequency Klobuchar model is broadcast on all GPS civil signals; BeiDou
+broadcasts its own set, returned as a [`BeiDouKlobucharParams`](@ref) because its
+ICD prescribes its own variant of the algorithm, not just its own numbers.
 """
 klobuchar_params(decoder) = nothing
 function klobuchar_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.AbstractGPSData})
@@ -75,11 +106,16 @@ end
     ntcm_g_params(decoder) -> Union{NTCMGParams,Nothing}
 
 NTCM-G Effective Ionisation Level coefficients decoded from a Galileo navigation
-message (I/NAV on E1B or F/NAV on E5a — both broadcast `a_i0…a_i2`), or `nothing`
-if they (or the week number) have not been decoded yet or the decoder is not Galileo.
+message (I/NAV on E1-B or E5b, or F/NAV on E5a — all broadcast `a_i0…a_i2`), or
+`nothing` if they (or the week number) have not been decoded yet or the decoder
+carries no such set. Galileo E6-B is in the latter group: C/NAV broadcasts no
+ionospheric coefficients, so it falls to the generic method rather than being
+dispatched here on a field it does not have.
 """
 ntcm_g_params(decoder) = nothing
-function ntcm_g_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.AbstractGalileoData})
+function ntcm_g_params(
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.AbstractGalileoEphemerisData},
+)
     d = decoder.data
     (isnothing(d.a_i0) || isnothing(d.a_i1) || isnothing(d.a_i2) || isnothing(d.WN)) &&
         return nothing
@@ -87,7 +123,8 @@ function ntcm_g_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.Abstr
 end
 
 """
-    select_ionospheric_correction(states) -> Union{KlobucharParams,NTCMGParams,Nothing}
+    select_ionospheric_correction(states)
+        -> Union{KlobucharParams,BeiDouKlobucharParams,NTCMGParams,Nothing}
 
 Scan all (healthy) satellite decoders and pick the single ionospheric correction
 to apply to the whole solve. NTCM-G is preferred whenever Galileo coefficients are
@@ -103,7 +140,7 @@ function select_ionospheric_correction(states)
         ntcm_g === nothing && (ntcm_g = ntcm_g_params(state.decoder))
     end
     ntcm_g !== nothing && return ntcm_g   # most accurate model when available
-    return klobuchar                      # KlobucharParams, or nothing if neither
+    return klobuchar                # either Klobuchar variant, or nothing if neither
 end
 
 """
@@ -115,12 +152,15 @@ satellite's GNSS, used for its carrier frequency), using the constellation-wide
 
 - `::Nothing` → `0.0` (no coefficients were decoded).
 - [`KlobucharParams`](@ref) → Klobuchar model (IS-GPS-200, Fig. 20-4).
+- [`BeiDouKlobucharParams`](@ref) → BeiDou's Klobuchar variant (BDS-SIS-ICD-B1I-3.0 §5.2.4.7).
 - [`NTCMGParams`](@ref) → NTCM-G model.
 
 The line of sight is given by the satellite `elevation`/`azimuth` (radians) and
 the user geodetic position `lla` (a `Geodesy.LLA`); `time_of_week` is the measurement's
-system time of week in seconds (GPS time for GPS/Klobuchar, GST for Galileo/NTCM-G —
-they coincide to within the sub-microsecond GGTO, immaterial here). The geometry is taken precomputed — and
+system time of week in seconds. Which constellation's scale that is does not matter:
+GPST and GST coincide to within the sub-microsecond GGTO, and BDT trails them by 14 s,
+which moves Klobuchar's diurnal phase by 0.016 % of a day and NTCM-G's universal time
+by the same — orders of magnitude below either model's own error. The geometry is taken precomputed — and
 shared across satellites and with [`tropospheric_delay`](@ref) — so a whole-epoch
 correction does the user geodetic conversion only once. Derive the geometry from
 ECEF with `LLAfromECEF(wgs84)(user)` and
@@ -144,6 +184,32 @@ function ionospheric_delay(p::KlobucharParams, system, elevation, azimuth, lla, 
     # to this satellite's actual carrier frequency.
     f = get_center_frequency(system)
     return SPEEDOFLIGHT * l1_seconds * (get_center_frequency(GPSL1CA) / f)^2
+end
+
+function ionospheric_delay(
+    p::BeiDouKlobucharParams,
+    system,
+    elevation,
+    azimuth,
+    lla,
+    time_of_week,
+)
+    # BDS-SIS-ICD-B1I-3.0 §5.2.4.7 works in radians, unlike IS-GPS-200's semicircles.
+    b1i_seconds = beidou_klobuchar_group_delay(
+        deg2rad(lla.lat),
+        deg2rad(lla.lon),
+        elevation,
+        azimuth,
+        time_of_week,
+        (p.α_0, p.α_1, p.α_2, p.α_3),
+        (p.β_0, p.β_1, p.β_2, p.β_3),
+    )
+    # The coefficients define the group delay along the B1I propagation path (the
+    # ICD's I_B1I) — 1561.098 MHz, not L1. The delay scales as 1/f², so rescale
+    # from B1I to this satellite's actual carrier.
+    f = get_center_frequency(system)
+    return SPEEDOFLIGHT * b1i_seconds *
+           (get_center_frequency(GNSSSignals.BeiDouB1I) / f)^2
 end
 
 function ionospheric_delay(p::NTCMGParams, system, elevation, azimuth, lla, time_of_week)
@@ -181,6 +247,61 @@ function klobuchar_group_delay(φ_u, λ_u, E, A, gps_time, α, β)
     PER = max(β[1] + φ_m * (β[2] + φ_m * (β[3] + φ_m * β[4])), 72000.0)
     x = 2π * (t - 50400.0) / PER
     return abs(x) < 1.57 ? F * (5.0e-9 + AMP * (1 - x^2 / 2 + x^4 / 24)) : F * 5.0e-9
+end
+
+"""
+    beidou_klobuchar_group_delay(φ_u, λ_u, E, A, t_E, α, β)
+
+BeiDou's Klobuchar-variant ionospheric group delay along the B1I propagation
+path (BDS-SIS-ICD-B1I-3.0 §5.2.4.7), returned in **seconds**. All angles are in
+**radians**, the ICD's working unit: `φ_u`/`λ_u` are the user geodetic
+latitude/longitude, `E`/`A` the satellite elevation/azimuth. `t_E` is the BDT
+second of week. `α`/`β` are the 4-element coefficient tuples (SI units; their
+`s·π⁻ⁿ` scale factors make the polynomial argument `φ_M/π` — semicircles,
+exactly like the GPS set).
+
+The same eight-coefficient half-cosine idea as [`klobuchar_group_delay`](@ref),
+but not the same algorithm — the ICD replaces IS-GPS-200's fitted
+approximations with exact spherical geometry and drops the geomagnetic frame:
+
+- The Earth-central angle to the ionospheric pierce point is the exact
+  `π/2 − E − arcsin(R/(R+h)·cos E)` at R = 6378 km, h = 375 km, and the
+  obliquity the matching exact `1/√(1 − (R/(R+h)·cos E)²)`, instead of the GPS
+  model's `0.0137/(E+0.11) − 0.022` and `1 + 16(0.53−E)³` fits.
+- The latitude feeding the A₂/A₄ polynomials is the pierce point's *geographic*
+  latitude from the spherical triangle — no `+0.064·cos(λ−1.617)` geomagnetic
+  conversion, no ±0.416-semicircle clamp — and its longitude uses `arcsin`
+  rather than a flat-Earth division.
+- The period A₄ is clamped from above at 172800 s as well as from below at
+  72000 s, and the cosine is evaluated exactly rather than by the two-term
+  Taylor expansion inside |x| < 1.57.
+
+The 5·10⁻⁹ s night floor and the |t − 50400| < A₄/4 day-time window are those
+of the GPS model.
+"""
+function beidou_klobuchar_group_delay(φ_u, λ_u, E, A, t_E, α, β)
+    # Sine of the pierce point's geocentric zenith angle: R/(R+h)·cosE, with the
+    # ICD's constants R = 6378 km (mean Earth radius) and h = 375 km (ionosphere
+    # height). Both the pierce-point geometry and the obliquity flow from it.
+    sinz = 6378.0 / (6378.0 + 375.0) * cos(E)
+    # Earth-central angle between user and pierce point (radians), exact
+    ψ = π / 2 - E - asin(sinz)
+    # Geographic — not geomagnetic — latitude and longitude of the pierce point
+    φ_M = asin(sin(φ_u) * cos(ψ) + cos(φ_u) * sin(ψ) * cos(A))
+    λ_M = λ_u + asin(sin(ψ) * sin(A) / cos(φ_M))
+    # Local time at the pierce point (seconds), wrapped to [0, 86400)
+    t = mod(t_E + λ_M * 43200.0 / π, 86400.0)
+    # Amplitude (s) and period (s) of the cosine model, with the ICD's clamps —
+    # the period is bounded on both sides, unlike the GPS model's floor
+    φ = φ_M / π
+    A_2 = max(α[1] + φ * (α[2] + φ * (α[3] + φ * α[4])), 0.0)
+    A_4 = clamp(β[1] + φ * (β[2] + φ * (β[3] + φ * β[4])), 72000.0, 172800.0)
+    # Vertical delay I′z (s): a true cosine within a quarter period of 14:00 local
+    # time, the night floor outside it
+    x = 2π * (t - 50400.0) / A_4
+    I_z = abs(t - 50400.0) < A_4 / 4 ? 5.0e-9 + A_2 * cos(x) : 5.0e-9
+    # Slant delay along the B1I path: the exact obliquity, from the same geometry
+    return I_z / sqrt(1.0 - sinz^2)
 end
 
 """
@@ -334,6 +455,7 @@ end
 # inputs of NTCM-G.
 function _galileo_doy_and_ut(week_number, time_of_week)
     epoch = get_system_start_time(GST())
-    t = epoch + Millisecond(round(Int, (week_number * 604800 + time_of_week) * 1000))
+    t = epoch +
+        Millisecond(round(Int, (week_number * SECONDS_PER_WEEK + time_of_week) * 1000))
     return dayofyear(t), hour(t) + minute(t) / 60 + second(t) / 3600 + millisecond(t) / 3.6e6
 end

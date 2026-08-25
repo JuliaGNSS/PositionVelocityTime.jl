@@ -179,6 +179,6 @@ end
 # seconds, ≤ ~18 s) is negligible for a seasonal argument with a one-year period.
 function _day_of_year(system, week, time_of_week)
     epoch = get_system_start_time(system)
-    t = epoch + Millisecond(round(Int, (week * 604800 + time_of_week) * 1000))
+    t = epoch + Millisecond(round(Int, (week * SECONDS_PER_WEEK + time_of_week) * 1000))
     return dayofyear(t)
 end

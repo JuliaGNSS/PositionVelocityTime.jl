@@ -9,7 +9,7 @@
     t_0e = Float64(base.data.t_0e)
     # Mean anomaly is `M_0 + n·(t − t_0e)`, so `M_0` places the satellite anywhere on the
     # orbit at `t = t_0e`; `M = 0`/`M = π` put it exactly at perigee/apogee.
-    at_mean_anomaly(M_0) = let d = GNSSDecoder.GalileoE1BData(base.data; M_0 = M_0)
+    at_mean_anomaly(M_0) = let d = GNSSDecoder.GalileoINAVData(base.data; M_0 = M_0)
         GNSSDecoder.GNSSDecoderState(base; data = d, raw_data = d)
     end
     # Central difference of the propagated position, in BigFloat: `t ≈ 1.3e5 s` against a

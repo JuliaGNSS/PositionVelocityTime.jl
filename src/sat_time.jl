@@ -1,19 +1,16 @@
 function correct_week_crossovers(t)
-    half_week = 302400  #Half of Week in Seconds
+    half_week = SECONDS_PER_WEEK / 2
     t + (t > half_week ? -2 * half_week : (t < -half_week ? 2 * half_week : 0.0))
 end
 
-# Time of week (seconds) at the navigation-frame reference epoch. GPS LNAV, GPS
-# CNAV (L5) and Galileo broadcast it directly as TOW; GPS CNAV-2 (L1C) instead
-# broadcasts the two-hour interval count ITOW and the 18 s time-of-interval TOI
-# (IS-GPS-800J §3.5.3), so reconstruct TOW = ITOW·7200 + TOI·18.
-get_tow(decoder::GNSSDecoder.GNSSDecoderState) = decoder.data.TOW
-get_tow(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GPSL1C_DData}) =
-    decoder.data.ITOW * 7200 + decoder.data.toi * 18
-
 function calc_uncorrected_time(state::SatelliteState)
     system = state.system
-    t_tow = get_tow(state.decoder)
+    # Time of week at the navigation-frame reference epoch, from GNSSDecoder's own
+    # accessor. Most signals broadcast seconds outright, but GPS L1C-D counts
+    # two-hour intervals plus 18 s TOI steps and BeiDou B1C counts hours plus 18 s
+    # SOH steps, with no seconds-of-week field at all — reconstructions that belong
+    # next to the ICDs that define them rather than here.
+    t_tow = get_time_of_week(state.decoder)
     # Bit-count term uses the decoder's nav-message symbol rate — the rate the bits
     # were counted at — reported by `get_data_frequency` on the decoder
     # state (GNSSDecoder 3.6). It is the decoder's *data* signal, not the tracked
@@ -43,7 +40,8 @@ end
 
 function calc_relativistic_correction(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data
-    time_from_ephemeris_reference_epoch = correct_week_crossovers(t - data.t_0e)
+    time_from_ephemeris_reference_epoch =
+        correct_week_crossovers(t - ephemeris_reference_time(data))
     # √A from the effective elements: the broadcast `sqrt_A` directly for LNAV/Galileo,
     # `√(A_REF + ΔA)` for CNAV/CNAV-2 (which carry no `sqrt_A` field).
     el = orbital_elements(data, decoder.constants.μ, time_from_ephemeris_reference_epoch)
@@ -51,12 +49,35 @@ function calc_relativistic_correction(decoder::GNSSDecoder.GNSSDecoderState, t)
     decoder.constants.F * data.e * el.sqrt_A * sin(E)
 end
 
+"""
+    clock_reference_time(data) -> Real
+    clock_bias(data)           -> Real
+    clock_drift(data)          -> Real
+    clock_drift_rate(data)     -> Real
+
+The SV clock-correction polynomial `Δt = a_f0 + a_f1·(t − t_0c) + a_f2·(t − t_0c)²`,
+read field by field so the polynomial itself can be written once for every
+navigation message.
+
+Every navigation message GNSSDecoder produces spells these fields the same way,
+so one method serves all of them. They are read through accessors anyway, rather
+than as `data.a_f0` at each site, because that is what let the BeiDou containers
+be adopted while they still disagreed on the spelling — and what would absorb the
+next such difference in one line instead of branching the clock model.
+"""
+clock_reference_time(data::GNSSDecoder.AbstractGNSSData) = data.t_0c
+clock_bias(data::GNSSDecoder.AbstractGNSSData) = data.a_f0
+clock_drift(data::GNSSDecoder.AbstractGNSSData) = data.a_f1
+clock_drift_rate(data::GNSSDecoder.AbstractGNSSData) = data.a_f2
+
 function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, system, t)
     Δtr = calc_relativistic_correction(decoder, t)
+    data = decoder.data
+    Δt_from_reference = t - clock_reference_time(data)
     Δt =
-        decoder.data.a_f0 +
-        decoder.data.a_f1 * (t - decoder.data.t_0c) +
-        decoder.data.a_f2 * (t - decoder.data.t_0c)^2 +
+        clock_bias(data) +
+        clock_drift(data) * Δt_from_reference +
+        clock_drift_rate(data) * Δt_from_reference^2 +
         Δtr
     t - correct_by_group_delay(decoder, system, Δt)
 end
@@ -71,7 +92,8 @@ end
 # The rate of the relativistic periodic term `Δt_rel = F·e·√A·sin(E)` that
 # `correct_clock` includes is not modelled here; it is at most ~1 mm/s.
 function calc_satellite_clock_drift(decoder::GNSSDecoder.GNSSDecoderState, t)
-    decoder.data.a_f1 + 2 * decoder.data.a_f2 * (t - decoder.data.t_0c)
+    data = decoder.data
+    clock_drift(data) + 2 * clock_drift_rate(data) * (t - clock_reference_time(data))
 end
 
 # Group-delay / inter-signal correction, selected by the *ranging* signal `system`
@@ -144,19 +166,79 @@ correct_by_group_delay(
     t,
 ) = t - group_delay_term(decoder.data.T_GD) + group_delay_term(decoder.data.ISC_L1CA)
 
-# Galileo: the broadcast group delay is per band (E1 vs E5a), so it depends only on
-# the decoder's message, not on whether the range came from the data or the pilot
-# component — E1B/E1C share BGD(E1,E5b); E5a-I/E5a-Q share BGD(E1,E5a).
+# Galileo: which broadcast group delay applies is a property of the *band* the range
+# was generated on, not of the data/pilot split — E1B and E1C share one correction,
+# E5a-I and E5a-Q another, E5b-I and E5b-Q a third.
+#
+# Two facts drive the rules below (Galileo OS SIS ICD, Issue 2.2, §5.1.5).
+#
+# First, *which* BGD: the broadcast clock polynomial is referred to an ionosphere-free
+# dual-frequency combination, and which one depends on the message. I/NAV (E1-B and
+# E5b-I) is referred to E1/E5b, so it pairs with BGD(E1,E5b); F/NAV (E5a-I) is referred
+# to E1/E5a and pairs with BGD(E1,E5a). I/NAV broadcasts *both* BGDs, but only its own
+# is ever wanted — see the note below the scaling rule.
+#
+# Second, *how much* of it: a single-frequency user on the combination's first band
+# (E1) applies the BGD as broadcast, but one on its second band (E5a or E5b) applies it
+# scaled by `(f_E1/f_band)²`. That factor is 1.79 on E5a and 1.70 on E5b — dropping it
+# leaves ~0.8 of a BGD, a few nanoseconds, so metre-level and per-satellite rather than
+# a common clock offset the solve would absorb.
+#
+# I/NAV broadcasts *both* BGDs, but only ever needs its own: an E5a range carries an
+# E5a (F/NAV) decoder, never an I/NAV one.
+#
+# `galileo_group_delay_scaling` is that factor, derived from the carrier frequencies
+# rather than tabulated, so it is exactly 1 on E1 without a special case.
+#
+# Note the absence of `group_delay_term` below. Both Galileo messages gate their BGDs
+# in `is_decoding_completed_for_positioning` — I/NAV on both of them, F/NAV on its
+# only one — so a decoder that reached this point cannot carry a `nothing` here, and
+# treating one as zero would hide a decoder contract violation as a few-nanosecond
+# bias. `group_delay_term` is reserved for the terms a message may legitimately not
+# have broadcast yet, which for Galileo is none of them.
+galileo_group_delay_scaling(system) =
+    (get_center_frequency(GalileoE1B) / get_center_frequency(system))^2
+
+# One method per (message, ranging signal) that can actually occur, and no fallback —
+# the same shape as the GPS and BeiDou methods above, so the whole table can be
+# checked by introspection (see `test/galileo_e5b_e6b.jl`).
+#
+# A range is generated on the band its own data component was decoded from, so the
+# ranging band is fixed by the decoder: I/NAV is decoded on E1-B or E5b-I and can be
+# asked for E1 or E5b signals, F/NAV only on E5a-I and so only for E5a signals. Both
+# I/NAV bands take the E1/E5b BGD its clock is referred to; F/NAV's takes E1/E5a.
+#
+# The absent combinations matter as much as the present ones. There is no fallback, so
+# an E6 range — E6 carries no BGD at all, so there is no right answer to give — raises
+# instead of returning a plausible-looking number scaled from the E5b BGD, and the
+# cross-band I/NAV + E5a and F/NAV + E1 pairings raise for the same reason. I/NAV does
+# broadcast BGD(E1,E5a), but nothing reads it: an E5a range carries an F/NAV decoder.
 correct_by_group_delay(
-    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GalileoE1BData},
-    ::AbstractGNSSSignal,
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GalileoINAVData},
+    system::Union{
+        GNSSSignals.GalileoE1B,
+        GNSSSignals.GalileoE1C,
+        GNSSSignals.GalileoE1B_BOC11,
+        GNSSSignals.GalileoE1C_BOC11,
+        GNSSSignals.GalileoE5bI,
+        GNSSSignals.GalileoE5bQ,
+    },
     t,
-) = t - decoder.data.broadcast_group_delay_e1_e5b
+) =
+    t -
+    galileo_group_delay_scaling(system) * decoder.data.BGD_E1_E5b
+
 correct_by_group_delay(
     decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GalileoE5aData},
-    ::AbstractGNSSSignal,
+    system::Union{
+        GNSSSignals.GalileoE5aI,
+        GNSSSignals.GalileoE5aQ,
+        GNSSSignals.GalileoE5aQP,
+    },
     t,
-) = t - decoder.data.broadcast_group_delay_e1_e5a
+) =
+    t -
+    galileo_group_delay_scaling(system) * decoder.data.BGD_E1_E5a
 
 function calc_corrected_time(state::SatelliteState)
     approximated_time = calc_uncorrected_time(state)
@@ -164,36 +246,56 @@ function calc_corrected_time(state::SatelliteState)
 end
 
 """
-    ggto_available(decoder) -> Bool
+    gpst_offset_available(decoder) -> Bool
 
-Return `true` if `decoder` carries a complete Galileo–GPS Time Offset (GGTO)
-record (Galileo word type 10: `A_0G`, `A_1G`, `t_0G`, `WN_0G`). The GGTO lets
-the receiver express Galileo System Time in GPS time, which makes it possible to
-combine GPS and Galileo satellites when the geometry is too weak to estimate an
-independent Galileo clock bias. Always `false` for non-Galileo systems.
+Whether `decoder` carries a usable broadcast offset from its own GNSS time system
+to GPS Time. Such an offset lets that constellation's measurements be expressed on
+the GPS clock, which makes a fix possible when the geometry is too weak to
+estimate an independent clock bias for it — see [`decide_bias_layout`](@ref).
+
+Delegates to GNSSDecoder's `get_time_offset`, which screens every way a signal can
+fail to have one: it broadcasts none (GPS L1 C/A, Galileo E6-B), it does but has
+not decoded one yet, it has but for a different target system, the ICD's
+"not available" sentinel is set (a `GNSS_ID` of 0; Galileo's all-ones GGTO), or —
+on Galileo — the reference week has not arrived yet, since word type 10 can be
+decoded before the week number is. Always `false` for a GPS decoder: GPST is the
+target, and the offset from a scale to itself is not a broadcast quantity.
 """
-ggto_available(::GNSSDecoder.GNSSDecoderState) = false
-function ggto_available(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.AbstractGalileoData})
-    data = decoder.data
-    !isnothing(data.A_0G) &&
-        !isnothing(data.A_1G) &&
-        !isnothing(data.t_0G) &&
-        !isnothing(data.WN_0G)
-end
+gpst_offset_available(decoder::GNSSDecoder.GNSSDecoderState) =
+    !isnothing(get_time_offset(decoder, GPST()))
 
 """
-    calc_ggto_offset(decoder, t) -> Float64
+    calc_gpst_offset(decoder, t) -> Float64
 
-Galileo–GPS Time Offset `Δt_systems = GST − GPST` in seconds at Galileo time of
-week `t`, per the Galileo OS SIS ICD (word type 10):
+The broadcast *steering* offset between this constellation's time scale and GPS
+Time, in seconds, at its own time of week `t`. Subtract it to convert a transmit
+time to GPS time. Only defined where [`gpst_offset_available`](@ref) is `true`.
 
-    Δt_systems = A_0G + A_1G · (t − t_0G + 604800 · ((WN − WN_0G) mod 64))
+Tens of nanoseconds: it is the residual between two atomic scales, not the
+whole difference between their counts. GNSSDecoder's `GNSSTimeOffset.A_0` folds
+in the *defined* whole-second offset as well — so that `t_target = t_own − Δt`
+holds for the seconds — and this takes that part back out, because
+[`calc_time_scale_offsets`](@ref) has already applied it to the transmit times
+before they were differenced. Both use the same `get_tai_offset` expression, so
+the two halves compose exactly rather than approximately.
 
-`WN_0G` is the 6-bit GGTO reference week, so the week difference is taken modulo
-64. To convert a Galileo system time to GPS time, subtract this offset.
+!!! note "The subtraction costs about seven digits of the residual"
+
+    Recovering a ~1e-8 s residual by subtracting 14 s from a `Float64` leaves
+    roughly 1.8e-15 s of rounding — one ULP at 14. That is 0.5 µm of range, so it
+    is irrelevant to a fix, but it is why the tests here compare the steering term
+    with an explicit tolerance rather than the default `≈`.
 """
-function calc_ggto_offset(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.AbstractGalileoData}, t)
-    data = decoder.data
-    Δweek = mod(data.WN - data.WN_0G, 64)
-    data.A_0G + data.A_1G * (t - data.t_0G + 604800 * Δweek)
+function calc_gpst_offset(decoder::GNSSDecoder.GNSSDecoderState, t)
+    offset = get_time_offset(decoder, GPST())
+    # `t_0`/`WN_0` are absent on BeiDou D1/D2, whose two-term offset carries no
+    # reference epoch at all; there Δτ is the time of week itself. Where they are
+    # present, `WN_0` has already been lifted into the decoder's own week numbering
+    # by GNSSDecoder, so this subtraction is a real week count on every signal —
+    # Galileo broadcasts the field in 6 bits against a 12-bit week number.
+    Δτ =
+        isnothing(offset.t_0) ? t :
+        t - offset.t_0 + SECONDS_PER_WEEK * (get_week(decoder) - offset.WN_0)
+    total = offset.A_0 + offset.A_1 * Δτ + offset.A_2 * Δτ^2
+    total - time_scale_offset_to_gpst(get_time_system(decoder))
 end

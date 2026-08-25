@@ -62,8 +62,8 @@ end
 # Injects synthetic GGTO parameters into a Galileo SatelliteState's decoder.
 function with_ggto(state; A_0G, A_1G = 0.0, t_0G = 0, WN_0G = 0)
     d = state.decoder
-    new_data = GNSSDecoder.GalileoE1BData(d.data; A_0G, A_1G, t_0G, WN_0G)
-    new_raw = GNSSDecoder.GalileoE1BData(d.raw_data; A_0G, A_1G, t_0G, WN_0G)
+    new_data = GNSSDecoder.GalileoINAVData(d.data; A_0G, A_1G, t_0G, WN_0G)
+    new_raw = GNSSDecoder.GalileoINAVData(d.raw_data; A_0G, A_1G, t_0G, WN_0G)
     new_decoder = GNSSDecoder.GNSSDecoderState(d; raw_data = new_raw, data = new_data)
     SatelliteState(;
         decoder = new_decoder,
@@ -82,8 +82,8 @@ function with_health_bad(state)
     d = state.decoder
     unhealthy(data) =
         :sv_health in fieldnames(GNSSDecoder.GPSL1CAData) ?
-        GNSSDecoder.GPSL1CAData(data; sv_health = "100000") :
-        GNSSDecoder.GPSL1CAData(data; svhealth = "100000")
+        GNSSDecoder.GPSL1CAData(data; sv_health = 0b100000) :
+        GNSSDecoder.GPSL1CAData(data; svhealth = 0b100000)
     new_decoder = GNSSDecoder.GNSSDecoderState(
         d; raw_data = unhealthy(d.raw_data), data = unhealthy(d.data))
     SatelliteState(;
@@ -224,7 +224,7 @@ end
 
     # A single Galileo satellite carrying the GGTO is enough to collapse the
     # whole Galileo set: here only the first of two Galileo satellites has it.
-    @test !PositionVelocityTime.ggto_available(gal[2].decoder)
+    @test !PositionVelocityTime.gpst_offset_available(gal[2].decoder)
     mixed = [gps[1:2]; [with_ggto(gal[1]; A_0G = Δ), gal[2]]]
     pvt_mixed = calc_pvt(mixed; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test pvt_mixed.position != ECEF(0, 0, 0)
@@ -237,27 +237,28 @@ end
     big = calc_pvt([gps[1:3]; [with_ggto(gal[1]; A_0G = A_big)]]; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test big.inter_system_biases[GST()] ≈ -C * A_big * m rtol = 1e-6
 
-    # calc_ggto_offset evaluates the OS SIS ICD word-type-10 polynomial, taking
+    # calc_gpst_offset evaluates the OS SIS ICD word-type-10 polynomial, taking
     # the reference week difference modulo 64.
     g = with_ggto(gal[1]; A_0G = 5.0e-9, A_1G = 1.0e-15, t_0G = 100, WN_0G = 1134)
-    @test PositionVelocityTime.calc_ggto_offset(g.decoder, 132000.0) ≈
+    @test PositionVelocityTime.calc_gpst_offset(g.decoder, 132000.0) ≈
           5.0e-9 + 1.0e-15 * (132000.0 - 100 + 604800 * mod(1136 - 1134, 64))
-    @test PositionVelocityTime.ggto_available(g.decoder)
-    @test !PositionVelocityTime.ggto_available(gal[1].decoder)
-    @test !PositionVelocityTime.ggto_available(gps[1].decoder)
+    @test PositionVelocityTime.gpst_offset_available(g.decoder)
+    @test !PositionVelocityTime.gpst_offset_available(gal[1].decoder)
+    @test !PositionVelocityTime.gpst_offset_available(gps[1].decoder)
 
-    # calc_ggto_range_offsets turns the decoder `decide_bias_layout` selected into the
+    # calc_gpst_range_offsets turns the decoder `decide_bias_layout` selected into the
     # per-satellite range corrections: −c·GGTO for the collapsed (Galileo) satellites at
     # their own transmit times, zero for the anchor system's. An independent layout
     # (`nothing`) needs no conversion at all.
     offset_systems = [GPST(), GST(), GPST(), GST()]
     offset_times = [100.0, 200.0, 300.0, 400.0]
-    offsets = PositionVelocityTime.calc_ggto_range_offsets(
-        g.decoder, offset_systems, offset_times)
+    gpst_offset_decoders = PositionVelocityTime.GPSTOffsetDecoders(GST() => g.decoder)
+    offsets = PositionVelocityTime.calc_gpst_range_offsets(
+        gpst_offset_decoders, offset_systems, offset_times)
     @test offsets[[1, 3]] == [0.0, 0.0]
     @test offsets[[2, 4]] ≈
-          [-C * PositionVelocityTime.calc_ggto_offset(g.decoder, t) for t in (200.0, 400.0)]
-    @test PositionVelocityTime.calc_ggto_range_offsets(
+          [-C * PositionVelocityTime.calc_gpst_offset(g.decoder, t) for t in (200.0, 400.0)]
+    @test PositionVelocityTime.calc_gpst_range_offsets(
         nothing, offset_systems, offset_times) == zeros(4)
 end
 

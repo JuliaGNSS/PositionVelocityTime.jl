@@ -7,9 +7,11 @@
 Calculates position and time by using GNSS data
 
 ## Features
-* Estimation of user position and time
-* Calculates satellite position
+* Estimation of user position, velocity and time
+* Calculates satellite position and velocity
 * Precision estimation (GDOP)
+* GPS (L1 C/A, L2C, L5, L1C), Galileo (E1B, E5a, E5b) and BeiDou (B1I, B3I, B1C,
+  B2a, B2b), combined in one multi-GNSS solution
 
 ## Preparing
 
