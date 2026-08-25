@@ -25,6 +25,14 @@
     # with it (same ephemeris/clock, BGD matched, observables solved to the same epoch).
     # `ifb_shift_s` injects a uniform receiver L5 delay (seconds); `ggto` (A_0G, seconds)
     # makes the copy carry a broadcast Galileo–GPS Time Offset.
+    #
+    # "BGD matched" needs care: the E1 range applies `BGD(E1,E5b)` as broadcast while
+    # the E5a range applies `(f_E1/f_E5a)²·BGD(E1,E5a)` (OS SIS ICD §5.1.5), so copying
+    # the E1B field across verbatim would leave the two clock corrections differing by
+    # 0.79 of a BGD — a few nanoseconds, which this test would then read out as a
+    # spurious sub-metre L5 inter-frequency bias. Pre-dividing by the scaling is what
+    # makes the copy carry the *same* satellite clock correction as its E1B original,
+    # which is the property the test is about.
     function as_e5a(state; ifb_shift_s = 0.0, ggto = nothing)
         d = state.decoder.data
         ggto_fields = isnothing(ggto) ? (;) : (; A_0G = ggto, A_1G = 0.0, t_0G = 0, WN_0G = d.WN)
@@ -33,9 +41,12 @@
             i_dot = d.i_dot, Ω_dot = d.Ω_dot, Δn = d.Δn, C_uc = d.C_uc, C_us = d.C_us,
             C_rc = d.C_rc, C_rs = d.C_rs, C_ic = d.C_ic, C_is = d.C_is, t_0c = d.t_0c,
             a_f0 = d.a_f0, a_f1 = d.a_f1, a_f2 = d.a_f2,
-            broadcast_group_delay_e1_e5a = d.broadcast_group_delay_e1_e5b,
-            signal_health_e5a = GNSSDecoder.signal_ok,
-            data_validity_status_e5a = GNSSDecoder.navigation_data_valid, ggto_fields...)
+            BGD_E1_E5a = d.BGD_E1_E5b /
+                                           PositionVelocityTime.galileo_group_delay_scaling(
+                GalileoE5aI(),
+            ),
+            E5a_SHS = GNSSDecoder.signal_ok,
+            E5a_DVS = GNSSDecoder.navigation_data_valid, ggto_fields...)
         target = PositionVelocityTime.calc_uncorrected_time(state) + ifb_shift_s
         num_bits, code_phase = bits_and_code_phase(GalileoE5aI(), e5a_data.TOW, target)
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GalileoE5aDecoderState(state.decoder.prn);

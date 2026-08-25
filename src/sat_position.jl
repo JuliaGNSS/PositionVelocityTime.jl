@@ -1,23 +1,59 @@
 """
+    ephemeris_reference_time(data) -> Real
+
+Time of week of the ephemeris reference epoch, `t_0e` (seconds).
+
+Every navigation message this package reads names the field `t_0e`, so one method
+covers GPS LNAV/CNAV/CNAV-2, Galileo I/NAV and F/NAV, and all five BeiDou
+signals. Reading it through an accessor rather than `data.t_0e` is what lets the
+propagator below stay message-agnostic — see [`clock_bias`](@ref) for the same
+argument about the clock polynomial.
+"""
+ephemeris_reference_time(data::GNSSDecoder.AbstractGNSSData) = data.t_0e
+
+"""
+    is_geo_orbit(decoder) -> Bool
+
+Whether the satellite is in a geostationary orbit, which selects the BeiDou GEO
+branch of [`calc_satellite_position_and_velocity`](@ref) below.
+
+One method for every signal, because GNSSDecoder answers the orbit class itself:
+from the constellation supertype for GPS and Galileo, from the broadcast
+`sat_type` on BeiDou B1C/B2a/B2b, and from the PRN partition on B1I/B3I.
+
+`=== geostationary_orbit` is the whole test, and it has to be written that way
+round. B1I/B3I can only answer the question partly — D1/D2 NAV broadcasts no
+orbit-type field and the ICD's PRN partition separates GEO from non-GEO and no
+further — so `get_orbit_class` returns `nothing` there rather than guess between
+IGSO and MEO. Testing for GEO is exact on every signal; testing for MEO is not.
+"""
+is_geo_orbit(decoder::GNSSDecoder.GNSSDecoderState) =
+    get_orbit_class(decoder) === GNSSDecoder.geostationary_orbit
+
+"""
     orbital_elements(data, μ, t_k) -> (; A, sqrt_A, A_dot, n, Ω_dot)
 
 The Keplerian elements that differ between the directly-broadcast ephemerides
-(GPS LNAV `GPSL1CAData`, Galileo I/NAV `GalileoE1BData`) and the quasi-Keplerian
-GPS CNAV/CNAV-2 ephemerides (`GPSCNAVData` for L5 and L2C, `GPSL1C_DData` for
-L1C), evaluated at the time-from-ephemeris `t_k` (seconds):
+(GPS LNAV `GPSL1CAData`, Galileo I/NAV `GalileoINAVData`, BeiDou D1/D2
+`BeiDouDNAVData`) and the quasi-Keplerian ones (`GPSCNAVData` for L5 and L2C,
+`GPSL1C_DData` for L1C, and the BeiDou B-CNAV family on B1C/B2a/B2b), evaluated
+at the time-from-ephemeris `t_k` (seconds):
 
 - `A`: semi-major axis at `t_0e` (m)
 - `sqrt_A`: its square root (m^½); the broadcast `sqrt_A` for the directly-broadcast
-  Keplerian case (no round-trip), `√A` for CNAV/CNAV-2 (which carry no `sqrt_A` field)
+  Keplerian case (no round-trip), `√A` for the quasi-Keplerian ones (which carry no
+  `sqrt_A` field)
 - `A_dot`: its rate (m/s; `0` for the directly-broadcast Keplerian case)
 - `n`: corrected mean motion at `t_k` (rad/s)
 - `Ω_dot`: rate of right ascension (rad/s)
 
 Everything else the propagator needs (`e`, `ω`, `i_0`, `i_dot`, `M_0`, the `C_*`
-harmonic coefficients, `t_0e`) is named identically across all four nav messages
-and read from `data` directly. CNAV recovers `A` from `A_REF + ΔA` (with `Ȧ·t_k`
-added for the radius), the mean motion from `Δn_0 (+ ½ Δṅ_0 t_k)`, and `Ω̇` from
-`Ω̇_REF + ΔΩ̇`.
+harmonic coefficients) is named identically across every nav message and read from
+`data` directly; the ephemeris reference epoch goes through
+[`ephemeris_reference_time`](@ref). The quasi-Keplerian messages recover `A` from
+`A_REF + ΔA` (with `Ȧ·t_k` added for the radius) and the mean motion from
+`Δn_0 (+ ½ Δṅ_0 t_k)`; they differ in `Ω̇`, which GPS broadcasts as a delta off
+`Ω̇_REF` and BeiDou broadcasts outright (see `src/beidou.jl`).
 """
 function orbital_elements(data::GNSSDecoder.AbstractGNSSData, μ, t_k)
     (A = data.sqrt_A^2, sqrt_A = data.sqrt_A, A_dot = 0.0, n = sqrt(μ) / data.sqrt_A^3 + data.Δn, Ω_dot = data.Ω_dot)
@@ -48,7 +84,8 @@ end
 
 function calc_eccentric_anomaly(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data
-    time_from_ephemeris_reference_epoch = correct_week_crossovers(t - data.t_0e)
+    time_from_ephemeris_reference_epoch =
+        correct_week_crossovers(t - ephemeris_reference_time(data))
     el = orbital_elements(data, decoder.constants.μ, time_from_ephemeris_reference_epoch)
     mean_anomaly = data.M_0 + el.n * time_from_ephemeris_reference_epoch
     calc_eccentric_anomaly(mean_anomaly, data.e)
@@ -97,7 +134,8 @@ coordinates (meters and m/s respectively).
 function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data
     constants = decoder.constants
-    time_from_ephemeris_reference_epoch = correct_week_crossovers(t - data.t_0e)
+    t_0e = ephemeris_reference_time(data)
+    time_from_ephemeris_reference_epoch = correct_week_crossovers(t - t_0e)
     el = orbital_elements(data, constants.μ, time_from_ephemeris_reference_epoch)
     # Semi-major axis at t_k: constant for LNAV/Galileo (A_dot = 0), `A_0 + Ȧ·t_k`
     # for CNAV/CNAV-2.
@@ -170,11 +208,19 @@ function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderSt
         corrected_radius_dot * sin(corrected_argument_of_latitude) +
         x_position_in_orbital_plane * corrected_argument_of_latitude_dot
 
+    # The longitude of the ascending node, and the frame the orbital plane is then
+    # projected into, are where the BeiDou GEO satellites part company with everything
+    # else. A non-GEO satellite is projected straight into the earth-fixed frame, so the
+    # earth-rotation term `−ω_e·t_k` is folded into Ω_k here. A BeiDou GEO satellite is
+    # instead projected into a custom inertial frame — Ω_k carries no `−ω_e·t_k` — and
+    # rotated into ECEF afterwards by `_rotate_beidou_geo`; see that function for why.
+    geo = is_geo_orbit(decoder)
     corrected_longitude_of_ascending_node =
-        data.Ω_0 + (el.Ω_dot - constants.Ω_dot_e) * time_from_ephemeris_reference_epoch -
-        constants.Ω_dot_e * data.t_0e
+        data.Ω_0 + (el.Ω_dot - (geo ? 0.0 : constants.Ω_dot_e)) *
+                   time_from_ephemeris_reference_epoch - constants.Ω_dot_e * t_0e
 
-    corrected_longitude_of_ascending_node_dot = el.Ω_dot - constants.Ω_dot_e
+    corrected_longitude_of_ascending_node_dot =
+        el.Ω_dot - (geo ? 0.0 : constants.Ω_dot_e)
 
     position = SVector(
         x_position_in_orbital_plane * cos(corrected_longitude_of_ascending_node) -
@@ -220,7 +266,8 @@ function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderSt
         cos(corrected_inclination) *
         corrected_inclination_dot,
     )
-    (position = position, velocity = velocity)
+    geo ? _rotate_beidou_geo(position, velocity, constants.Ω_dot_e,
+        time_from_ephemeris_reference_epoch) : (position = position, velocity = velocity)
 end
 
 function calc_satellite_position(state::SatelliteState)

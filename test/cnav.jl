@@ -15,8 +15,8 @@
     @testset "classification" begin
         @test GNSSSignals.get_time_system(GNSSSignals.GPSL5I()) == GNSSSignals.GPST()
         @test GNSSSignals.get_time_system(GNSSSignals.GPSL1C_D()) == GNSSSignals.GPST()
-        @test !PositionVelocityTime.ggto_available(l5)
-        @test !PositionVelocityTime.ggto_available(l1cd)
+        @test !PositionVelocityTime.gpst_offset_available(l5)
+        @test !PositionVelocityTime.gpst_offset_available(l1cd)
     end
 
     @testset "get_week uses full broadcast WN (no rollover)" begin

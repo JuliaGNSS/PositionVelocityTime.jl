@@ -14,6 +14,23 @@ function klobuchar_reference(lat, lon, az, el, gps_time, α, β)
     return f * (abs(x) < 1.57 ? 5e-9 + amp * (1 - x^2 / 2 + x^4 / 24) : 5e-9)
 end
 
+# Literal transcription of BDS-SIS-ICD-B1I-3.0 §5.2.4.7 (inputs in radians), used to
+# cross-check `beidou_klobuchar_group_delay`. Powers are summed explicitly where the
+# implementation uses Horner's scheme, and the clamps are spelled as the ICD's cases.
+function bds_klobuchar_reference(lat, lon, az, el, t_E, α, β)
+    R, h = 6378.0, 375.0                              # km, as printed in the ICD
+    ψ = π / 2 - el - asin(R / (R + h) * cos(el))
+    φ_M = asin(sin(lat) * cos(ψ) + cos(lat) * sin(ψ) * cos(az))
+    λ_M = lon + asin(sin(ψ) * sin(az) / cos(φ_M))
+    t = mod(t_E + λ_M * 43200 / π, 86400)
+    A_2 = sum(α[n+1] * (φ_M / π)^n for n = 0:3)
+    A_2 = A_2 < 0 ? 0.0 : A_2
+    A_4 = sum(β[n+1] * (φ_M / π)^n for n = 0:3)
+    A_4 = A_4 >= 172800 ? 172800.0 : (A_4 < 72000 ? 72000.0 : A_4)
+    I_z = abs(t - 50400) < A_4 / 4 ? 5e-9 + A_2 * cos(2π * (t - 50400) / A_4) : 5e-9
+    return I_z / sqrt(1 - (R / (R + h) * cos(el))^2)
+end
+
 @testset "Klobuchar ionospheric model" begin
     # Exemplary Klobuchar coefficients (IS-GPS-200 SI units)
     α = (4.6566129e-09, 1.4901161e-08, -5.96046e-08, -5.96046e-08)
@@ -76,7 +93,7 @@ end
         dec = GNSSDecoderState(GalileoE1B(), 1)
         GNSSDecoder.GNSSDecoderState(
             dec;
-            data = GNSSDecoder.GalileoE1BData(dec.data; a_i0, a_i1, a_i2, WN),
+            data = GNSSDecoder.GalileoINAVData(dec.data; a_i0, a_i1, a_i2, WN),
         )
     end
     mkstate(dec, sys) = SatelliteState(;
@@ -177,6 +194,97 @@ end
     end
 end
 
+@testset "BDS Klobuchar variant (BeiDou B1I)" begin
+    # A plausible broadcast set. The BeiDou coefficients come in the same s·π⁻ⁿ
+    # units as the GPS ones, so the numbers are interchangeable between variants —
+    # which is exactly why sharing them must not mean sharing the algorithm.
+    α = (1.0e-8, 2.0e-8, -3.0e-8, 4.0e-8)
+    β = (90112.0, 16384.0, -196608.0, 131072.0)
+    PVT = PositionVelocityTime
+
+    @testset "beidou_klobuchar_group_delay matches the ICD transcription" begin
+        for lat in deg2rad.((10.0, 48.0, -33.0)),
+            lon in deg2rad.((-120.0, 11.0, 150.0)),
+            az in deg2rad.((0.0, 95.0, 270.0)),
+            el in deg2rad.((5.0, 25.0, 89.0)),
+            t in (0.0, 43200.0, 50400.0, 80000.0)
+
+            got = PVT.beidou_klobuchar_group_delay(lat, lon, el, az, t, α, β)
+            @test got ≈ bds_klobuchar_reference(lat, lon, az, el, t, α, β) rtol = 1e-12
+        end
+    end
+
+    @testset "zenith at 14:00 local time reduces to 5 ns + A₂" begin
+        # At E = π/2 the pierce point is the user (ψ = 0), the obliquity is exactly
+        # 1, and local 14:00 sits at the cosine's peak, so the ICD's whole chain
+        # collapses to 5·10⁻⁹ + Σ αₙ(φ_u/π)ⁿ — a closed form the implementation
+        # must hit whatever the azimuth.
+        lat = deg2rad(30.0)
+        φ = lat / π
+        expected = 5.0e-9 + α[1] + α[2] * φ + α[3] * φ^2 + α[4] * φ^3
+        for az in (0.0, 2.1)
+            got = PVT.beidou_klobuchar_group_delay(lat, 0.0, π / 2, az, 50400.0, α, β)
+            @test got ≈ expected rtol = 1e-14
+        end
+    end
+
+    @testset "obliquity, floors and clamps" begin
+        lat, lon, az = deg2rad(48.0), deg2rad(11.0), deg2rad(120.0)
+        # With A₂ = 0 the vertical delay is the 5 ns night floor at any time of
+        # day, so the slant result isolates the ICD's exact obliquity factor.
+        no_amp = (0.0, 0.0, 0.0, 0.0)
+        for el in deg2rad.((5.0, 30.0, 60.0, 90.0))
+            got = PVT.beidou_klobuchar_group_delay(lat, lon, el, az, 12345.0, no_amp, β)
+            @test got ≈ 5.0e-9 / sqrt(1 - (6378.0 / 6753.0 * cos(el))^2) rtol = 1e-14
+        end
+        # A₂ floor: a negative amplitude polynomial is floored at zero, i.e. the
+        # day-time value collapses onto the night floor.
+        neg = PVT.beidou_klobuchar_group_delay(
+            lat, lon, 0.6, az, 50400.0, (-1.0e-8, 0.0, 0.0, 0.0), β)
+        flat = PVT.beidou_klobuchar_group_delay(lat, lon, 0.6, az, 50400.0, no_amp, β)
+        @test neg == flat
+        # A₄ clamps, from both sides: a period polynomial beyond a bound behaves
+        # exactly as one pinned at that bound. 47000 s BDT puts the pierce point's
+        # local time inside the day window for either clamped period.
+        delay_for(β) = PVT.beidou_klobuchar_group_delay(lat, lon, 0.6, az, 47000.0, α, β)
+        @test delay_for((1.0e9, 0.0, 0.0, 0.0)) == delay_for((172800.0, 0.0, 0.0, 0.0))
+        @test delay_for((-1.0e9, 0.0, 0.0, 0.0)) == delay_for((72000.0, 0.0, 0.0, 0.0))
+        @test delay_for((1.0e9, 0.0, 0.0, 0.0)) != delay_for((-1.0e9, 0.0, 0.0, 0.0))
+    end
+
+    @testset "not the GPS algorithm" begin
+        # Same coefficients, same line of sight: the two variants must disagree —
+        # geographic vs geomagnetic latitude alone moves the polynomials' argument,
+        # and the exact obliquity differs from the GPS fit by ~1 % at mid elevation.
+        # This is the regression guard for the bug where the BeiDou broadcast set
+        # was fed through the IS-GPS-200 algorithm.
+        lat, lon = deg2rad(48.0), deg2rad(11.0)
+        el, az, t = deg2rad(30.0), deg2rad(200.0), 50000.0
+        bds = PVT.beidou_klobuchar_group_delay(lat, lon, el, az, t, α, β)
+        gps = PVT.klobuchar_group_delay(lat / π, lon / π, el / π, az / π, t, α, β)
+        @test !isapprox(bds, gps; rtol = 1e-3)
+    end
+
+    @testset "the delay is defined at B1I and rescales by 1/f²" begin
+        p = PVT.BeiDouKlobucharParams(α..., β...)
+        lla = LLA(48.0, 11.0, 550.0)
+        el, az, t = deg2rad(35.0), deg2rad(120.0), 50000.0
+        # At B1I itself the metre conversion is exactly c times the ICD's I_B1I.
+        d_b1i = PVT.ionospheric_delay(p, BeiDouB1I(), el, az, lla, t)
+        seconds = PVT.beidou_klobuchar_group_delay(
+            deg2rad(lla.lat), deg2rad(lla.lon), el, az, t, α, β)
+        @test d_b1i ≈ 299792458.0 * seconds rtol = 1e-14
+        # Every other carrier gets that delay rescaled by 1/f² from B1I — including
+        # non-BeiDou satellites, since one model corrects the whole solve.
+        f(s) = GNSSSignals.get_center_frequency(s)
+        d_b3i = PVT.ionospheric_delay(p, BeiDouB3I(), el, az, lla, t)
+        d_l1 = PVT.ionospheric_delay(p, GPSL1CA(), el, az, lla, t)
+        @test d_b3i / d_b1i ≈ (f(BeiDouB1I()) / f(BeiDouB3I()))^2 rtol = 1e-12
+        @test d_l1 / d_b1i ≈ (f(BeiDouB1I()) / f(GPSL1CA()))^2 rtol = 1e-12
+        @test d_l1 < d_b1i < d_b3i    # 1575.42 > 1561.098 > 1268.52 MHz
+    end
+end
+
 @testset "NTCM-G ionospheric model (Galileo)" begin
     toecef(lat, lon, h) = ECEFfromLLA(wgs84)(LLA(lat, lon, h))
     HI = (236.831641, -0.39362878, 0.00402826613)        # high solar activity
@@ -235,7 +343,7 @@ end
         gal = GNSSDecoderState(GalileoE1B(), 1)
         gal = GNSSDecoder.GNSSDecoderState(
             gal;
-            data = GNSSDecoder.GalileoE1BData(
+            data = GNSSDecoder.GalileoINAVData(
                 gal.data;
                 a_i0 = 236.831641,
                 a_i1 = -0.39362878,

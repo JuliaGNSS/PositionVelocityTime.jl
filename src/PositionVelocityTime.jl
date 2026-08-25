@@ -27,6 +27,31 @@ export calc_pvt,
 
 const SPEEDOFLIGHT = 299792458.0
 
+# Every constellation here counts time as a week number plus a time of week, so the
+# week length is shared rather than restated wherever a week crossover is unwrapped.
+const SECONDS_PER_WEEK = 604_800
+
+"""
+    GPSTOffsetDecoders
+
+Map from a GNSS time system to the decoder whose broadcast offset to GPS Time
+converts that system's measurements — the populated form of
+[`BiasLayout`](@ref)`.gpst_offset_decoders`. Named because the parameterised
+`Dict` would otherwise be spelled out at each construction point, which would say
+more about Julia than about the layout.
+
+A layout that estimates every clock bias independently stores `nothing` rather
+than an empty one, which is the common case. The reason is representational, not
+performance: `nothing` says "no clock was collapsed", and an absent map and an
+empty one are different facts. Skipping a container that would only ever be
+tested for emptiness is then free, but it is worth being clear about the scale —
+it saves 80 bytes per fix out of the ~4.4 kB [`decide_bias_layout`](@ref)
+allocates on that same path, 3.1 kB of which goes on the `band_ifb_layout` call
+one line above the early return. This is not an allocation-free path being
+protected; it is a small tidy-up on an allocating one.
+"""
+const GPSTOffsetDecoders = Dict{GNSSSignals.TimeSystem,GNSSDecoder.GNSSDecoderState}
+
 # The GPS CNAV family (CNAV on L5/L2C, CNAV-2 on L1C): both broadcast the full week
 # number (no 1024-week rollover) and a quasi-Keplerian ephemeris (A_REF + ΔA,
 # Ω̇_REF + ΔΩ̇, …) rather than LNAV's directly-broadcast Keplerian elements — so
@@ -41,10 +66,10 @@ matrix, shared by [`calc_ρ_hat!`](@ref), [`calc_H!`](@ref) and [`user_position`
 The state vector is `[x, y, z, tc₁, …, tc_num_clock_biases, ifb₁, …, ifb_num_ifb]` with
 [`num_lsq_params`](@ref)`(bias_columns)` entries. The two column kinds have different
 physical sources: a clock column is the receiver clock for one GNSS time system (the
-spacing *between* systems is a system/space-segment effect — the GNSS time offset /
-GGTO), whereas an inter-frequency-bias column is the receiver's per-band RF-chain delay.
-Known per-satellite corrections (atmosphere, the GGTO time-system offset) are applied to
-the pseudoranges in [`calc_pvt`](@ref), not carried here.
+spacing *between* systems is a system/space-segment effect — the broadcast GNSS time
+offset, GGTO or BGTO), whereas an inter-frequency-bias column is the receiver's per-band
+RF-chain delay. Known per-satellite corrections (atmosphere, the broadcast time-system
+offset) are applied to the pseudoranges in [`calc_pvt`](@ref), not carried here.
 
 # Fields
 - `clock_bias_indices::Vector{Int}`: per satellite, the clock column (1…`num_clock_biases`)
@@ -78,16 +103,18 @@ GGTO-collapsed layout needs.
 - `reference_bands::Vector{Symbol}`: per IFB column, the reference band of its coverage
   component — the anchor that column's bias is measured against (see
   [`band_ifb_layout`](@ref)).
-- `ggto_decoder::Union{Nothing,GNSSDecoder.GNSSDecoderState}`: the Galileo decoder whose
-  broadcast GGTO converts the collapsed measurements (see
-  [`calc_ggto_range_offsets`](@ref)), or `nothing` for a layout that estimates every clock
-  bias independently. Declared as a union so one concrete `BiasLayout` covers both.
+- `gpst_offset_decoders::Union{Nothing,GPSTOffsetDecoders}`: per collapsed time
+  system, the decoder whose broadcast offset to GPS Time converts that system's
+  measurements — the same vocabulary as [`gpst_offset_available`](@ref), which decides
+  membership, and [`calc_gpst_offset`](@ref), which evaluates one entry (see
+  [`calc_gpst_range_offsets`](@ref)). `nothing` for a layout that estimates every
+  clock bias independently, which is the common case.
 """
 struct BiasLayout
     bias_columns::BiasColumns
     extra_bands::Vector{Symbol}
     reference_bands::Vector{Symbol}
-    ggto_decoder::Union{Nothing,GNSSDecoder.GNSSDecoderState}
+    gpst_offset_decoders::Union{Nothing,GPSTOffsetDecoders}
 end
 
 """
@@ -388,12 +415,12 @@ end
 
 Decide the full least-squares bias layout — one clock column per GNSS time system plus
 the per-band inter-frequency-bias columns from [`band_ifb_layout`](@ref) — and return it
-as a [`BiasLayout`](@ref), whose `ggto_decoder` also carries how a collapsed layout's
+as a [`BiasLayout`](@ref), whose `gpst_offset_decoders` also carry how a collapsed layout's
 measurements are converted. Returns `nothing` when the constellation cannot be solved.
 
 Every input is a classification of the epoch, never a transmit time: the counts, the
-coverage graph and `ggto_available` are all the decision needs. The offsets its
-`ggto_decoder` enables are built afterwards, once [`calc_pvt`](@ref) has the transmit
+coverage graph and `gpst_offset_available` are all the decision needs. The offsets its
+`gpst_offset_decoders` enable are built afterwards, once [`calc_pvt`](@ref) has the transmit
 times.
 
 The decision is observability-driven, not merely count-driven:
@@ -406,12 +433,15 @@ The decision is observability-driven, not merely count-driven:
   the geometry, so neither inherits the broadcast-GGTO error (the satellite group delays
   are already removed per satellite upstream, so the per-band column carries the receiver
   chain).
-- Otherwise merge the Galileo clock onto GPS via the broadcast GGTO when a Galileo
-  satellite carries it. This removes a clock unknown (the scarce-satellite case) and
-  reconnects a disjoint GPS/Galileo band split (the disconnected case — where a band's
-  IFB column would otherwise be collinear with the stranded constellation's clock),
-  making the inter-frequency bias observable again (it then carries the broadcast-GGTO
-  error, alongside the GGTO-based inter-system bias).
+- Otherwise merge every non-GPS clock that can be merged onto GPS, using the offset to
+  GPS Time that constellation broadcasts — the GGTO for Galileo, the BGTO for BeiDou
+  (see [`gpst_offset_available`](@ref)). This removes a clock unknown per merged system
+  (the scarce-satellite case) and reconnects a disjoint band split (the disconnected
+  case — where a band's IFB column would otherwise be collinear with the stranded
+  constellation's clock), making the inter-frequency bias observable again (it then
+  carries the broadcast-offset error, alongside the offset-based inter-system bias). A
+  system whose satellites carry no such offset keeps its own clock column, so a mixed
+  epoch can collapse Galileo and leave BeiDou independent, or the reverse.
 - Failing that, fall back to the (already observability-restricted) independent layout
   if the satellite count allows. No IFB column is created for a band stranded on its own
   constellation, so its inter-frequency bias folds into that constellation's clock and
@@ -452,12 +482,12 @@ function decide_bias_layout(states, systems, bands)
             extra_bands, reference_bands, num_components)
     end
 
-    as_bias_layout(layout, ggto_decoder) = BiasLayout(
+    as_bias_layout(layout, gpst_offset_decoders) = BiasLayout(
         BiasColumns(layout.clock_bias_indices, layout.num_clock_biases,
             layout.ifb_indices, length(layout.extra_bands)),
         layout.extra_bands,
         layout.reference_bands,
-        ggto_decoder,
+        gpst_offset_decoders,
     )
 
     independent_layout = bias_layout_for(systems)
@@ -465,15 +495,25 @@ function decide_bias_layout(states, systems, bands)
         return as_bias_layout(independent_layout, nothing)
     end
 
-    # Connected-but-scarce or disconnected: try the GGTO collapse (merge Galileo onto
-    # GPS). The GGTO is the same constellation-wide offset whichever Galileo satellite
-    # reports it, so one decoded copy converts every Galileo measurement.
-    ggto_idx = findfirst(
-        j -> systems[j] == GST() && ggto_available(states[j].decoder), 1:num_sats)
-    if (GPST() in systems) && !isnothing(ggto_idx)
-        merged_layout = bias_layout_for(map(sys -> sys == GST() ? GPST() : sys, systems))
+    # Connected-but-scarce or disconnected: try collapsing every non-GPS system that
+    # broadcasts an offset to GPS Time onto GPS. The offset is one constellation-wide
+    # value whichever of its satellites reports it, so the first decoded copy per system
+    # converts all of that system's measurements.
+    gpst_offset_decoders = GPSTOffsetDecoders()
+    if GPST() in systems
+        for j = 1:num_sats
+            sys = systems[j]
+            sys == GPST() && continue
+            haskey(gpst_offset_decoders, sys) && continue
+            gpst_offset_available(states[j].decoder) || continue
+            gpst_offset_decoders[sys] = states[j].decoder
+        end
+    end
+    if !isempty(gpst_offset_decoders)
+        merged_layout = bias_layout_for(
+            map(sys -> haskey(gpst_offset_decoders, sys) ? GPST() : sys, systems))
         if enough_satellites(merged_layout)
-            return as_bias_layout(merged_layout, states[ggto_idx].decoder)
+            return as_bias_layout(merged_layout, gpst_offset_decoders)
         end
     end
 
@@ -484,27 +524,89 @@ function decide_bias_layout(states, systems, bands)
 end
 
 """
-    calc_ggto_range_offsets(ggto_decoder, systems, times) -> Vector{Float64}
+    time_scale_offset_to_gpst(time_system) -> Float64
 
-Per-satellite range offsets (metres) that carry a GGTO collapse into the measurements, as
-decided by [`decide_bias_layout`](@ref): all-zero when `ggto_decoder === nothing` (every
-time system keeps its own clock unknown, so no measurement needs converting), and
-otherwise `−c · Δt_systems` for each Galileo satellite, evaluated at its own transmit
-time.
+Seconds by which a GNSS time system's *count* runs behind GPS Time's for the same
+instant, `0.0` for a system that counts alike.
 
-Per the OS SIS ICD the GGTO is `Δt_systems = GST − GPST` (see
-[`calc_ggto_offset`](@ref)), so a Galileo transmit time becomes GPS time by SUBTRACTING
-it; the modeled range therefore carries `−c·GGTO`, and the solve yields
-`inter_system_biases[GST()] = −c·(GST − GPST)`. Which Galileo satellite reports the GGTO
-does not matter — it is one constellation-wide offset — so `decide_bias_layout` picks the
-first decoded copy and it converts every Galileo measurement.
+This is structural, not a bias: it follows from the time scales' definitions, not
+from either system's steering. Both GPST and GST are `TAI − 19 s`, so they count
+identically and this is `0.0` for every GPS and Galileo satellite. BDT is
+`TAI − 33 s`, so a BeiDou second-of-week reads 14 s lower than the GPS
+time-of-week for the same instant — BDT week 0 second 0 *is* GPS week 1356 time
+of week 14, the 14 leap seconds that had accrued between the two epochs.
+
+Derived from [`get_tai_offset`](@ref) rather than tabulated, so a constellation
+added later is covered without touching this.
+
+!!! note "Why this is a measurement correction and not a time-scale shift"
+
+    It would be tempting to fold the 14 s into `get_time_of_week` and be done. That
+    would be wrong: the satellite position is propagated from the *same* transmit
+    time against the message's own `t_0e`, which is on the broadcasting system's
+    scale, so shifting the reported time would move the 14 s into the ephemeris —
+    about 55 km of along-track error at BeiDou MEO velocities. The transmit time
+    must stay on its own scale and the correction must land on the pseudorange.
 """
-function calc_ggto_range_offsets(ggto_decoder, systems, times)
+time_scale_offset_to_gpst(time_system::GNSSSignals.TimeSystem) =
+    ustrip(s, get_tai_offset(GPST()) - get_tai_offset(time_system))
+
+"""
+    calc_time_scale_offsets(systems, primary_system) -> Vector{Float64}
+
+Seconds to add to each satellite's transmit time to express it in
+`primary_system`'s count, so that [`calc_pseudo_ranges`](@ref) may difference them.
+`0.0` for every satellite of a system that counts alike — which is every GPS and
+Galileo satellite, and all of them in a single-constellation epoch.
+
+Relative to the *primary* system rather than to GPS Time, because the primary
+system's count is also what dates the reported epoch: `reference_time` comes out
+of the same differencing, and is combined with the primary system's week and
+`system_start_epoch`. Anchoring on GPST instead leaves a BeiDou-primary solve
+reporting a GPS-count time of week dated from the BDT epoch — a 14 s error in
+`PVTSolution.time` traded for the one this removes from the pseudoranges.
+
+This is applied to the times *handed to the differencing*, and nowhere else. The
+satellite position must still be propagated from the untouched transmit time
+against the message's own `t_0e`, which is on the broadcasting system's scale, so
+shifting the time itself would move the offset into the ephemeris — about 55 km
+of along-track error at BeiDou MEO velocities. `SatInfo.time` and
+[`calc_gpst_offset`](@ref) likewise keep the unconverted value.
+"""
+function calc_time_scale_offsets(systems, primary_system)
+    primary = time_scale_offset_to_gpst(primary_system)
+    map(sys -> primary - time_scale_offset_to_gpst(sys), systems)
+end
+
+"""
+    calc_gpst_range_offsets(gpst_offset_decoders, systems, times) -> Vector{Float64}
+
+Per-satellite range offsets (metres) that carry a clock collapse into the measurements,
+as decided by [`decide_bias_layout`](@ref): all-zero when `gpst_offset_decoders` is
+`nothing` (every time system keeps its own clock unknown, so nothing needs converting), and
+otherwise `−c · Δt_systems` for each satellite of a collapsed system, evaluated at its
+own transmit time.
+
+The broadcast offset is `Δt_systems = (that system's time) − GPST` (see
+[`calc_gpst_offset`](@ref): the GGTO for Galileo, the BGTO for BeiDou), so a transmit
+time becomes GPS time by SUBTRACTING it; the modeled range therefore carries
+`−c·Δt_systems`, and the solve yields `inter_system_biases[sys] = −c·Δt_systems`. Which
+satellite of a system reported the offset does not matter — it is one
+constellation-wide value — so `decide_bias_layout` picks the first decoded copy per
+system and it converts all of that system's measurements.
+"""
+function calc_gpst_range_offsets(gpst_offset_decoders, systems, times)
+    # Allocated either way: the `nothing` guard below is about saying "no clock was
+    # collapsed" plainly, not about saving the vector — an all-zero result still has
+    # to be returned, since `calc_pvt` both broadcasts over it and indexes it for the
+    # inter-system-bias readout. 128-224 bytes here against the 80 the `nothing`
+    # saves in `decide_bias_layout`, so neither is a path this makes allocation-free.
     offsets = zeros(length(systems))
-    isnothing(ggto_decoder) && return offsets
+    isnothing(gpst_offset_decoders) && return offsets
     for j in eachindex(systems)
-        systems[j] == GST() || continue
-        offsets[j] = -SPEEDOFLIGHT * calc_ggto_offset(ggto_decoder, times[j])
+        decoder = get(gpst_offset_decoders, systems[j], nothing)
+        isnothing(decoder) && continue
+        offsets[j] = -SPEEDOFLIGHT * calc_gpst_offset(decoder, times[j])
     end
     offsets
 end
@@ -583,12 +685,12 @@ least one satellite, and a system contributing a single satellite spends it enti
 on that system's clock bias), of which `3 + M` must come from *distinct* satellites: a
 satellite tracked on several bands supplies one line of sight, and its extra
 measurements constrain the inter-frequency biases rather than the geometry. When either
-condition fails but both GPS and Galileo
-are present and the Galileo message carries the GGTO (Galileo–GPS Time Offset),
-the Galileo clock bias is collapsed onto GPS using the broadcast offset, which
-makes a 4-satellite GPS+Galileo fix possible. Estimating an independent bias is
-preferred whenever the geometry allows it, since it avoids the GGTO's own
-broadcast error.
+condition fails but GPS is present alongside a constellation whose message carries a
+broadcast offset to GPS Time — Galileo's GGTO (Galileo–GPS Time Offset) or BeiDou's
+BGTO (BDT–GNSS Time Offset) — that constellation's clock bias is collapsed onto GPS
+using the broadcast offset, which makes a 4-satellite mixed fix possible. Estimating an
+independent bias is preferred whenever the geometry allows it, since it avoids the
+broadcast offset's own error.
 
 Unless disabled via `enable_ionospheric_correction`, the ionospheric delay is
 corrected automatically using only the coefficients decoded from the navigation
@@ -665,7 +767,7 @@ function calc_pvt(
     # after the solve by the DOP.
     bias_layout = decide_bias_layout(healthy_states, systems, bands)
     isnothing(bias_layout) && return prev_pvt
-    (; bias_columns, extra_bands, reference_bands, ggto_decoder) = bias_layout
+    (; bias_columns, extra_bands, reference_bands, gpst_offset_decoders) = bias_layout
     (; clock_bias_indices, num_clock_biases) = bias_columns
 
     times = map(calc_corrected_time, healthy_states)
@@ -693,13 +795,21 @@ function calc_pvt(
     primary_clock_index = clock_bias_indices[findfirst(==(primary_system), systems)]
 
     # The common reference cancels out of the reported time (the primary clock
-    # bias absorbs it), so any latest-transmit-time reference works.
-    pseudo_ranges, reference_time = calc_pseudo_ranges(times)
-    # Apply the known per-satellite GGTO time-system offset (zero unless Galileo was
-    # collapsed onto GPS) as a measurement correction, like the atmospheric delays
-    # below. Kept for the inter-system-bias readout at the end.
-    ggto_offsets = calc_ggto_range_offsets(ggto_decoder, systems, times)
-    pseudo_ranges = pseudo_ranges .- ggto_offsets
+    # bias absorbs it), so any latest-transmit-time reference works — but the times
+    # must first be put on one count. A BeiDou second-of-week reads 14 s below a GPS
+    # time of week for the same instant, so differencing them raw hands every BeiDou
+    # measurement 4.2e9 m of structural offset: not merely a biased BeiDou clock
+    # column, but a parameter nine orders of magnitude above the others in the normal
+    # equations. Zero for GPS and Galileo, and for any single-constellation epoch.
+    pseudo_ranges, reference_time =
+        calc_pseudo_ranges(times .+ calc_time_scale_offsets(systems, primary_system))
+    # The known per-satellite broadcast steering offset (zero unless that system was
+    # collapsed onto GPS), as a measurement correction like the atmospheric delays
+    # below. Kept for the inter-system-bias readout at the end, which reports this
+    # term alone: the time-count difference already removed above is a convention, not
+    # a bias, and belongs in neither the readout nor the solve.
+    gpst_offsets = calc_gpst_range_offsets(gpst_offset_decoders, systems, times)
+    pseudo_ranges = pseudo_ranges .- gpst_offsets
 
     # The primary system's week and start epoch date the epoch absolutely: the day of
     # year feeds the tropospheric mapping's seasonal term here, and week/start epoch
@@ -810,15 +920,15 @@ function calc_pvt(
 
     # Inter-system biases relative to the reference (primary) system's clock, in
     # meters. The reference is omitted (its bias is `time_correction`); for a
-    # GGTO-collapsed system this is the broadcast offset −c·Δt_systems, read from the
-    # system's first satellite (the per-satellite offsets differ only by the GGTO
-    # drift A_1G over the transmit-time spread — sub-millimetre).
+    # collapsed system this is the broadcast offset −c·Δt_systems, read from the
+    # system's first satellite (the per-satellite offsets differ only by the offset
+    # polynomial's drift term over the transmit-time spread — sub-millimetre).
     inter_system_biases = Dict{GNSSSignals.TimeSystem,typeof(1.0m)}()
     for sys in unique_systems
         sys == primary_system && continue
         j = findfirst(==(sys), systems)
         inter_system_biases[sys] =
-            (ξ[3+clock_bias_indices[j]] + ggto_offsets[j] - time_correction) * m
+            (ξ[3+clock_bias_indices[j]] + gpst_offsets[j] - time_correction) * m
     end
 
     # Receiver inter-frequency biases relative to the reference band, in meters
@@ -887,18 +997,32 @@ function get_week(
 )
     # GPS week 0 begins 1980-01-06. Compute the integer week count from
     # there to mid-`approximate_year`, then choose the cycle base such
-    # that `cycle_base + trans_week` is closest to that anchor.
+    # that `cycle_base + WN` is closest to that anchor.
     days_at_anchor = Date(approximate_year, 6, 30) - Date(1980, 1, 6)
     weeks_at_anchor = Dates.value(days_at_anchor) ÷ 7
-    n_cycles = round(Int, (weeks_at_anchor - decoder.data.trans_week) / 1024)
-    return n_cycles * 1024 + decoder.data.trans_week
+    n_cycles = round(Int, (weeks_at_anchor - decoder.data.WN) / 1024)
+    return n_cycles * 1024 + decoder.data.WN
 end
 
-# Galileo I/NAV and F/NAV (12-bit WN) and GPS CNAV (L5, L2C) / CNAV-2 (L1C) (full
-# 13-bit WN) all broadcast the absolute week number, so — unlike GPS L1 C/A LNAV —
-# there is no 1024-week rollover to resolve and `approximate_year` is unused.
+# Every other navigation message broadcasts the absolute week number — Galileo I/NAV
+# and F/NAV 12-bit, GPS CNAV (L5, L2C) and CNAV-2 (L1C) 13-bit, BeiDou D1/D2 and
+# B-CNAV 13-bit — so there is no rollover to resolve, `approximate_year` is unused,
+# and one method serves all of them. GPS L1 C/A above is the sole exception, and the
+# reason this function takes `approximate_year` at all.
+#
+# The Galileo half of the union is `AbstractGalileoEphemerisData`, not the wider
+# `AbstractGalileoData`: `GalileoE6BData` is Galileo data with no week number at all
+# (C/NAV stamps a time of hour instead), so the wider bound would put a method on it
+# that raises a `FieldError` on the field it goes looking for. That is precisely the
+# distinction GNSSDecoder introduced the narrower supertype to draw.
 function get_week(
-    decoder::GNSSDecoder.GNSSDecoderState{<:Union{GNSSDecoder.AbstractGalileoData,GPSModernNavData}};
+    decoder::GNSSDecoder.GNSSDecoderState{
+        <:Union{
+            GNSSDecoder.AbstractGalileoEphemerisData,
+            GNSSDecoder.AbstractBeiDouData,
+            GPSModernNavData,
+        },
+    };
     approximate_year::Integer = year(now(UTC)),
 )
     decoder.data.WN
@@ -919,5 +1043,11 @@ include("sat_time.jl")
 include("sat_position.jl")
 include("ionosphere.jl")
 include("troposphere.jl")
+# BeiDou-specific dispatch — the ephemeris flavour, the GEO frame, the field-name
+# shims, the group delays, the BGTO and the Klobuchar set. Last, because every
+# method in it specialises a function declared by one of the files above.
+include("beidou.jl")
+# The precompile workload solves real fixtures, so it must come after every
+# method it dispatches into.
 include("precompile.jl")
 end

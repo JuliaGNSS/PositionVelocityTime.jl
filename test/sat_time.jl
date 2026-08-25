@@ -11,7 +11,7 @@ end
 # `t_0c` — not about `t`, which would offset the `a_f2` term by `2·a_f2·t_0c`.
 @testset "Satellite clock drift is the derivative of the clock correction" begin
     base = first(galileo_e1b_states(0.0Hz)).decoder
-    with(; kwargs...) = let d = GNSSDecoder.GalileoE1BData(base.data; kwargs...)
+    with(; kwargs...) = let d = GNSSDecoder.GalileoINAVData(base.data; kwargs...)
         GNSSDecoder.GNSSDecoderState(base; data = d, raw_data = d)
     end
     # The applied correction, differentiated in BigFloat: the Float64 round trip through
