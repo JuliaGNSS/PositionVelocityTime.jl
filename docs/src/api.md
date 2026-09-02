@@ -58,6 +58,52 @@ PositionVelocityTime.DOP
 get_sat_info
 ```
 
+## The Measurement-Model Surface
+
+The pieces [`calc_pvt`](@ref) is assembled from, documented so a consumer that
+runs its own estimator over the same measurement model — a navigation filter
+closing tracking loops, for instance — reuses this package's model as a
+stated contract. The names are deliberately not exported (they are solver
+internals, not part of every user's vocabulary); bind them explicitly with
+`using PositionVelocityTime: calc_corrected_time, …`. Times returned or taken
+here are seconds-of-week counts on each satellite's own system scale unless a
+function says otherwise.
+
+```@docs
+PositionVelocityTime.SPEEDOFLIGHT
+PositionVelocityTime.calc_corrected_time
+PositionVelocityTime.calc_satellite_clock_drift
+PositionVelocityTime.get_sat_position
+PositionVelocityTime.get_sat_velocity
+PositionVelocityTime.correct_week_crossovers
+PositionVelocityTime.BiasColumns
+PositionVelocityTime.BiasLayout
+PositionVelocityTime.decide_bias_layout
+PositionVelocityTime.calc_ρ_hat!
+PositionVelocityTime.calc_H
+PositionVelocityTime.calc_e
+PositionVelocityTime.calc_DOP
+PositionVelocityTime.time_scale_offset_to_gpst
+PositionVelocityTime.calc_time_scale_offsets
+PositionVelocityTime.gpst_offset_available
+PositionVelocityTime.calc_gpst_offset
+PositionVelocityTime.get_week
+PositionVelocityTime.system_start_epoch
+PositionVelocityTime.day_of_year
+PositionVelocityTime.predict_atmospheric_delays
+PositionVelocityTime.calc_course_over_ground
+```
+
+The unexported internals the surface above links to, documented for reference:
+
+```@docs
+PositionVelocityTime.calc_H!
+PositionVelocityTime.user_position
+PositionVelocityTime.num_lsq_params
+PositionVelocityTime.calc_gpst_range_offsets
+PositionVelocityTime.positive_definite_cholesky
+```
+
 ## Multi-GNSS Classification
 
 When [`calc_pvt`](@ref) combines constellations and bands it classifies each satellite by

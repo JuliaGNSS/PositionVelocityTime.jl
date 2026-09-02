@@ -25,6 +25,25 @@ export calc_pvt,
     calc_satellite_position_and_velocity,
     get_sat_enu
 
+# The measurement-model surface. `calc_pvt` above is the whole scalar solver,
+# but a consumer running its own estimator over the same measurement model — a
+# navigation filter closing tracking loops through its own Kalman update —
+# consumes the model in pieces: the per-satellite times and clock rates, the
+# bias layout and design-matrix columns, the predicted ranges and geometry, the
+# atmospheric and time-system corrections. Those pieces stay unexported — they
+# are solver internals, not names every `using` should carry — but they are
+# documented as a surface (see "The Measurement-Model Surface" in the API
+# reference), and a consumer binds them explicitly with
+# `using PositionVelocityTime: calc_corrected_time, …`, which declares the
+# dependency at a single site.
+
+"""
+    SPEEDOFLIGHT
+
+The speed of light (m/s) — the constant every range/time conversion in this
+package and its consumers must share, exported so a receiver does not carry a
+second copy that could drift from it.
+"""
 const SPEEDOFLIGHT = 299792458.0
 
 # PDOP above which a previous solution is distrusted as a warm-start seed and
@@ -552,7 +571,7 @@ identically and this is `0.0` for every GPS and Galileo satellite. BDT is
 time-of-week for the same instant — BDT week 0 second 0 *is* GPS week 1356 time
 of week 14, the 14 leap seconds that had accrued between the two epochs.
 
-Derived from [`get_tai_offset`](@ref) rather than tabulated, so a constellation
+Derived from `GNSSSignals.get_tai_offset` rather than tabulated, so a constellation
 added later is covered without touching this.
 
 !!! note "Why this is a measurement correction and not a time-scale shift"
@@ -571,7 +590,7 @@ time_scale_offset_to_gpst(time_system::GNSSSignals.TimeSystem) =
     calc_time_scale_offsets(systems, primary_system) -> Vector{Float64}
 
 Seconds to add to each satellite's transmit time to express it in
-`primary_system`'s count, so that [`calc_pseudo_ranges`](@ref) may difference them.
+`primary_system`'s count, so that `calc_pseudo_ranges` may difference them.
 `0.0` for every satellite of a system that counts alike — which is every GPS and
 Galileo satellite, and all of them in a single-constellation epoch.
 
@@ -848,7 +867,7 @@ function calc_pvt(
     primary_state = healthy_states[findfirst(==(primary_system), systems)]
     week = get_week(primary_state.decoder; approximate_year)
     start_time = system_start_epoch(primary_state.system)
-    doy = _day_of_year(primary_state.system, week, reference_time)
+    doy = day_of_year(primary_state.system, week, reference_time)
 
     # Seed each clock bias from the previous solution, reconstructing a system's
     # absolute bias from the reference bias plus its stored inter-system bias.

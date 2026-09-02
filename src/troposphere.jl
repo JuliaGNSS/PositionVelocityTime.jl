@@ -174,11 +174,17 @@ function tropospheric_delay(elevation, lla, doy; humidity = _DEFAULT_RELATIVE_HU
     return zenith_hydrostatic * hydrostatic_mapping + zenith_wet * wet_mapping
 end
 
-# Day of year (1–366) of the GNSS system time given by the absolute `week` and
-# `time_of_week` [s] of `system`. The system time scale's offset from UTC (leap
-# seconds, ≤ ~18 s) is negligible for a seasonal argument with a one-year period.
-function _day_of_year(system, week, time_of_week)
+"""
+    day_of_year(system, week, time_of_week) -> Int
+
+Day of year (1–366) of the GNSS system time given by the absolute `week` and
+`time_of_week` (s) of `system` — the seasonal argument of the Niell tropospheric
+mapping (see [`tropospheric_delay`](@ref)). The system time scale's offset from
+UTC (leap seconds, ≤ ~18 s) is negligible for an argument with a one-year period.
+"""
+function day_of_year(system, week, time_of_week)
     epoch = get_system_start_time(system)
     t = epoch + Millisecond(round(Int, (week * SECONDS_PER_WEEK + time_of_week) * 1000))
     return dayofyear(t)
 end
+
