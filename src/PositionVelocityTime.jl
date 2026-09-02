@@ -1015,13 +1015,15 @@ end
     system_start_epoch(system) -> TAIEpoch
 
 Absolute TAI epoch of a ranging signal's GNSS time-scale origin (week 0, time of
-week 0). `get_system_start_time` gives the origin as a UTC `DateTime`;
-AstroTime's leap-aware UTC→TAI conversion places it on the atomic scale (GPS
-`1980-01-06T00:00:19` TAI, Galileo `1999-08-22T00:00:19` TAI). The leap-second count
-lives in AstroTime, not in this package.
+week 0), from GNSSSignals' `get_tai_system_start_time` — the epoch already
+labelled on the atomic scale (GPS `1980-01-06T00:00:19` TAI, Galileo
+`1999-08-22T00:00:19` TAI, BeiDou `2006-01-01T00:00:33` TAI), so no leap-second
+table is consulted. This used to go through `get_system_start_time` (a UTC
+label) and AstroTime's leap-aware conversion; GNSSSignals 4.1 states the TAI
+labels itself, which is also what makes the value safe to derive at
+precompile time.
 """
-system_start_epoch(system) =
-    from_utc(get_system_start_time(system); scale = TAI)
+system_start_epoch(system) = TAIEpoch(get_tai_system_start_time(system))
 
 """
     get_week(decoder::GNSSDecoderState{<:GPSL1CAData}; approximate_year)
