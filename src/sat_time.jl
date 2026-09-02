@@ -73,7 +73,11 @@ clock_drift_rate(data::GNSSDecoder.AbstractGNSSData) = data.a_f2
 function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, system, t)
     Δtr = calc_relativistic_correction(decoder, t)
     data = decoder.data
-    Δt_from_reference = t - clock_reference_time(data)
+    # Folded modulo the week like every other time difference here: near a week
+    # rollover `t` and `t_0c` sit on opposite sides of the wrap, and the raw
+    # difference of ±604800 s puts ~a_f1·604800 ≈ microseconds (kilometres of
+    # range) into a polynomial whose real argument is seconds.
+    Δt_from_reference = correct_week_crossovers(t - clock_reference_time(data))
     Δt =
         clock_bias(data) +
         clock_drift(data) * Δt_from_reference +
@@ -93,7 +97,8 @@ end
 # `correct_clock` includes is not modelled here; it is at most ~1 mm/s.
 function calc_satellite_clock_drift(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data
-    clock_drift(data) + 2 * clock_drift_rate(data) * (t - clock_reference_time(data))
+    clock_drift(data) +
+    2 * clock_drift_rate(data) * correct_week_crossovers(t - clock_reference_time(data))
 end
 
 # Group-delay / inter-signal correction, selected by the *ranging* signal `system`

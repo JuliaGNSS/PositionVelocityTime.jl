@@ -128,19 +128,29 @@ end
 
 Scan all (healthy) satellite decoders and pick the single ionospheric correction
 to apply to the whole solve. NTCM-G is preferred whenever Galileo coefficients are
-available (it is the more accurate model); otherwise Klobuchar is used if GPS
-coefficients are available; otherwise `nothing` (no correction). The coefficients
-are global to a constellation, so the first decoder that carries each set is used.
+available (it is the more accurate model); otherwise Klobuchar is used if GPS or
+BeiDou B1I/B3I coefficients are available — the GPS set winning when both are
+present, so the chosen model does not flip with the order the receiver happens to
+hand satellites over in (BDS-3's BDGIM set is not implemented, so B1C/B2a/B2b
+contribute no model); otherwise `nothing` (no correction). The coefficients are
+global to a constellation, so the first decoder that carries each set is used.
 """
 function select_ionospheric_correction(states)
-    klobuchar = nothing
+    gps_klobuchar = nothing
+    beidou_klobuchar = nothing
     ntcm_g = nothing
     for state in states
-        klobuchar === nothing && (klobuchar = klobuchar_params(state.decoder))
+        if state.decoder.data isa GNSSDecoder.AbstractBeiDouData
+            beidou_klobuchar === nothing &&
+                (beidou_klobuchar = klobuchar_params(state.decoder))
+        else
+            gps_klobuchar === nothing && (gps_klobuchar = klobuchar_params(state.decoder))
+        end
         ntcm_g === nothing && (ntcm_g = ntcm_g_params(state.decoder))
     end
     ntcm_g !== nothing && return ntcm_g   # most accurate model when available
-    return klobuchar                # either Klobuchar variant, or nothing if neither
+    gps_klobuchar !== nothing && return gps_klobuchar
+    return beidou_klobuchar          # BeiDouKlobucharParams, or nothing if neither
 end
 
 """

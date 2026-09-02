@@ -27,6 +27,15 @@ export calc_pvt,
 
 const SPEEDOFLIGHT = 299792458.0
 
+# PDOP above which a previous solution is distrusted as a warm-start seed and
+# discarded (see the gate at the top of `calc_pvt`). Genuine geometries this
+# side of useless stay well under it — a PDOP of 20 is already an unusable fix —
+# while the spurious far-away roots the gate exists to catch show hundreds (the
+# observed incident: 587). Discarding a fix that honestly earned a high DOP is
+# harmless — the cold solve lands in the same place — so the exact value only
+# sets how often that happens.
+const MAX_TRUSTED_WARM_START_PDOP = 50.0
+
 # Every constellation here counts time as a week number plus a time of week, so the
 # week length is shared rather than restated wherever a week crossover is unwrapped.
 const SECONDS_PER_WEEK = 604_800
@@ -265,9 +274,12 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   system's (meters) — the inter-system bias. This is a **system / space-segment** effect,
   not a receiver one (this receiver has no inter-system hardware bias): it is the GNSS
   system-time offset, so the Galileo entry equals `−c · Δt_systems`, `Δt_systems = GST −
-  GPST` (the GGTO). It is **estimated directly from the geometry whenever observable**
-  (no broadcast error); the broadcast GGTO is used to derive it only as a fallback (the
-  GGTO-aided collapse), as that broadcast value may be erroneous. Reference-independent
+  GPST` (the GGTO), and the BeiDou entry likewise carries the BDT steering residual (the
+  BGTO's subject) — never the defined 14 s count offset, which is a convention already
+  removed from the measurements (see [`calc_time_scale_offsets`](@ref)). It is
+  **estimated directly from the geometry whenever observable** (no broadcast error); the
+  broadcast GGTO/BGTO is used to derive it only as a fallback (the offset-aided
+  collapse), as that broadcast value may be erroneous. Reference-independent
   (the difference of two entries is the offset between those two systems); empty for a
   single-system solution.
 - `inter_frequency_biases::Dict{Symbol, InterFrequencyBias}`: For each frequency band
@@ -526,8 +538,12 @@ end
 """
     time_scale_offset_to_gpst(time_system) -> Float64
 
-Seconds by which a GNSS time system's *count* runs behind GPS Time's for the same
-instant, `0.0` for a system that counts alike.
+Signed offset of a GNSS time system's *count* against GPS Time's for the same
+instant — `get_tai_offset(GPST) − get_tai_offset(time_system)`, so **negative**
+where the system's count reads lower (BDT: `19 − 33 = −14.0`), and `0.0` for a
+system that counts alike. `calc_time_scale_offsets` adds the *difference of two
+of these* to a transmit time, which is what puts the +14 s onto a BeiDou time
+in a GPS-primary solve.
 
 This is structural, not a bias: it follows from the time scales' definitions, not
 from either system's steering. Both GPST and GST are `TAI − 19 s`, so they count
@@ -710,7 +726,10 @@ See [`tropospheric_delay`](@ref).
   (signal, PRN) pair must appear at most once — a receiver produces one
   measurement per signal per satellite, and a duplicate would enter the
   least-squares solve twice.
-- `prev_pvt`: Previous PVT solution used as initial guess (default: origin)
+- `prev_pvt`: Previous PVT solution used as initial guess (default: origin). A
+  previous solution whose own DOP is implausible (`GDOP < 0`, or `PDOP` above
+  `MAX_TRUSTED_WARM_START_PDOP` = 50) is not used as a seed and the epoch is
+  solved from cold, so one spurious fix cannot re-seed itself epoch after epoch.
 
 # Keyword Arguments
 - `approximate_year`: Calendar year of the observation, used to resolve the
@@ -734,7 +753,9 @@ satellites to solve the constellation (including the GGTO fallback and the
 distinct-satellite condition — a satellite tracked on several bands supplies one line of
 sight, so measurements alone are not enough), a geometry whose solved design matrix is
 rank deficient (reported as a negative GDOP). None of these throw, so a receiver can pass
-whatever it currently tracks each epoch and carry `prev_pvt` forward.
+whatever it currently tracks each epoch and carry `prev_pvt` forward. Distrust of
+`prev_pvt` (see above) affects only the seed: an unsolvable epoch still returns
+`prev_pvt` exactly as passed.
 """
 function calc_pvt(
     states::AbstractVector{<:SatelliteState},
@@ -743,6 +764,16 @@ function calc_pvt(
     enable_ionospheric_correction::Bool = true,
     enable_tropospheric_correction::Bool = true,
 )
+    # Gauss-Newton converges within its seed's basin, so a spurious far-away root
+    # would re-seed itself epoch after epoch. Such roots flag themselves with an
+    # impossible geometry (negative GDOP, exploded PDOP): solve from a cold seed
+    # instead. Only the seed is affected — an unsolvable epoch still returns
+    # `prev_pvt` unchanged.
+    distrusted =
+        !isnothing(prev_pvt.dop) &&
+        (prev_pvt.dop.GDOP < 0 || prev_pvt.dop.PDOP > MAX_TRUSTED_WARM_START_PDOP)
+    seed_pvt = distrusted ? PVTSolution() : prev_pvt
+
     # Keep a satellite only if its full nav-data set is decoded and it reports healthy.
     # Checking completeness first guarantees the health bit has been decoded.
     healthy_indices = findall(
@@ -822,10 +853,10 @@ function calc_pvt(
     # Seed each clock bias from the previous solution, reconstructing a system's
     # absolute bias from the reference bias plus its stored inter-system bias.
     prev_abs_bias(sys) =
-        sys == prev_pvt.reference_system ? prev_pvt.time_correction :
-        prev_pvt.time_correction + get(prev_pvt.inter_system_biases, sys, 0.0m)
+        sys == seed_pvt.reference_system ? seed_pvt.time_correction :
+        seed_pvt.time_correction + get(seed_pvt.inter_system_biases, sys, 0.0m)
     prev_ξ = zeros(num_lsq_params(bias_columns))
-    prev_ξ[1], prev_ξ[2], prev_ξ[3] = prev_pvt.position
+    prev_ξ[1], prev_ξ[2], prev_ξ[3] = seed_pvt.position
     for j in 1:num_sats
         prev_ξ[3+clock_bias_indices[j]] = ustrip(m, prev_abs_bias(systems[j]))
     end
@@ -835,7 +866,7 @@ function calc_pvt(
     # instead. The IFB enters the design linearly, so a stale seed only costs iterations,
     # but this keeps the starting point meaningful.
     for (i, band) in enumerate(extra_bands)
-        prev_ifb = get(prev_pvt.inter_frequency_biases, band, nothing)
+        prev_ifb = get(seed_pvt.inter_frequency_biases, band, nothing)
         prev_ξ[3+num_clock_biases+i] =
             !isnothing(prev_ifb) && prev_ifb.reference == reference_bands[i] ?
             ustrip(m, prev_ifb.value) : 0.0
@@ -894,6 +925,7 @@ function calc_pvt(
     # normal-equations matrix positive definite (see `calc_user_velocity_and_clock_drift`),
     # and with the order reversed a degenerate geometry throws `SingularException` there.
     dop = calc_DOP(H, position, primary_clock_index)
+
     dop.GDOP < 0 && return prev_pvt
 
     user_velocity_and_clock_drift, rate_residuals = calc_user_velocity_and_clock_drift(

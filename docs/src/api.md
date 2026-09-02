@@ -62,7 +62,7 @@ get_sat_info
 
 When [`calc_pvt`](@ref) combines constellations and bands it classifies each satellite by
 three keys, all provided by GNSSSignals (3.3+) and read from a satellite's ranging signal:
-`GNSSSignals.get_time_system` (a `GNSSSignals.TimeSystem`, i.e. `GPST()`/`GST()`) drives
+`GNSSSignals.get_time_system` (a `GNSSSignals.TimeSystem`, i.e. `GPST()`/`GST()`/`BDT()`) drives
 receiver-clock grouping (one bias per time system); `GNSSSignals.get_band_id` (e.g. `:L1`,
 `:L5`) drives inter-frequency-bias grouping (one bias per band); and
 `GNSSSignals.get_signal_id` (e.g. `:GPSL1CA`) is the per-signal identity used in the `sats`
