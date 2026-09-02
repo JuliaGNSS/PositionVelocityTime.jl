@@ -23,11 +23,13 @@
 #      elements like GPS CNAV, but off BeiDou's own reference values and with an
 #      outright `Ω̇` rather than GPS's `ΔΩ̇`.
 #
-#  BDS-3 also broadcasts BDGIM ionospheric coefficients (`α_1…α_9`) on the
-#  B-CNAV messages. That model is not implemented here; a BeiDou-only solve
-#  falls back to the legacy D1/D2 Klobuchar set (`klobuchar_params` below) when
-#  a B1I or B3I satellite is present, and to no ionospheric correction
-#  otherwise. See `select_ionospheric_correction`.
+#  The two message families also broadcast two *different* ionospheric models,
+#  and this file supplies both: the legacy D1/D2 Klobuchar set
+#  (`klobuchar_params` below, referenced to B1I rather than L1) and BDS-3's
+#  nine-coefficient BDGIM (`bdgim_params` below). A BDS-3-only solve is therefore
+#  ionospherically corrected on its own, with no B1I/B3I or GPS satellite needed
+#  alongside it. The models themselves live in `src/ionosphere.jl`; see
+#  `select_ionospheric_correction` for which one a mixed epoch picks.
 # ===========================================================================
 
 """
@@ -258,8 +260,8 @@ correct_by_group_delay(
 # and the delay referenced to B1I rather than L1 — so the set gets a type of its
 # own (see `BeiDouKlobucharParams` and `beidou_klobuchar_group_delay`). The
 # BDS-3 B-CNAV messages instead broadcast BDGIM (`α_1…α_9`), a different model
-# that is not implemented here — those containers therefore report no Klobuchar
-# set.
+# reached through `bdgim_params` below — those containers therefore report no
+# Klobuchar set.
 function klobuchar_params(
     decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.BeiDouDNAVData},
 )
@@ -267,4 +269,49 @@ function klobuchar_params(
     any(isnothing, (d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)) &&
         return nothing
     return BeiDouKlobucharParams(d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)
+end
+
+# BDGIM, the BDS-3 counterpart: nine coefficients broadcast identically by all
+# three B-CNAV messages — B-CNAV1 on B1C (BDS-SIS-ICD-B1C-1.0 §7.8, subframe 3
+# page type 1), B-CNAV2 on B2a (BDS-SIS-ICD-B2a-1.0 §7.8, message type 30) and
+# B-CNAV3 on B2b (BDS-SIS-ICD-B2b-1.0 §7.7, message type 30) — so one method on
+# the union covers all three rather than three identical ones. GNSSDecoder parses
+# them with the shared `beidou_bdgim_block`, which applies each scale factor and
+# sign, so nothing is rescaled here.
+#
+# `WN` is required alongside the coefficients: BDGIM's time argument is a Modified
+# Julian Date (the sun's mean longitude and the two-hourly prediction epoch), which
+# a time of week alone cannot date. It is decoded in a different subframe/message
+# type from the coefficients on every one of the three signals, so a decoder that
+# has one without the other is the ordinary transient state, not a corrupt one —
+# hence the guard rather than an unwrap.
+function bdgim_params(decoder::GNSSDecoder.GNSSDecoderState{<:BeiDouCNAVData})
+    d = decoder.data
+    any(
+        isnothing,
+        (
+            d.α_bdgim_1,
+            d.α_bdgim_2,
+            d.α_bdgim_3,
+            d.α_bdgim_4,
+            d.α_bdgim_5,
+            d.α_bdgim_6,
+            d.α_bdgim_7,
+            d.α_bdgim_8,
+            d.α_bdgim_9,
+            d.WN,
+        ),
+    ) && return nothing
+    return BDGIMParams(
+        d.α_bdgim_1,
+        d.α_bdgim_2,
+        d.α_bdgim_3,
+        d.α_bdgim_4,
+        d.α_bdgim_5,
+        d.α_bdgim_6,
+        d.α_bdgim_7,
+        d.α_bdgim_8,
+        d.α_bdgim_9,
+        d.WN,
+    )
 end

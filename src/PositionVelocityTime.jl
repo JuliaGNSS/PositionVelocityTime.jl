@@ -730,9 +730,11 @@ broadcast offset's own error.
 Unless disabled via `enable_ionospheric_correction`, the ionospheric delay is
 corrected automatically using only the coefficients decoded from the navigation
 messages. A single model is chosen for the whole solve and applied to every
-satellite: NTCM-G if Galileo Effective Ionisation Level coefficients have been
-decoded (the more accurate model), otherwise the Klobuchar model if GPS L1 α/β
-have been decoded, otherwise no correction. See
+satellite, preferring the more accurate global TEC models: NTCM-G if Galileo
+Effective Ionisation Level coefficients have been decoded, else BDGIM if a BDS-3
+B-CNAV (B1C/B2a/B2b) coefficient set has, else the GPS Klobuchar model, else
+BeiDou's own Klobuchar variant from its legacy B1I/B3I message, else no
+correction. See
 [`select_ionospheric_correction`](@ref) and [`ionospheric_delay`](@ref).
 
 Unless disabled via `enable_tropospheric_correction`, the tropospheric delay is

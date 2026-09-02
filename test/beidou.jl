@@ -444,10 +444,13 @@
     # ---- Ionosphere ---------------------------------------------------------
 
     @testset "legacy Klobuchar set is BeiDou's own variant" begin
-        # BDS-3's B-CNAV messages broadcast BDGIM instead, which this package does not
-        # model, so only the legacy D1/D2 container yields a Klobuchar set.
+        # The two message families broadcast two different models, so each container
+        # answers for exactly one of them: only the legacy D1/D2 one yields a
+        # Klobuchar set, and only the B-CNAV ones yield BDGIM (see
+        # `test/ionosphere.jl` for the model itself).
         @test PositionVelocityTime.klobuchar_params(d1) === nothing
         @test PositionVelocityTime.klobuchar_params(b2a) === nothing
+        @test PositionVelocityTime.bdgim_params(d1) === nothing
 
         iono = dnav_decoder(
             galileo[1];

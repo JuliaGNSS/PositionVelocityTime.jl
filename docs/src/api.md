@@ -40,6 +40,10 @@ PositionVelocityTime.klobuchar_group_delay
 PositionVelocityTime.BeiDouKlobucharParams
 PositionVelocityTime.beidou_klobuchar_group_delay
 PositionVelocityTime.NTCMGParams
+PositionVelocityTime.BDGIMParams
+PositionVelocityTime.klobuchar_params
+PositionVelocityTime.ntcm_g_params
+PositionVelocityTime.bdgim_params
 PositionVelocityTime._elevation_azimuth
 ```
 
