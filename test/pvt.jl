@@ -484,6 +484,53 @@ end
     end
 end
 
+# Regression: a warm start is an optimisation, not an anchor. Seeded far enough away,
+# Gauss-Newton converges to a spurious root of the range equations instead of the real
+# fix — and once the previous solution *is* that root, every later epoch is seeded in the
+# same basin and the output freezes there (measured on TEX-CUP: 2.7e8 m out, PDOP 587,
+# byte-stable for 355 s, while a cold start of the same measurements solved to metres).
+# Spurious roots flag themselves — the satellites collapse into a narrow cone there, so
+# the fix's own DOP explodes while its residuals stay small — so `calc_pvt` refuses to
+# seed from a previous solution whose DOP is implausible and solves the epoch from cold.
+# Before the gate existed the poisoned position came straight back out of every epoch.
+# Distrust affects the seed only: an unsolvable epoch still returns `prev_pvt` as
+# passed, like every other unsolvable epoch does.
+@testset "a distrusted previous fix is discarded rather than re-seeded" begin
+    kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false)
+    states = gps_l1_states(0.0Hz)
+    good = calc_pvt(states; kwargs...)
+
+    # A previous solution 2.7e8 m out, carrying the DOP such a fix earns (the observed
+    # incident read PDOP 587) — exactly what feeding a locked-in epoch's output back in
+    # as the next seed looks like.
+    poisoned = PVTSolution(;
+        position = ECEF((Vector(good.position) .+ [2.7e8, 0.0, 0.0])...),
+        time_correction = good.time_correction,
+        reference_system = good.reference_system,
+        dop = PositionVelocityTime.DOP(613.0, 587.0, 400.0, 430.0, 176.6),
+    )
+    recovered = calc_pvt(states, poisoned; kwargs...)
+
+    # The seed is discarded whole, so the epoch is indistinguishable from one solved
+    # without any previous solution at all — not merely closer to it.
+    @test norm(recovered.position - good.position) < 1e-3
+    @test recovered.time ≈ good.time
+    @test recovered.velocity ≈ good.velocity atol = 1e-6
+    # The reported geometry is the cold solve's, not the seed's.
+    @test !isnothing(recovered.dop)
+    @test recovered.dop.PDOP ≈ good.dop.PDOP
+    @test recovered.dop.PDOP < PositionVelocityTime.MAX_TRUSTED_WARM_START_PDOP
+    # Nothing of the poisoned seed survives into the reported satellite set.
+    @test maximum(abs, [info.residual for info in values(recovered.sats)]) ≈
+          maximum(abs, [info.residual for info in values(good.sats)]) rtol = 1e-6
+
+    # An unsolvable epoch (too few satellites) returns the previous solution exactly
+    # as passed, distrusted or not — the gate withholds it from the solve, not from
+    # the caller.
+    @test calc_pvt(states[1:3], poisoned; kwargs...) === poisoned
+end
+
 @testset "residuals are observed minus computed" begin
     # The reported orientation is a convention rather than a by-product: `LsqFit`
     # residuates `model - data`, and the velocity solve's own measurement `yⱼ` carries

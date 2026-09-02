@@ -46,6 +46,39 @@ end
     end
 end
 
+# The clock polynomial's argument is a time *difference*, so it must be folded modulo the
+# week like every other one here. With `t_0c` late in the week and a transmit time just
+# past the rollover, the raw `t - t_0c` reads −603900 s where the elapsed time is +900 s:
+# a typical `a_f1` alone turns a ~9 ns correction into a ~6 µs one — 1.8 km of range —
+# with the sign flipped, and the `a_f2` term is worse still.
+@testset "Clock polynomial unwraps a week crossover" begin
+    base = first(galileo_e1b_states(0.0Hz)).decoder
+    with(; kwargs...) = let d = GNSSDecoder.GalileoINAVData(base.data; kwargs...)
+        GNSSDecoder.GNSSDecoderState(base; data = d, raw_data = d)
+    end
+
+    a_f1, a_f2 = 1e-11, 3.5e-15
+    t_0c, t = 604000.0, 100.0
+    wrapped = t - t_0c + PositionVelocityTime.SECONDS_PER_WEEK
+    @test wrapped == 900.0
+
+    # The correction `correct_clock` applies, differenced against an otherwise identical
+    # decoder with the drift terms zeroed: `a_f0`, the relativistic term and the group
+    # delay cancel, leaving exactly `a_f1·Δt + a_f2·Δt²` — the part that sees the wrap.
+    applied(decoder) = t - PositionVelocityTime.correct_clock(decoder, GalileoE1B(), t)
+    drift_terms =
+        applied(with(; a_f1, a_f2, t_0c)) - applied(with(; a_f1 = 0.0, a_f2 = 0.0, t_0c))
+    @test drift_terms ≈ a_f1 * wrapped + a_f2 * wrapped^2 atol = 1e-13
+    # The unwrapped argument would put a millisecond — hundreds of kilometres — here.
+    @test !isapprox(drift_terms, a_f1 * (t - t_0c) + a_f2 * (t - t_0c)^2, atol = 1e-9)
+
+    # `calc_satellite_clock_drift` is the derivative of that same polynomial about that
+    # same epoch, so it has to unwrap identically.
+    drift = PositionVelocityTime.calc_satellite_clock_drift(with(; a_f1, a_f2, t_0c), t)
+    @test drift ≈ a_f1 + 2 * a_f2 * wrapped
+    @test !isapprox(drift, a_f1 + 2 * a_f2 * (t - t_0c), rtol = 1e-3)
+end
+
 # The carrier-phase term refines the transmit time by a fraction of a carrier cycle.
 # `SatelliteState.carrier_phase` is in radians (`Tracking.get_carrier_phase`), so it must
 # be converted to cycles before being divided by the centre frequency.
