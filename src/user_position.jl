@@ -83,6 +83,14 @@ function calc_H!(H, sat_positions, ξ, bias_columns::BiasColumns)
     return H
 end
 
+"""
+    calc_H(sat_positions, ξ, bias_columns::BiasColumns) -> Matrix{Float64}
+
+Allocating form of [`calc_H!`](@ref PositionVelocityTime.calc_H!): the
+least-squares design matrix at the state `ξ`, one row per satellite, with
+[`num_lsq_params`](@ref PositionVelocityTime.num_lsq_params)`(bias_columns)`
+columns.
+"""
 calc_H(sat_positions, ξ, bias_columns::BiasColumns) =
     calc_H!(Matrix{Float64}(undef, size(sat_positions, 2), num_lsq_params(bias_columns)),
         sat_positions, ξ, bias_columns)
@@ -372,5 +380,16 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
     return velocity_and_drift, rate_residuals
 end
 
+"""
+    get_sat_position(sat_pv) -> SVector{3,Float64}
+
+Satellite ECEF position (m) of one [`calc_satellite_position_and_velocity`](@ref) result.
+"""
 get_sat_position(x) = x.position
+
+"""
+    get_sat_velocity(sat_pv) -> SVector{3,Float64}
+
+Satellite ECEF velocity (m/s) of one [`calc_satellite_position_and_velocity`](@ref) result.
+"""
 get_sat_velocity(x) = x.velocity

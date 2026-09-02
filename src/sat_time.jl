@@ -1,3 +1,12 @@
+"""
+    correct_week_crossovers(t) -> Float64
+
+Fold a difference of two seconds-of-week counts modulo the week, into
+`(-302400, 302400]`: near a week rollover the two operands sit on opposite
+sides of the wrap and their raw difference is off by ±604800 s. Every time
+difference in this package — and in a consumer differencing transmit times —
+must pass through this.
+"""
 function correct_week_crossovers(t)
     half_week = SECONDS_PER_WEEK / 2
     t + (t > half_week ? -2 * half_week : (t < -half_week ? 2 * half_week : 0.0))
@@ -86,15 +95,20 @@ function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, system, t)
     t - correct_by_group_delay(decoder, system, Δt)
 end
 
-# Rate of the satellite clock correction: the time derivative of the clock polynomial
-# `correct_clock` applies, so it must be evaluated about the same clock reference epoch
-# `t_0c`. Using `t` instead would offset the `a_f2` term by a spurious `2·a_f2·t_0c` —
-# zero whenever `a_f2 = 0` (the usual GPS broadcast) but up to ~4e-9 s/s (≈1.3 m/s of
-# range rate) at the edge of the broadcast range late in the week, and per-satellite,
-# so it would leak into the estimated velocity rather than the common clock drift.
-#
-# The rate of the relativistic periodic term `Δt_rel = F·e·√A·sin(E)` that
-# `correct_clock` includes is not modelled here; it is at most ~1 mm/s.
+"""
+    calc_satellite_clock_drift(decoder::GNSSDecoderState, t) -> Float64
+
+Rate of the satellite clock correction (s/s): the time derivative of the clock
+polynomial `correct_clock` applies, so it must be evaluated about the same clock
+reference epoch `t_0c`. Using `t` instead would offset the `a_f2` term by a
+spurious `2·a_f2·t_0c` — zero whenever `a_f2 = 0` (the usual GPS broadcast) but
+up to ~4e-9 s/s (≈1.3 m/s of range rate) at the edge of the broadcast range late
+in the week, and per-satellite, so it would leak into the estimated velocity
+rather than the common clock drift.
+
+The rate of the relativistic periodic term `Δt_rel = F·e·√A·sin(E)` that
+`correct_clock` includes is not modelled here; it is at most ~1 mm/s.
+"""
 function calc_satellite_clock_drift(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data
     clock_drift(data) +
@@ -245,6 +259,17 @@ correct_by_group_delay(
     t -
     galileo_group_delay_scaling(system) * decoder.data.BGD_E1_E5a
 
+"""
+    calc_corrected_time(state::SatelliteState) -> Float64
+
+The satellite's transmit time as a seconds-of-week count on its own system's
+scale: the decoder's time of week plus the bit, code-phase and carrier-phase
+fractions (`calc_uncorrected_time`), corrected by the SV clock polynomial, the
+relativistic term and the ranging signal's group delay (`correct_clock`). This
+is the `t` every ephemeris and clock evaluation takes; only pseudorange
+*differencing* converts it to another scale (see
+[`time_scale_offset_to_gpst`](@ref)), never the value itself.
+"""
 function calc_corrected_time(state::SatelliteState)
     approximated_time = calc_uncorrected_time(state)
     correct_clock(state.decoder, state.system, approximated_time)
