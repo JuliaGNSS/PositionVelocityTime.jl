@@ -281,7 +281,16 @@ end
 
 function calc_pseudo_ranges(times)
     t_ref = maximum(times)
-    reference_times = map(time -> t_ref - time, times)
+    # Folded modulo the week, like the vector loop's `pseudorange_from_tows` and
+    # every other time difference in this package: the inputs are seconds-of-week
+    # counts, and the week wrap does not pass through all of them at once. Within
+    # one constellation the wrap sweeps through the transmit-time spread (tens of
+    # milliseconds, once a week); in a mixed solve the scale alignment
+    # (`calc_time_scale_offsets`) widens the straddle to the full defined offset —
+    # a BeiDou time reads `SOW + 14` on the GPS count, which exceeds 604800 for
+    # the first 14 s of every GPS week while the GPS times have already wrapped.
+    # Unfolded, every difference across the wrap is off by a week — 1.8e14 m.
+    reference_times = map(time -> correct_week_crossovers(t_ref - time), times)
     pseudoranges = reference_times .* SPEEDOFLIGHT
     return pseudoranges, t_ref
 end
