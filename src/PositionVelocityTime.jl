@@ -919,4 +919,5 @@ include("sat_time.jl")
 include("sat_position.jl")
 include("ionosphere.jl")
 include("troposphere.jl")
+include("precompile.jl")
 end
