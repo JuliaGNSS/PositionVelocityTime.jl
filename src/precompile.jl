@@ -3,14 +3,20 @@
 # embedded ARM host, and a live receiver pays it at the moment it has its first
 # four ephemerides — the position fix it has been waiting a minute for arrives
 # seconds late while every tracking loop sits unattended (GNSSReceiver.jl#107).
-# Run real constellations through the solver here — GPS alone, Galileo alone
-# and both together (the inter-system clock column), a cold solve, a
-# warm-started one and the atmospheric corrections — so `Pkg.precompile` pays
-# instead.
 #
-# The satellites are decoder states captured over Aachen on 2021-05-31 (the
-# test suite's fixtures, `test/fixtures.jl`) with the code phases and carrier
-# Dopplers observed alongside them.
+# The solver is specialised on the navigation-data type it is handed, so every
+# type this package dispatches on is solved here: GPS LNAV (`GPSL1CAData`), GPS
+# CNAV on both its signals (`GPSCNAVData` on L5I and L2CM), GPS CNAV-2
+# (`GPSL1C_DData`) and Galileo I/NAV and F/NAV (`GalileoE1BData`,
+# `GalileoE5aData`) — cold, warm-started, with and without the atmospheric
+# corrections, and as one mixed GPS + Galileo constellation.
+#
+# The satellites are the test suite's own fixtures (`test/fixtures.jl`): decoder
+# states captured over Aachen on 2021-05-31 with the code phases, carrier
+# Dopplers and phases observed alongside them. Only GPS L1 C/A and Galileo E1B
+# were recorded, so the other data types are expressed from those — see
+# `_precompile_states`. Every configuration below solves to the fixture's own
+# position, which is what makes this a real solve rather than a shape.
 using PrecompileTools: @setup_workload, @compile_workload
 
 const _PRECOMPILE_GPS_L1CA_STATES = [
@@ -18,6 +24,8 @@ const _PRECOMPILE_GPS_L1CA_STATES = [
         prn = 7,
         code_phase = 4876.431542382193,
         carrier_doppler = 2669.8440799388595Hz,
+        carrier_phase = 0.09402551301430394,
+        num_bits = 360,
         data = GNSSDecoder.GPSL1CAData(;
             last_subframe_id = 3,
             integrity_status_flag = false,
@@ -61,6 +69,8 @@ const _PRECOMPILE_GPS_L1CA_STATES = [
         prn = 8,
         code_phase = 8455.107739656896,
         carrier_doppler = 4704.3549972665805Hz,
+        carrier_phase = 2.7614518715603946,
+        num_bits = 360,
         data = GNSSDecoder.GPSL1CAData(;
             last_subframe_id = 3,
             integrity_status_flag = false,
@@ -104,6 +114,8 @@ const _PRECOMPILE_GPS_L1CA_STATES = [
         prn = 10,
         code_phase = 10510.15670303955,
         carrier_doppler = 4603.179391134832Hz,
+        carrier_phase = -0.7447786034769108,
+        num_bits = 360,
         data = GNSSDecoder.GPSL1CAData(;
             last_subframe_id = 3,
             integrity_status_flag = false,
@@ -147,6 +159,8 @@ const _PRECOMPILE_GPS_L1CA_STATES = [
         prn = 15,
         code_phase = 3618.5099300503684,
         carrier_doppler = 3144.174219887768Hz,
+        carrier_phase = -0.22375187424152987,
+        num_bits = 360,
         data = GNSSDecoder.GPSL1CAData(;
             last_subframe_id = 3,
             integrity_status_flag = false,
@@ -190,6 +204,8 @@ const _PRECOMPILE_GPS_L1CA_STATES = [
         prn = 16,
         code_phase = 17600.66651489137,
         carrier_doppler = 595.7926881306387Hz,
+        carrier_phase = 2.59152430602131,
+        num_bits = 360,
         data = GNSSDecoder.GPSL1CAData(;
             last_subframe_id = 3,
             integrity_status_flag = false,
@@ -229,6 +245,186 @@ const _PRECOMPILE_GPS_L1CA_STATES = [
             i_dot = -2.95012288445966e-10,
         ),
     ),
+    (
+        prn = 18,
+        code_phase = 14504.587373634655,
+        carrier_doppler = -794.0022484221436Hz,
+        carrier_phase = -0.7416765461612318,
+        num_bits = 360,
+        data = GNSSDecoder.GPSL1CAData(;
+            last_subframe_id = 3,
+            integrity_status_flag = false,
+            TOW = 132768,
+            alert_flag = false,
+            anti_spoof_flag = true,
+            trans_week = 112,
+            codeonl2 = 1,
+            ura = 2.0,
+            sv_health = "000000",
+            IODC = "1111100001",
+            l2pcode = false,
+            T_GD = -8.381903171539307e-9,
+            t_0c = 136800,
+            a_f2 = 0.0,
+            a_f1 = -1.3642420526593924e-12,
+            a_f0 = 0.0003486964851617813,
+            IODE_Sub_2 = "11100001",
+            C_rs = -15.3125,
+            Δn = 4.35303846438188e-9,
+            M_0 = -0.6041391930737793,
+            C_uc = -8.717179298400879e-7,
+            e = 0.0014569575432687998,
+            C_us = 3.339722752571106e-6,
+            sqrt_A = 5153.662895202637,
+            t_0e = 136800,
+            fit_interval = false,
+            AODO = 31,
+            C_ic = 2.60770320892334e-8,
+            Ω_0 = 2.733796625968394,
+            C_is = -4.284083843231201e-8,
+            i_0 = 0.9683542210973364,
+            C_rc = 321.59375,
+            ω = 2.894680446328142,
+            Ω_dot = -8.184269479103281e-9,
+            IODE_Sub_3 = "11100001",
+            i_dot = -1.0071848104329588e-10,
+        ),
+    ),
+    (
+        prn = 23,
+        code_phase = 14394.465193705755,
+        carrier_doppler = 2826.783251528247Hz,
+        carrier_phase = -0.7597910878699417,
+        num_bits = 360,
+        data = GNSSDecoder.GPSL1CAData(;
+            last_subframe_id = 3,
+            integrity_status_flag = false,
+            TOW = 132768,
+            alert_flag = false,
+            anti_spoof_flag = true,
+            trans_week = 112,
+            codeonl2 = 1,
+            ura = 2.0,
+            sv_health = "000000",
+            IODC = "0011101110",
+            l2pcode = false,
+            T_GD = -8.381903171539307e-9,
+            t_0c = 136800,
+            a_f2 = 0.0,
+            a_f1 = -3.751665644813329e-12,
+            a_f0 = 0.00010169018059968948,
+            IODE_Sub_2 = "11101110",
+            C_rs = -92.40625,
+            Δn = 4.153030133232073e-9,
+            M_0 = -1.3144457890174628,
+            C_uc = -4.732981324195862e-6,
+            e = 0.0012323472183197737,
+            C_us = 7.256865501403809e-6,
+            sqrt_A = 5153.657176971436,
+            t_0e = 136800,
+            fit_interval = false,
+            AODO = 31,
+            C_ic = -9.872019290924072e-8,
+            Ω_0 = -2.5503370450318865,
+            C_is = 2.9802322387695312e-8,
+            i_0 = 0.9644177455387573,
+            C_rc = 242.5,
+            ω = 2.603874239368067,
+            Ω_dot = -7.890328663859904e-9,
+            IODE_Sub_3 = "11101110",
+            i_dot = 3.107272287505937e-11,
+        ),
+    ),
+    (
+        prn = 26,
+        code_phase = 13905.233170289455,
+        carrier_doppler = -1083.2317687377372Hz,
+        carrier_phase = -2.1444956909602526,
+        num_bits = 360,
+        data = GNSSDecoder.GPSL1CAData(;
+            last_subframe_id = 3,
+            integrity_status_flag = false,
+            TOW = 132768,
+            alert_flag = false,
+            anti_spoof_flag = true,
+            trans_week = 112,
+            codeonl2 = 1,
+            ura = 2.0,
+            sv_health = "000000",
+            IODC = "0001101110",
+            l2pcode = false,
+            T_GD = 6.984919309616089e-9,
+            t_0c = 136800,
+            a_f2 = 0.0,
+            a_f1 = 4.888534022029489e-12,
+            a_f0 = 9.242305532097816e-5,
+            IODE_Sub_2 = "01101110",
+            C_rs = 29.53125,
+            Δn = 5.002351225150362e-9,
+            M_0 = 3.0615288470223163,
+            C_uc = 1.5329569578170776e-6,
+            e = 0.00589060562197119,
+            C_us = 8.42846930027008e-6,
+            sqrt_A = 5153.568691253662,
+            t_0e = 136800,
+            fit_interval = false,
+            AODO = 31,
+            C_ic = -1.043081283569336e-7,
+            Ω_0 = 0.5730118600154152,
+            C_is = 1.30385160446167e-8,
+            i_0 = 0.942073253292395,
+            C_rc = 208.875,
+            ω = 0.3072108597425673,
+            Ω_dot = -8.057478483463671e-9,
+            IODE_Sub_3 = "01101110",
+            i_dot = -3.328710082707509e-10,
+        ),
+    ),
+    (
+        prn = 27,
+        code_phase = 16861.02713837273,
+        carrier_doppler = 3393.7445379085816Hz,
+        carrier_phase = -0.9185401811870872,
+        num_bits = 360,
+        data = GNSSDecoder.GPSL1CAData(;
+            last_subframe_id = 3,
+            integrity_status_flag = false,
+            TOW = 132768,
+            alert_flag = false,
+            anti_spoof_flag = true,
+            trans_week = 112,
+            codeonl2 = 1,
+            ura = 2.0,
+            sv_health = "000000",
+            IODC = "0001001110",
+            l2pcode = false,
+            T_GD = 1.862645149230957e-9,
+            t_0c = 136800,
+            a_f2 = 0.0,
+            a_f1 = -6.366462912410498e-12,
+            a_f0 = -0.0001393994316458702,
+            IODE_Sub_2 = "01001110",
+            C_rs = 82.25,
+            Δn = 4.257677349351526e-9,
+            M_0 = 1.25128819523303,
+            C_uc = 4.505738615989685e-6,
+            e = 0.00944566575344652,
+            C_us = 6.81169331073761e-6,
+            sqrt_A = 5153.686637878418,
+            t_0e = 136800,
+            fit_interval = false,
+            AODO = 31,
+            C_ic = -5.029141902923584e-8,
+            Ω_0 = 1.66429757866306,
+            C_is = 1.601874828338623e-7,
+            i_0 = 0.9756900633046096,
+            C_rc = 257.375,
+            ω = 0.6281523291801417,
+            Ω_dot = -8.07676500111026e-9,
+            IODE_Sub_3 = "01001110",
+            i_dot = -1.2286226056345314e-10,
+        ),
+    ),
 ]
 
 const _PRECOMPILE_GALILEO_E1B_STATES = [
@@ -236,6 +432,8 @@ const _PRECOMPILE_GALILEO_E1B_STATES = [
         prn = 2,
         code_phase = 2216.5793761534956,
         carrier_doppler = 1617.3312825078192Hz,
+        carrier_phase = -1.461823180908076,
+        num_bits = 1549,
         data = GNSSDecoder.GalileoE1BData(;
             WN = 1136,
             TOW = 132769,
@@ -271,12 +469,24 @@ const _PRECOMPILE_GALILEO_E1B_STATES = [
             data_validity_status_e5b = GNSSDecoder.navigation_data_valid,
             broadcast_group_delay_e1_e5a = -1.6298145055770874e-9,
             broadcast_group_delay_e1_e5b = -2.0954757928848267e-9,
+            reduced_ced = GNSSDecoder.GalileoReducedCED(
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+            ),
         ),
     ),
     (
         prn = 4,
         code_phase = 48.75149191469789,
         carrier_doppler = 4055.9318556579988Hz,
+        carrier_phase = -2.3877702498883373,
+        num_bits = 1546,
         data = GNSSDecoder.GalileoE1BData(;
             WN = 1136,
             TOW = 132769,
@@ -312,12 +522,24 @@ const _PRECOMPILE_GALILEO_E1B_STATES = [
             data_validity_status_e5b = GNSSDecoder.navigation_data_valid,
             broadcast_group_delay_e1_e5a = -3.026798367500305e-9,
             broadcast_group_delay_e1_e5b = -3.4924596548080444e-9,
+            reduced_ced = GNSSDecoder.GalileoReducedCED(
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+            ),
         ),
     ),
     (
         prn = 11,
         code_phase = 69.54389556899758,
         carrier_doppler = 209.7024609093128Hz,
+        carrier_phase = -1.4138935647217596,
+        num_bits = 1551,
         data = GNSSDecoder.GalileoE1BData(;
             WN = 1136,
             TOW = 132769,
@@ -353,12 +575,24 @@ const _PRECOMPILE_GALILEO_E1B_STATES = [
             data_validity_status_e5b = GNSSDecoder.navigation_data_valid,
             broadcast_group_delay_e1_e5a = -1.3271346688270569e-8,
             broadcast_group_delay_e1_e5b = -1.4435499906539917e-8,
+            reduced_ced = GNSSDecoder.GalileoReducedCED(
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+            ),
         ),
     ),
     (
         prn = 25,
         code_phase = 1701.8894620076721,
         carrier_doppler = -974.6289079820336Hz,
+        carrier_phase = -1.721713905186919,
+        num_bits = 1548,
         data = GNSSDecoder.GalileoE1BData(;
             WN = 1136,
             TOW = 132769,
@@ -394,12 +628,24 @@ const _PRECOMPILE_GALILEO_E1B_STATES = [
             data_validity_status_e5b = GNSSDecoder.navigation_data_valid,
             broadcast_group_delay_e1_e5a = 3.4924596548080444e-9,
             broadcast_group_delay_e1_e5b = 3.958120942115784e-9,
+            reduced_ced = GNSSDecoder.GalileoReducedCED(
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+            ),
         ),
     ),
     (
         prn = 30,
         code_phase = 4015.495436832823,
         carrier_doppler = 4089.415808665647Hz,
+        carrier_phase = -2.8554107708683047,
+        num_bits = 1547,
         data = GNSSDecoder.GalileoE1BData(;
             WN = 1136,
             TOW = 132769,
@@ -435,40 +681,181 @@ const _PRECOMPILE_GALILEO_E1B_STATES = [
             data_validity_status_e5b = GNSSDecoder.navigation_data_valid,
             broadcast_group_delay_e1_e5a = 1.6298145055770874e-9,
             broadcast_group_delay_e1_e5b = 1.6298145055770874e-9,
+            reduced_ced = GNSSDecoder.GalileoReducedCED(
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+                nothing,
+            ),
         ),
     ),
 ]
 
-function _precompile_states(system, table)
-    [
+# Quasi-Keplerian reference values of the CNAV user algorithm; the broadcast
+# fields are deltas off these (IS-GPS-200N, mirrored in `orbital_elements`).
+const _PRECOMPILE_A_REF = 26_559_710.0
+const _PRECOMPILE_Ω_DOT_REF = -2.6e-9 * π
+
+# GPS LNAV ephemeris → the quasi-Keplerian CNAV / CNAV-2 form.
+_precompile_modern_nav(T, d; extra...) = T(;
+    t_0e = d.t_0e,
+    ΔA = d.sqrt_A^2 - _PRECOMPILE_A_REF,
+    A_dot = 0.0,
+    Δn_0 = d.Δn,
+    Δn_0_dot = 0.0,
+    M_0 = d.M_0,
+    e = d.e,
+    ω = d.ω,
+    Ω_0 = d.Ω_0,
+    i_0 = d.i_0,
+    ΔΩ_dot = d.Ω_dot - _PRECOMPILE_Ω_DOT_REF,
+    i_dot = d.i_dot,
+    C_is = d.C_is,
+    C_ic = d.C_ic,
+    C_rs = d.C_rs,
+    C_rc = d.C_rc,
+    C_us = d.C_us,
+    C_uc = d.C_uc,
+    t_0c = d.t_0c,
+    a_f0 = d.a_f0,
+    a_f1 = d.a_f1,
+    a_f2 = d.a_f2,
+    T_GD = d.T_GD,
+    extra...,
+)
+
+# CNAV carries the full week number where LNAV broadcasts it modulo 1024; the
+# fixtures are GPS week 2160 (2021-05-31).
+_precompile_cnav(d) = _precompile_modern_nav(
+    GNSSDecoder.GPSCNAVData,
+    d;
+    TOW = d.TOW,
+    WN = 2160,
+    l1_health = false,
+    l2_health = false,
+    l5_health = false,
+)
+
+# CNAV-2 counts time as a two-hour interval plus an 18 s time of interval
+# (IS-GPS-800J §3.5.3), which `get_tow` reassembles.
+_precompile_cnav2(d) = _precompile_modern_nav(
+    GNSSDecoder.GPSL1C_DData,
+    d;
+    ITOW = d.TOW ÷ 7200,
+    toi = (d.TOW % 7200) ÷ 18,
+    WN = 2160,
+    l1c_health = false,
+)
+
+# Galileo F/NAV carries the same ephemeris as I/NAV, with the E5a health and
+# group delay in place of the E1B/E5b ones.
+_precompile_fnav(d) = GNSSDecoder.GalileoE5aData(;
+    WN = d.WN,
+    TOW = d.TOW,
+    t_0e = d.t_0e,
+    M_0 = d.M_0,
+    e = d.e,
+    sqrt_A = d.sqrt_A,
+    Ω_0 = d.Ω_0,
+    i_0 = d.i_0,
+    ω = d.ω,
+    i_dot = d.i_dot,
+    Ω_dot = d.Ω_dot,
+    Δn = d.Δn,
+    C_uc = d.C_uc,
+    C_us = d.C_us,
+    C_rc = d.C_rc,
+    C_rs = d.C_rs,
+    C_ic = d.C_ic,
+    C_is = d.C_is,
+    t_0c = d.t_0c,
+    a_f0 = d.a_f0,
+    a_f1 = d.a_f1,
+    a_f2 = d.a_f2,
+    IOD_nav1 = d.IOD_nav1,
+    signal_health_e5a = GNSSDecoder.signal_ok,
+    data_validity_status_e5a = GNSSDecoder.navigation_data_valid,
+    broadcast_group_delay_e1_e5a = d.broadcast_group_delay_e1_e5a,
+)
+
+"""
+    _precompile_states(system, table, make_data, source_system)
+
+The fixture satellites as [`SatelliteState`](@ref)s on `system`, with their
+navigation data converted by `make_data`.
+
+The observables were recorded on `source_system` (GPS L1 C/A or Galileo E1B).
+Expressing them on another signal of the same satellite has to preserve the
+transmit epoch, which [`calc_uncorrected_time`](@ref) builds as `TOW + n_bits/data_rate + (code_phase reduced to one data symbol)/chip_rate`. So the
+sub-TOW offset is converted as a whole: taken off the source signal, then split
+again into whole data symbols and a code phase in the target's own units.
+Scaling the two terms independently would be wrong — a signal whose data symbol
+is shorter has to carry part of the code phase in its bit count instead.
+"""
+function _precompile_states(system, table, make_data, source_system)
+    map(table) do s
+        data = make_data(s.data)
+        target = GNSSDecoder.GNSSDecoderState(
+            GNSSDecoder.GNSSDecoderState(system, s.prn);
+            raw_data = data,
+            data = data,
+        )
+        source = GNSSDecoder.GNSSDecoderState(
+            GNSSDecoder.GNSSDecoderState(source_system, s.prn);
+            raw_data = s.data,
+            data = s.data,
+        )
+        source_rate = ustrip(Hz, get_data_frequency(source))
+        source_chips = ustrip(Hz, get_code_frequency(source_system))
+        offset =
+            s.num_bits / source_rate +
+            mod(s.code_phase, source_chips / source_rate) / source_chips
+        rate = ustrip(Hz, get_data_frequency(target))
+        chips = ustrip(Hz, get_code_frequency(system))
+        num_bits = floor(Int, offset * rate)
         SatelliteState(;
-            decoder = GNSSDecoderState(
-                GNSSDecoderState(system, s.prn);
-                raw_data = s.data,
-                data = s.data,
-                num_bits_after_valid_syncro_sequence = 0,
+            decoder = GNSSDecoder.GNSSDecoderState(
+                target;
+                num_bits_after_valid_syncro_sequence = num_bits,
             ),
             system,
-            code_phase = s.code_phase,
+            code_phase = (offset - num_bits / rate) * chips,
             carrier_doppler = s.carrier_doppler,
-        ) for s in table
-    ]
+            carrier_phase = s.carrier_phase * ustrip(Hz, get_center_frequency(system)) /
+                            ustrip(Hz, get_center_frequency(source_system)),
+        )
+    end
 end
 
 @setup_workload begin
-    gps = _precompile_states(GPSL1CA(), _PRECOMPILE_GPS_L1CA_STATES)
-    galileo = _precompile_states(GalileoE1B(), _PRECOMPILE_GALILEO_E1B_STATES)
+    gps(system, make_data = identity) =
+        _precompile_states(system, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA())
+    galileo(system, make_data = identity) =
+        _precompile_states(system, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B())
+    l1ca = gps(GPSL1CA())
+    e1b = galileo(GalileoE1B())
     @compile_workload begin
-        pvt = calc_pvt(gps; approximate_year = 2021)
-        calc_pvt(gps, pvt; approximate_year = 2021)
-        calc_pvt(
-            gps;
-            approximate_year = 2021,
-            enable_ionospheric_correction = false,
-            enable_tropospheric_correction = false,
+        for states in (
+            l1ca,
+            gps(GPSL5I(), _precompile_cnav),
+            gps(GPSL2CM(), _precompile_cnav),
+            gps(GPSL1C_D(), _precompile_cnav2),
+            e1b,
+            galileo(GalileoE5aI(), _precompile_fnav),
+            [l1ca; e1b],
         )
-        calc_pvt(galileo; approximate_year = 2021)
-        mixed = calc_pvt([gps; galileo]; approximate_year = 2021)
-        calc_pvt([gps; galileo], mixed; approximate_year = 2021)
+            pvt = calc_pvt(states; approximate_year = 2021)
+            calc_pvt(states, pvt; approximate_year = 2021)
+            calc_pvt(
+                states;
+                approximate_year = 2021,
+                enable_ionospheric_correction = false,
+                enable_tropospheric_correction = false,
+            )
+        end
     end
 end
