@@ -1,5 +1,14 @@
 # Changelog
 
+# [5.3.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.2.0...v5.3.0) (2026-09-03)
+
+
+### Features
+
+* precompile every navigation-data type the solver dispatches on ([d44c8f1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/d44c8f18f6ab11492f389cd829f466f7f21aa625))
+* precompile the Galileo and mixed-constellation solves as well ([851a0b2](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/851a0b21ac404427471731adef98cbe7649d6ada))
+* precompile the PVT solve ([5d06f1c](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/5d06f1c1e223e02834cf98bc7c6125a448ff9308)), closes [GNSSReceiver.jl#107](https://github.com/GNSSReceiver.jl/issues/107)
+
 # [5.2.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.1.0...v5.2.0) (2026-08-20)
 
 
