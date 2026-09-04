@@ -52,7 +52,7 @@ end
 # common constant, exactly as it does the unmodelled travel time — so what the
 # tests pin is the *differences*.
 @testset "calc_pseudo_ranges folds the week wrap" begin
-    c = PositionVelocityTime.SPEEDOFLIGHT
+    c = PositionVelocityTime.SPEED_OF_LIGHT
 
     # No wrap in sight: plain differences against the latest transmit time.
     # Metre-level tolerances throughout: differencing ~6e5-magnitude counts in

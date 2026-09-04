@@ -13,6 +13,9 @@ using CoordinateTransformations,
 
 using Unitful: s, Hz, m, °, ustrip
 using Dictionaries: Dictionary
+# Unexported but documented decoder vocabulary this package shares: the week
+# length, and the two message-family supertypes the propagator dispatches on.
+using GNSSDecoder: SECONDS_PER_WEEK, AbstractGPSCNAVData, AbstractBeiDouCNAVData
 
 export calc_pvt,
     PVTSolution,
@@ -38,13 +41,12 @@ export calc_pvt,
 # dependency at a single site.
 
 """
-    SPEEDOFLIGHT
+    SPEED_OF_LIGHT
 
-The speed of light (m/s) — the constant every range/time conversion in this
-package and its consumers must share, exported so a receiver does not carry a
-second copy that could drift from it.
+The speed of light (m/s), shared by every range/time conversion in this
+package and its consumers.
 """
-const SPEEDOFLIGHT = 299792458.0
+const SPEED_OF_LIGHT = 299792458.0
 
 # PDOP above which a previous solution is distrusted as a warm-start seed and
 # discarded (see the gate at the top of `calc_pvt`). Genuine geometries this
@@ -54,37 +56,6 @@ const SPEEDOFLIGHT = 299792458.0
 # harmless — the cold solve lands in the same place — so the exact value only
 # sets how often that happens.
 const MAX_TRUSTED_WARM_START_PDOP = 50.0
-
-# Every constellation here counts time as a week number plus a time of week, so the
-# week length is shared rather than restated wherever a week crossover is unwrapped.
-const SECONDS_PER_WEEK = 604_800
-
-"""
-    GPSTOffsetDecoders
-
-Map from a GNSS time system to the decoder whose broadcast offset to GPS Time
-converts that system's measurements — the populated form of
-[`BiasLayout`](@ref)`.gpst_offset_decoders`. Named because the parameterised
-`Dict` would otherwise be spelled out at each construction point, which would say
-more about Julia than about the layout.
-
-A layout that estimates every clock bias independently stores `nothing` rather
-than an empty one, which is the common case. The reason is representational, not
-performance: `nothing` says "no clock was collapsed", and an absent map and an
-empty one are different facts. Skipping a container that would only ever be
-tested for emptiness is then free, but it is worth being clear about the scale —
-it saves 80 bytes per fix out of the ~4.4 kB [`decide_bias_layout`](@ref)
-allocates on that same path, 3.1 kB of which goes on the `band_ifb_layout` call
-one line above the early return. This is not an allocation-free path being
-protected; it is a small tidy-up on an allocating one.
-"""
-const GPSTOffsetDecoders = Dict{GNSSSignals.TimeSystem,GNSSDecoder.GNSSDecoderState}
-
-# The GPS CNAV family (CNAV on L5/L2C, CNAV-2 on L1C): both broadcast the full week
-# number (no 1024-week rollover) and a quasi-Keplerian ephemeris (A_REF + ΔA,
-# Ω̇_REF + ΔΩ̇, …) rather than LNAV's directly-broadcast Keplerian elements — so
-# `orbital_elements` and the full-week `get_week` dispatch on this union.
-const GPSModernNavData = Union{GNSSDecoder.GPSCNAVData,GNSSDecoder.GPSL1C_DData}
 
 """
     BiasColumns
@@ -113,36 +84,6 @@ struct BiasColumns
     num_clock_biases::Int
     ifb_indices::Vector{Int}
     num_ifb::Int
-end
-
-"""
-    BiasLayout
-
-How one epoch's estimated biases are laid out, as decided by
-[`decide_bias_layout`](@ref): the design-matrix columns, the bands its
-inter-frequency-bias columns belong to, and the source of the range offsets a
-GGTO-collapsed layout needs.
-
-# Fields
-- `bias_columns::BiasColumns`: the per-satellite column assignment (see
-  [`BiasColumns`](@ref)).
-- `extra_bands::Vector{Symbol}`: band of each inter-frequency-bias column, so
-  `extra_bands[i]` belongs to column `i` of the IFB block.
-- `reference_bands::Vector{Symbol}`: per IFB column, the reference band of its coverage
-  component — the anchor that column's bias is measured against (see
-  [`band_ifb_layout`](@ref)).
-- `gpst_offset_decoders::Union{Nothing,GPSTOffsetDecoders}`: per collapsed time
-  system, the decoder whose broadcast offset to GPS Time converts that system's
-  measurements — the same vocabulary as [`gpst_offset_available`](@ref), which decides
-  membership, and [`calc_gpst_offset`](@ref), which evaluates one entry (see
-  [`calc_gpst_range_offsets`](@ref)). `nothing` for a layout that estimates every
-  clock bias independently, which is the common case.
-"""
-struct BiasLayout
-    bias_columns::BiasColumns
-    extra_bands::Vector{Symbol}
-    reference_bands::Vector{Symbol}
-    gpst_offset_decoders::Union{Nothing,GPSTOffsetDecoders}
 end
 
 """
@@ -442,12 +383,27 @@ function band_ifb_layout(systems, bands)
 end
 
 """
-    decide_bias_layout(states, systems, bands) -> Union{BiasLayout,Nothing}
+    decide_bias_layout(states, systems, bands)
+        -> Union{NamedTuple,Nothing}
 
 Decide the full least-squares bias layout — one clock column per GNSS time system plus
-the per-band inter-frequency-bias columns from [`band_ifb_layout`](@ref) — and return it
-as a [`BiasLayout`](@ref), whose `gpst_offset_decoders` also carry how a collapsed layout's
-measurements are converted. Returns `nothing` when the constellation cannot be solved.
+the per-band inter-frequency-bias columns from [`band_ifb_layout`](@ref) — and return
+it as `(; bias_columns, extra_bands, reference_bands, gpst_offset_decoders)`, or
+`nothing` when the constellation cannot be solved:
+
+- `bias_columns::BiasColumns`: the per-satellite column assignment (see
+  [`BiasColumns`](@ref)).
+- `extra_bands::Vector{Symbol}`: band of each inter-frequency-bias column, so
+  `extra_bands[i]` belongs to column `i` of the IFB block.
+- `reference_bands::Vector{Symbol}`: per IFB column, the reference band of its coverage
+  component — the anchor that column's bias is measured against (see
+  [`band_ifb_layout`](@ref)).
+- `gpst_offset_decoders::Dict`: per collapsed time system, the decoder whose broadcast
+  offset to GPS Time converts that system's measurements — the same vocabulary as
+  [`gpst_offset_available`](@ref), which decides membership, and
+  [`calc_gpst_offset`](@ref), which evaluates one entry (see
+  [`calc_gpst_range_offsets`](@ref)). Empty for a layout that estimates every clock
+  bias independently, which is the common case.
 
 Every input is a classification of the epoch, never a transmit time: the counts, the
 coverage graph and `gpst_offset_available` are all the decision needs. The offsets its
@@ -513,8 +469,8 @@ function decide_bias_layout(states, systems, bands)
             extra_bands, reference_bands, num_components)
     end
 
-    as_bias_layout(layout, gpst_offset_decoders) = BiasLayout(
-        BiasColumns(layout.clock_bias_indices, layout.num_clock_biases,
+    as_bias_layout(layout, gpst_offset_decoders) = (;
+        bias_columns = BiasColumns(layout.clock_bias_indices, layout.num_clock_biases,
             layout.ifb_indices, length(layout.extra_bands)),
         layout.extra_bands,
         layout.reference_bands,
@@ -522,15 +478,15 @@ function decide_bias_layout(states, systems, bands)
     )
 
     independent_layout = bias_layout_for(systems)
+    gpst_offset_decoders = Dict{GNSSSignals.TimeSystem,GNSSDecoder.GNSSDecoderState}()
     if independent_layout.num_components == 1 && enough_satellites(independent_layout)
-        return as_bias_layout(independent_layout, nothing)
+        return as_bias_layout(independent_layout, gpst_offset_decoders)
     end
 
     # Connected-but-scarce or disconnected: try collapsing every non-GPS system that
     # broadcasts an offset to GPS Time onto GPS. The offset is one constellation-wide
     # value whichever of its satellites reports it, so the first decoded copy per system
     # converts all of that system's measurements.
-    gpst_offset_decoders = GPSTOffsetDecoders()
     if GPST() in systems
         for j = 1:num_sats
             sys = systems[j]
@@ -551,7 +507,7 @@ function decide_bias_layout(states, systems, bands)
     # No collapse available. The independent layout is still observable (its IFBs are
     # component-restricted); use it if there are enough satellites, otherwise unsolvable.
     enough_satellites(independent_layout) ?
-    as_bias_layout(independent_layout, nothing) : nothing
+    as_bias_layout(independent_layout, empty!(gpst_offset_decoders)) : nothing
 end
 
 """
@@ -617,10 +573,10 @@ end
     calc_gpst_range_offsets(gpst_offset_decoders, systems, times) -> Vector{Float64}
 
 Per-satellite range offsets (metres) that carry a clock collapse into the measurements,
-as decided by [`decide_bias_layout`](@ref): all-zero when `gpst_offset_decoders` is
-`nothing` (every time system keeps its own clock unknown, so nothing needs converting), and
-otherwise `−c · Δt_systems` for each satellite of a collapsed system, evaluated at its
-own transmit time.
+as decided by [`decide_bias_layout`](@ref): all-zero for the satellites of a system
+that keeps its own clock unknown — all of them when `gpst_offset_decoders` is empty —
+and otherwise `−c · Δt_systems` for each satellite of a collapsed system, evaluated at
+its own transmit time.
 
 The broadcast offset is `Δt_systems = (that system's time) − GPST` (see
 [`calc_gpst_offset`](@ref): the GGTO for Galileo, the BGTO for BeiDou), so a transmit
@@ -631,17 +587,11 @@ constellation-wide value — so `decide_bias_layout` picks the first decoded cop
 system and it converts all of that system's measurements.
 """
 function calc_gpst_range_offsets(gpst_offset_decoders, systems, times)
-    # Allocated either way: the `nothing` guard below is about saying "no clock was
-    # collapsed" plainly, not about saving the vector — an all-zero result still has
-    # to be returned, since `calc_pvt` both broadcasts over it and indexes it for the
-    # inter-system-bias readout. 128-224 bytes here against the 80 the `nothing`
-    # saves in `decide_bias_layout`, so neither is a path this makes allocation-free.
     offsets = zeros(length(systems))
-    isnothing(gpst_offset_decoders) && return offsets
     for j in eachindex(systems)
         decoder = get(gpst_offset_decoders, systems[j], nothing)
         isnothing(decoder) && continue
-        offsets[j] = -SPEEDOFLIGHT * calc_gpst_offset(decoder, times[j])
+        offsets[j] = -SPEED_OF_LIGHT * calc_gpst_offset(decoder, times[j])
     end
     offsets
 end
@@ -956,12 +906,12 @@ function calc_pvt(
         user_velocity_and_clock_drift[2],
         user_velocity_and_clock_drift[3],
     )
-    relative_clock_drift = user_velocity_and_clock_drift[4] / SPEEDOFLIGHT
+    relative_clock_drift = user_velocity_and_clock_drift[4] / SPEED_OF_LIGHT
     course_over_ground = calc_course_over_ground(position, velocity)
     time_correction = ξ[3+primary_clock_index]
     # The estimated time correction is negative
     # See https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/8
-    corrected_reference_time = reference_time - time_correction / SPEEDOFLIGHT
+    corrected_reference_time = reference_time - time_correction / SPEED_OF_LIGHT
 
     # Assumes `start_time.fraction == 0` (true for GPS/Galileo: integer-second origins).
     time = TAIEpoch(
@@ -1075,7 +1025,7 @@ function get_week(
         <:Union{
             GNSSDecoder.AbstractGalileoEphemerisData,
             GNSSDecoder.AbstractBeiDouData,
-            GPSModernNavData,
+            AbstractGPSCNAVData,
         },
     };
     approximate_year::Integer = year(now(UTC)),
@@ -1098,10 +1048,6 @@ include("sat_time.jl")
 include("sat_position.jl")
 include("ionosphere.jl")
 include("troposphere.jl")
-# BeiDou-specific dispatch — the ephemeris flavour, the GEO frame, the field-name
-# shims, the group delays, the BGTO and the Klobuchar set. Last, because every
-# method in it specialises a function declared by one of the files above.
-include("beidou.jl")
 # The precompile workload solves real fixtures, so it must come after every
 # method it dispatches into.
 include("precompile.jl")

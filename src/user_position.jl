@@ -16,7 +16,7 @@ function calc_ρ_hat!(ρ, sat_positions, ξ, bias_columns::BiasColumns)
     num_sats = size(sat_positions, 2)
     for j in 1:num_sats
         sat_pos = SVector{3}(sat_positions[1, j], sat_positions[2, j], sat_positions[3, j])
-        travel_time = norm(sat_pos - rₙ) / SPEEDOFLIGHT
+        travel_time = norm(sat_pos - rₙ) / SPEED_OF_LIGHT
         rotated_sat_pos = rotate_by_earth_rotation(sat_pos, travel_time)
         ifb =
             bias_columns.ifb_indices[j] == 0 ? 0.0 :
@@ -38,17 +38,20 @@ function rotate_by_earth_rotation(sat_pos, Δt)
 end
 
 """
-Computes e, the direction vector from satellite to user
+Computes the unit line-of-sight vector from the user to the
+(Earth-rotation-corrected) satellite position — the textbook receiver→satellite
+direction. The pseudorange's position partial is its *negative*, which is what
+the design-matrix rows of [`calc_H!`](@ref) carry.
 
 $SIGNATURES
 `ξ`: Combination of estimated user position and time correction
 `sat_pos`: Single satellite positions
 """
-function calc_e(sat_pos, ξ)
+function calc_line_of_sight(sat_pos, ξ)
     rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
-    travel_time = norm(sat_pos - rₙ) / SPEEDOFLIGHT
+    travel_time = norm(sat_pos - rₙ) / SPEED_OF_LIGHT
     rotated_sat_pos = rotate_by_earth_rotation(sat_pos, travel_time)
-    (rₙ - rotated_sat_pos) / norm(rₙ - rotated_sat_pos)
+    (rotated_sat_pos - rₙ) / norm(rotated_sat_pos - rₙ)
 end
 
 """
@@ -71,10 +74,12 @@ function calc_H!(H, sat_positions, ξ, bias_columns::BiasColumns)
     fill!(H, 0.0)
     for j in 1:num_sats
         sat_pos = SVector{3}(view(sat_positions, :, j))
-        e = calc_e(sat_pos, ξ)
-        H[j, 1] = e[1]
-        H[j, 2] = e[2]
-        H[j, 3] = e[3]
+        # The position partial ∂ρ/∂r is the negative of the receiver→satellite
+        # line of sight.
+        e = calc_line_of_sight(sat_pos, ξ)
+        H[j, 1] = -e[1]
+        H[j, 2] = -e[2]
+        H[j, 3] = -e[3]
         H[j, 3+bias_columns.clock_bias_indices[j]] = 1.0
         if bias_columns.ifb_indices[j] != 0
             H[j, 3+bias_columns.num_clock_biases+bias_columns.ifb_indices[j]] = 1.0
@@ -115,7 +120,7 @@ function calc_Avv!(dir_deriv, sat_positions, ξ, v)
     num_sats = size(sat_positions, 2)
     for j in 1:num_sats
         sat_pos = SVector{3}(sat_positions[1, j], sat_positions[2, j], sat_positions[3, j])
-        travel_time = norm(sat_pos - rₙ) / SPEEDOFLIGHT
+        travel_time = norm(sat_pos - rₙ) / SPEED_OF_LIGHT
         rotated_sat_pos = rotate_by_earth_rotation(sat_pos, travel_time)
         u = rotated_sat_pos - rₙ
         d = norm(u)
@@ -167,8 +172,9 @@ Calculates the dilution of precision for a given geometry matrix H
 
 `H_GEO` has `3 + num_clock_biases + num_ifb` columns (three position partials, one per
 GNSS time system, and one per frequency band beyond the reference). `D = (HᵀH)⁻¹` is
-the parameter covariance in the units/frame of `H`. Because `calc_e` builds `H` from
-ECEF line-of-sight vectors, the position block of `D` is in ECEF; it is rotated into
+the parameter covariance in the units/frame of `H`. Because `calc_H!` builds `H` from
+ECEF unit vectors (the negated receiver→satellite lines of sight), the position
+block of `D` is in ECEF; it is rotated into
 the local ENU frame at `user_pos` before the horizontal/vertical split, so `HDOP`/`VDOP`
 are taken in the user's tangent plane (`PDOP`/`GDOP` are trace-invariant and unaffected
 by the rotation). `GDOP` spans all parameters; `TDOP` reports the clock variance of the
@@ -320,9 +326,10 @@ establishes that with [`calc_DOP`](@ref) before calling this; see the comment at
 function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states, times, H)
     num_sats = length(states)
     # Normal-equations form of the 4-unknown velocity + clock-drift least squares.
-    # The velocity design row is [eₓ e_y e_z 1]: the line-of-sight unit vector (H's
-    # first three columns) plus the single common clock-drift column (H's per-system
-    # clock columns, unit indicators, collapsed to a 1). Accumulating HᵀH (4×4) and
+    # The velocity design row is [eₓ e_y e_z 1]: the pseudorange's position partial
+    # (H's first three columns, the negated receiver→satellite line of sight) plus the
+    # single common clock-drift column (H's per-system clock columns, unit indicators,
+    # collapsed to a 1). Accumulating HᵀH (4×4) and
     # Hᵀy (length 4) row by row keeps the (num_sats × 4) design matrix unmaterialised
     # and the solve a fixed 4×4 regardless of satellite count — no per-count
     # recompilation and no per-epoch heap allocation. The Doppler wavelength is
@@ -337,14 +344,15 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
     for j in 1:num_sats
         state = states[j]
         sat_pv = sat_positions_and_velocities[j]
-        λ = SPEEDOFLIGHT / upreferred(get_center_frequency(state.system) / Hz)
+        λ = SPEED_OF_LIGHT / upreferred(get_center_frequency(state.system) / Hz)
         doppler = upreferred(state.carrier_doppler / Hz)
         clock_drift = calc_satellite_clock_drift(state.decoder, times[j])
-        # Line-of-sight unit vector, already computed for the position solve and
-        # stored in H's first three columns (calc_H) — no need to recompute calc_e.
+        # The pseudorange's position partial — the negative of the
+        # receiver→satellite line of sight — already computed for the position
+        # solve and stored in H's first three columns (calc_H).
         e = SVector{3}(view(H, j, 1:3))
         a = SVector(e[1], e[2], e[3], 1.0)
-        yⱼ = -(doppler * λ - clock_drift * SPEEDOFLIGHT - dot(e, get_sat_velocity(sat_pv)))
+        yⱼ = -(doppler * λ - clock_drift * SPEED_OF_LIGHT - dot(e, get_sat_velocity(sat_pv)))
         rate_residuals[j] = yⱼ
         HtH += a * a'
         Hty += a * yⱼ
@@ -362,8 +370,8 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
     velocity_and_drift = cholesky(Symmetric(HtH)) \ Hty
 
     # Post-fit residual, measured minus modeled: the measurement stored in the
-    # accumulation loop, minus the design row `[e 1]` (rebuilt from H's line-of-sight
-    # columns, as above) applied to the solved state.
+    # accumulation loop, minus the design row `[e 1]` (rebuilt from H's
+    # position-partial columns, as above) applied to the solved state.
     #
     # `yⱼ` carries `-doppler * λ`, so it — and this residual with it — runs in the
     # geometric range-rate sense (positive while the satellite recedes), not the

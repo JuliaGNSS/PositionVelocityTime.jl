@@ -128,7 +128,7 @@ end
 
 Klobuchar α/β decoded from a GPS navigation message (LNAV `GPSL1CAData`, CNAV
 `GPSCNAVData` on L5/L2C, or CNAV-2 `GPSL1C_DData`) or from the BeiDou legacy
-D1/D2 message (`BeiDouDNAVData` on B1I/B3I, see `src/beidou.jl`), or `nothing` if
+D1/D2 message (`BeiDouDNAVData` on B1I/B3I), or `nothing` if
 they have not been broadcast yet or the decoder carries no Klobuchar set. The same
 single-frequency Klobuchar model is broadcast on all GPS civil signals; BeiDou
 broadcasts its own set, returned as a [`BeiDouKlobucharParams`](@ref) because its
@@ -143,6 +143,24 @@ function klobuchar_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.Ab
     any(isnothing, (d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)) &&
         return nothing
     return KlobucharParams(d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)
+end
+
+# The legacy D1/D2 message broadcasts an eight-coefficient Klobuchar-style set,
+# but BDS-SIS-ICD-B1I-3.0 §5.2.4.7 prescribes BeiDou's own variant of the
+# algorithm, not a restatement of IS-GPS-200 — exact pierce-point geometry,
+# geographic rather than geomagnetic latitude, a period clamped from above too,
+# and the delay referenced to B1I rather than L1 — so the set gets a type of its
+# own (see [`BeiDouKlobucharParams`](@ref) and
+# [`beidou_klobuchar_group_delay`](@ref)). The BDS-3 B-CNAV messages instead
+# broadcast BDGIM, reached through `bdgim_params` below — those containers
+# therefore report no Klobuchar set.
+function klobuchar_params(
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.BeiDouDNAVData},
+)
+    d = decoder.data
+    any(isnothing, (d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)) &&
+        return nothing
+    return BeiDouKlobucharParams(d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)
 end
 
 """
@@ -169,14 +187,59 @@ end
     bdgim_params(decoder) -> Union{BDGIMParams,Nothing}
 
 The nine BDGIM coefficients decoded from a BDS-3 B-CNAV message — B-CNAV1 on B1C,
-B-CNAV2 on B2a, B-CNAV3 on B2b, all three broadcasting the same set (see
-`src/beidou.jl`) — or `nothing` if they, or the week number the model needs to
+B-CNAV2 on B2a, B-CNAV3 on B2b, all three broadcasting the same set — or
+`nothing` if they, or the week number the model needs to
 date its epoch, have not been decoded yet, or the decoder carries no such set. The
 legacy D1/D2 message (`BeiDouDNAVData`, on B1I/B3I) is in the latter group: it
 broadcasts Klobuchar instead, so it falls to this generic method rather than being
 dispatched on fields it does not have.
 """
 bdgim_params(decoder) = nothing
+
+# Nine coefficients broadcast identically by all three B-CNAV messages — B-CNAV1
+# on B1C (BDS-SIS-ICD-B1C-1.0 §7.8, subframe 3 page type 1), B-CNAV2 on B2a
+# (BDS-SIS-ICD-B2a-1.0 §7.8, message type 30) and B-CNAV3 on B2b
+# (BDS-SIS-ICD-B2b-1.0 §7.7, message type 30) — so one method on the union covers
+# all three rather than three identical ones. GNSSDecoder parses them with the
+# shared `beidou_bdgim_block`, which applies each scale factor and sign, so
+# nothing is rescaled here.
+#
+# `WN` is required alongside the coefficients: BDGIM's time argument is a Modified
+# Julian Date (the sun's mean longitude and the two-hourly prediction epoch), which
+# a time of week alone cannot date. It is decoded in a different subframe/message
+# type from the coefficients on every one of the three signals, so a decoder that
+# has one without the other is the ordinary transient state, not a corrupt one —
+# hence the guard rather than an unwrap.
+function bdgim_params(decoder::GNSSDecoder.GNSSDecoderState{<:AbstractBeiDouCNAVData})
+    d = decoder.data
+    any(
+        isnothing,
+        (
+            d.α_bdgim_1,
+            d.α_bdgim_2,
+            d.α_bdgim_3,
+            d.α_bdgim_4,
+            d.α_bdgim_5,
+            d.α_bdgim_6,
+            d.α_bdgim_7,
+            d.α_bdgim_8,
+            d.α_bdgim_9,
+            d.WN,
+        ),
+    ) && return nothing
+    return BDGIMParams(
+        d.α_bdgim_1,
+        d.α_bdgim_2,
+        d.α_bdgim_3,
+        d.α_bdgim_4,
+        d.α_bdgim_5,
+        d.α_bdgim_6,
+        d.α_bdgim_7,
+        d.α_bdgim_8,
+        d.α_bdgim_9,
+        d.WN,
+    )
+end
 
 """
     select_ionospheric_correction(states)
@@ -268,7 +331,7 @@ function ionospheric_delay(p::KlobucharParams, system, elevation, azimuth, lla, 
     # frequency (IS-GPS-200). The ionospheric delay scales as 1/f², so rescale it
     # to this satellite's actual carrier frequency.
     f = get_center_frequency(system)
-    return SPEEDOFLIGHT * l1_seconds * (get_center_frequency(GPSL1CA) / f)^2
+    return SPEED_OF_LIGHT * l1_seconds * (get_center_frequency(GPSL1CA) / f)^2
 end
 
 function ionospheric_delay(
@@ -293,7 +356,7 @@ function ionospheric_delay(
     # ICD's I_B1I) — 1561.098 MHz, not L1. The delay scales as 1/f², so rescale
     # from B1I to this satellite's actual carrier.
     f = get_center_frequency(system)
-    return SPEEDOFLIGHT * b1i_seconds *
+    return SPEED_OF_LIGHT * b1i_seconds *
            (get_center_frequency(GNSSSignals.BeiDouB1I) / f)^2
 end
 
