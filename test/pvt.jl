@@ -224,7 +224,7 @@ end
 
     # A single Galileo satellite carrying the GGTO is enough to collapse the
     # whole Galileo set: here only the first of two Galileo satellites has it.
-    @test !PositionVelocityTime.gpst_offset_available(gal[2].decoder)
+    @test !PositionVelocityTime.time_offset_available(gal[2].decoder, GPST())
     mixed = [gps[1:2]; [with_ggto(gal[1]; A_0G = Δ), gal[2]]]
     pvt_mixed = calc_pvt(mixed; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test pvt_mixed.position != ECEF(0, 0, 0)
@@ -237,29 +237,29 @@ end
     big = calc_pvt([gps[1:3]; [with_ggto(gal[1]; A_0G = A_big)]]; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test big.inter_system_biases[GST()] ≈ -C * A_big * m rtol = 1e-6
 
-    # calc_gpst_offset evaluates the OS SIS ICD word-type-10 polynomial, taking
+    # calc_steering_offset evaluates the OS SIS ICD word-type-10 polynomial, taking
     # the reference week difference modulo 64.
     g = with_ggto(gal[1]; A_0G = 5.0e-9, A_1G = 1.0e-15, t_0G = 100, WN_0G = 1134)
-    @test PositionVelocityTime.calc_gpst_offset(g.decoder, 132000.0) ≈
+    @test PositionVelocityTime.calc_steering_offset(g.decoder, GPST(), 132000.0) ≈
           5.0e-9 + 1.0e-15 * (132000.0 - 100 + 604800 * mod(1136 - 1134, 64))
-    @test PositionVelocityTime.gpst_offset_available(g.decoder)
-    @test !PositionVelocityTime.gpst_offset_available(gal[1].decoder)
-    @test !PositionVelocityTime.gpst_offset_available(gps[1].decoder)
+    @test PositionVelocityTime.time_offset_available(g.decoder, GPST())
+    @test !PositionVelocityTime.time_offset_available(gal[1].decoder, GPST())
+    @test !PositionVelocityTime.time_offset_available(gps[1].decoder, GPST())
 
-    # calc_gpst_range_offsets turns the decoder `decide_bias_layout` selected into the
+    # calc_hub_range_offsets turns the decoder `decide_bias_layout` selected into the
     # per-satellite range corrections: −c·GGTO for the collapsed (Galileo) satellites at
     # their own transmit times, zero for the anchor system's. An independent layout
     # (an empty decoder map) needs no conversion at all.
     offset_systems = [GPST(), GST(), GPST(), GST()]
     offset_times = [100.0, 200.0, 300.0, 400.0]
-    gpst_offset_decoders = Dict(GST() => g.decoder)
-    offsets = PositionVelocityTime.calc_gpst_range_offsets(
-        gpst_offset_decoders, offset_systems, offset_times)
+    hub_offset_decoders = Dict(GST() => g.decoder)
+    offsets = PositionVelocityTime.calc_hub_range_offsets(
+        hub_offset_decoders, GPST(), offset_systems, offset_times)
     @test offsets[[1, 3]] == [0.0, 0.0]
     @test offsets[[2, 4]] ≈
-          [-C * PositionVelocityTime.calc_gpst_offset(g.decoder, t) for t in (200.0, 400.0)]
-    @test PositionVelocityTime.calc_gpst_range_offsets(
-        Dict(), offset_systems, offset_times) == zeros(4)
+          [-C * PositionVelocityTime.calc_steering_offset(g.decoder, GPST(), t) for t in (200.0, 400.0)]
+    @test PositionVelocityTime.calc_hub_range_offsets(
+        Dict(), nothing, offset_systems, offset_times) == zeros(4)
 end
 
 @testset "PVT primary system is the most-populated GNSS" begin

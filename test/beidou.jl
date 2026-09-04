@@ -486,21 +486,21 @@
         # functions the solve calls.
         #
         # `A_0` from the decoder bundles the defined 14 s scale offset with the
-        # broadcast residual, and `calc_gpst_offset` takes the 14 s back out because
+        # broadcast residual, and `calc_steering_offset` takes the 14 s back out because
         # `calc_time_scale_offsets` has already applied it to the transmit times.
         # Recovering ~1e-8 s by subtracting 14 s in Float64 leaves about one ULP at
         # 14, i.e. ~1.8e-15 s — half a micrometre of range, but far above the default
         # `≈` tolerance on a value of 8e-9, hence the explicit atol throughout.
-        steering(decoder, t) = PositionVelocityTime.calc_gpst_offset(decoder, t)
+        steering(decoder, t) = PositionVelocityTime.calc_steering_offset(decoder, GPST(), t)
         atol_cancellation = 1e-14
 
-        @test !PositionVelocityTime.gpst_offset_available(d1)
-        @test !PositionVelocityTime.gpst_offset_available(b2a)
+        @test !PositionVelocityTime.time_offset_available(d1, GPST())
+        @test !PositionVelocityTime.time_offset_available(b2a, GPST())
 
         # Legacy D1: a bare two-term polynomial with no reference epoch, so the
         # argument is the time of week itself (BDS-SIS-ICD-B1I-3.0 §5.2.4.18).
         legacy = dnav_decoder(galileo[1]; A_0GPS = 8.0e-9, A_1GPS = 1.0e-15)
-        @test PositionVelocityTime.gpst_offset_available(legacy)
+        @test PositionVelocityTime.time_offset_available(legacy, GPST())
         @test steering(legacy, 132000.0) ≈ 8.0e-9 + 1.0e-15 * 132000.0 atol =
             atol_cancellation
 
@@ -510,13 +510,13 @@
         bgto = (; WN_0BGTO = Int64(799), t_0BGTO = Int64(100),
             A_0BGTO = 5.0e-9, A_1BGTO = 1.0e-15, A_2BGTO = 1.0e-21)
         gps_bgto = b2a_decoder(galileo[1]; GNSS_ID = Int64(1), bgto...)
-        @test PositionVelocityTime.gpst_offset_available(gps_bgto)
+        @test PositionVelocityTime.time_offset_available(gps_bgto, GPST())
         Δτ = 132000.0 - 100 + 604800 * (800 - 799)
         @test steering(gps_bgto, 132000.0) ≈
               5.0e-9 + 1.0e-15 * Δτ + 1.0e-21 * Δτ^2 atol = atol_cancellation
         for gnss_id in (Int64(0), Int64(2), Int64(3))   # unavailable / Galileo / GLONASS
-            @test !PositionVelocityTime.gpst_offset_available(
-                b2a_decoder(galileo[1]; GNSS_ID = gnss_id, bgto...))
+            @test !PositionVelocityTime.time_offset_available(
+                b2a_decoder(galileo[1]; GNSS_ID = gnss_id, bgto...), GPST())
         end
 
         # B-CNAV3 uses the same fields ...
@@ -525,7 +525,7 @@
             t_0BGTO = Int64(100), A_0BGTO = 5.0e-9, A_1BGTO = 0.0, A_2BGTO = 0.0)
         b2b = GNSSDecoder.GNSSDecoderState(
             GNSSDecoder.BeiDouB2bDecoderState(20); data = b2b_data, raw_data = b2b_data)
-        @test PositionVelocityTime.gpst_offset_available(b2b)
+        @test PositionVelocityTime.time_offset_available(b2b, GPST())
         @test steering(b2b, 132000.0) ≈ 5.0e-9 atol = atol_cancellation
 
         # ... while B-CNAV1 pages one record per GNSS into a dictionary, so the GPS
@@ -544,14 +544,15 @@
         )
         b1c = GNSSDecoder.GNSSDecoderState(
             GNSSDecoder.BeiDouB1CDecoderState(20); data = b1c_data, raw_data = b1c_data)
-        @test PositionVelocityTime.gpst_offset_available(b1c)
+        @test PositionVelocityTime.time_offset_available(b1c, GPST())
         # The GPS record, not the Galileo one that also sits in the dictionary.
         @test steering(b1c, 132000.0) ≈ 5.0e-9 atol = atol_cancellation
         # A satellite carrying only a Galileo offset has nothing to convert to GPS.
         galileo_only = GNSSDecoder.BeiDouB1CData(b1c_data;
             bgtos = Dictionary([2], [b1c_data.bgtos[2]]))
-        @test !PositionVelocityTime.gpst_offset_available(
-            GNSSDecoder.GNSSDecoderState(b1c; data = galileo_only, raw_data = galileo_only))
+        @test !PositionVelocityTime.time_offset_available(
+            GNSSDecoder.GNSSDecoderState(b1c; data = galileo_only, raw_data = galileo_only),
+            GPST())
     end
 
     # ---- End to end ---------------------------------------------------------
@@ -871,7 +872,54 @@
             [:L1, :L1, :L1, :L1, :L1],
         )
         @test !isnothing(layout)
-        @test Set(keys(layout.gpst_offset_decoders)) == Set([BDT(), GST()])
+        @test layout.hub_system == GPST()
+        @test Set(keys(layout.hub_offset_decoders)) == Set([BDT(), GST()])
         @test layout.bias_columns.num_clock_biases == 1
+
+        # The hub is not GPS-specific. A GPS-free scarce epoch collapses onto
+        # Galileo instead: the BGTO's GNSS_ID names Galileo (2) as well as GPS (1)
+        # — BDS-SIS-ICD-B1C-1.0 §7.13.1 — and `decide_bias_layout` tries GST as the
+        # hub once GPST is not in the epoch. Everything downstream follows the hub:
+        # the primary system, the reported time scale, and the inter-system-bias
+        # readout. (The defined BDT count offset against GST is the same 14 s as
+        # against GPST — both GPST and GST are TAI − 19 s — so the same `structural`
+        # and steering values apply.)
+        beidou_gal_bgto = ranging_state(
+            b1c_decoder(
+                galileo[4];
+                bgtos = Dictionary(
+                    [2],
+                    [
+                        GNSSDecoder.BeiDouB1CBGTO(;
+                            GNSS_ID = 2, WN_0BGTO = 800, t_0BGTO = 0,
+                            A_0BGTO = Δ, A_1BGTO = 0.0, A_2BGTO = 0.0),
+                    ],
+                ),
+            ),
+            BeiDouB1C_D(),
+            user,
+            t_rx + structural + Δ,
+        )
+        # Re-synthesized against this testset's own `user`/`t_rx`, like every other
+        # satellite here; the top-level `galileo` states were built for another epoch.
+        gal_states = [
+            ranging_state(st.decoder, st.system, user, t_rx) for st in galileo[1:3]
+        ]
+        gps_free = [gal_states; [beidou_gal_bgto]]
+        gst_layout = PositionVelocityTime.decide_bias_layout(
+            gps_free,
+            map(st -> get_time_system(st.system), gps_free),
+            map(st -> get_band_id(st.system), gps_free),
+        )
+        @test !isnothing(gst_layout)
+        @test gst_layout.hub_system == GST()
+        @test collect(keys(gst_layout.hub_offset_decoders)) == [BDT()]
+        @test gst_layout.bias_columns.num_clock_biases == 1
+
+        gst_collapsed = calc_pvt(gps_free; kw...)
+        @test gst_collapsed.reference_system == GST()
+        @test length(gst_collapsed.sats) == 4
+        @test norm(gst_collapsed.position - user) < 5e-2
+        @test ustrip(m, gst_collapsed.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
     end
 end

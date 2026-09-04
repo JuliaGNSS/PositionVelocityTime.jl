@@ -17,7 +17,7 @@
 
     @testset "classification: GPS time system, L2 band, GPSL2CM signal id" begin
         @test GNSSSignals.get_time_system(GNSSSignals.GPSL2CM()) == GNSSSignals.GPST()
-        @test !PositionVelocityTime.gpst_offset_available(l2c)
+        @test !PositionVelocityTime.time_offset_available(l2c, GPST())
         @test GNSSSignals.get_band_id(GNSSSignals.GPSL2CM()) == :L2
         @test GNSSSignals.get_signal_id(GNSSSignals.GPSL2CM()) == :GPSL2CM
     end
