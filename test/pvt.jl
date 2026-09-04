@@ -249,17 +249,17 @@ end
     # calc_gpst_range_offsets turns the decoder `decide_bias_layout` selected into the
     # per-satellite range corrections: −c·GGTO for the collapsed (Galileo) satellites at
     # their own transmit times, zero for the anchor system's. An independent layout
-    # (`nothing`) needs no conversion at all.
+    # (an empty decoder map) needs no conversion at all.
     offset_systems = [GPST(), GST(), GPST(), GST()]
     offset_times = [100.0, 200.0, 300.0, 400.0]
-    gpst_offset_decoders = PositionVelocityTime.GPSTOffsetDecoders(GST() => g.decoder)
+    gpst_offset_decoders = Dict(GST() => g.decoder)
     offsets = PositionVelocityTime.calc_gpst_range_offsets(
         gpst_offset_decoders, offset_systems, offset_times)
     @test offsets[[1, 3]] == [0.0, 0.0]
     @test offsets[[2, 4]] ≈
           [-C * PositionVelocityTime.calc_gpst_offset(g.decoder, t) for t in (200.0, 400.0)]
     @test PositionVelocityTime.calc_gpst_range_offsets(
-        nothing, offset_systems, offset_times) == zeros(4)
+        Dict(), offset_systems, offset_times) == zeros(4)
 end
 
 @testset "PVT primary system is the most-populated GNSS" begin
@@ -596,6 +596,23 @@ end
     faster[3] = with_doppler(states[3], states[3].carrier_doppler + Δdoppler)
     _, closing = PositionVelocityTime.calc_user_velocity_and_clock_drift(
         sat_pvs, faster, times, H)
-    λ = PositionVelocityTime.SPEEDOFLIGHT / ustrip(Hz, get_center_frequency(states[3].system))
+    λ = PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(states[3].system))
     @test -λ * ustrip(Hz, Δdoppler) < closing[3] - base[3] < 0.0
+end
+
+@testset "calc_line_of_sight points receiver → satellite" begin
+    # The textbook convention (Misra & Enge's 1ₖ, RTKLIB's `e`), pinned directly
+    # because every H-based assertion is insensitive to it: `calc_H!` negates the
+    # vector into the pseudorange's position partial, so a flipped convention with a
+    # matching flip there would pass the whole suite unnoticed.
+    user = [3.9074e6, 3.0684e5, 5.0150e6]
+    sat = user + 2.0e7 * normalize([0.3, 0.1, 0.95])
+    e = PositionVelocityTime.calc_line_of_sight(sat, [user; 0.0])
+    @test norm(e) ≈ 1.0
+    # Up to the ~30 m Sagnac rotation of the satellite position.
+    @test dot(e, normalize(sat - user)) > 1 - 1e-10
+    # And the design row carries its negative.
+    H = PositionVelocityTime.calc_H(reshape(sat, 3, 1), [user; 0.0],
+        PositionVelocityTime.BiasColumns([1], 1, [0], 0))
+    @test H[1, 1:3] ≈ -e
 end

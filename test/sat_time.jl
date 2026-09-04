@@ -1,9 +1,9 @@
 @testset "Week crossover" begin
-    @test PositionVelocityTime.correct_week_crossovers(0) == 0
+    @test PositionVelocityTime.fold_week_crossover(0) == 0
 
-    @test PositionVelocityTime.correct_week_crossovers(350000) == 350000 - 604800
+    @test PositionVelocityTime.fold_week_crossover(350000) == 350000 - 604800
 
-    @test PositionVelocityTime.correct_week_crossovers(-350000) == 604800 - 350000
+    @test PositionVelocityTime.fold_week_crossover(-350000) == 604800 - 350000
 end
 
 # `calc_satellite_clock_drift` must be the time derivative of the clock correction that
@@ -101,10 +101,10 @@ end
     # The wrapped carrier phase spans one cycle, so the term is bounded by half a carrier
     # wavelength of range — ~9.5 cm on L1, not the ~60 cm a radians-as-cycles reading gives.
     half_wavelength =
-        0.5 * PositionVelocityTime.SPEEDOFLIGHT / ustrip(Hz, get_center_frequency(system))
+        0.5 * PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(system))
     @test half_wavelength ≈ 0.0952 atol = 1e-4
     @test maximum(
-        abs(time_of(φ) * PositionVelocityTime.SPEEDOFLIGHT) for
+        abs(time_of(φ) * PositionVelocityTime.SPEED_OF_LIGHT) for
         φ in range(-Float64(π), Float64(π); length = 21)
     ) ≈ half_wavelength
 end

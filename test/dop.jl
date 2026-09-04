@@ -2,7 +2,7 @@
     # ECEF line-of-sight unit vector for a satellite at azimuth `az` (rad, from
     # North) and elevation `el` (rad), seen from `user`. Built by rotating the
     # local ENU direction back to ECEF via Geodesy, so the geometry matches what
-    # the solver feeds calc_DOP (ECEF line-of-sight rows from calc_e).
+    # the solver feeds calc_DOP (rows of negated ECEF lines of sight, as calc_H! builds).
     enu_los(az, el) = [cos(el) * sin(az), cos(el) * cos(az), sin(el)]
     function ecef_los(user, az, el)
         e = enu_los(az, el)

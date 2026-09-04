@@ -223,34 +223,13 @@
         @test GNSSDecoder.get_time_of_week(b1c) == 36 * 3600 + 25 * 18
     end
 
-    # ---- Clock and ephemeris accessors --------------------------------------
+    # ---- Clock polynomial ----------------------------------------------------
 
-    @testset "clock and ephemeris accessors read every BeiDou container" begin
+    @testset "the clock model reads the BeiDou containers like any other" begin
         # The clock model and the propagator are written once for all eleven
-        # signals, so they reach the polynomial through these accessors. Every
-        # container now agrees on the spelling, which is what makes the generic
-        # methods sufficient — assert that for each of the four BeiDou containers
-        # rather than trusting it, since a decoder-side rename is what changed it.
-        @test PositionVelocityTime.clock_bias(d1.data) == d1.data.a_f0
-        @test PositionVelocityTime.clock_drift(d1.data) == d1.data.a_f1
-        @test PositionVelocityTime.clock_drift_rate(d1.data) == d1.data.a_f2
-        @test PositionVelocityTime.clock_reference_time(d1.data) == d1.data.t_0c
-        @test PositionVelocityTime.ephemeris_reference_time(d1.data) == d1.data.t_0e
-
-        b1c_data = GNSSDecoder.BeiDouB1CData(;
-            t_0c = Int64(132000), t_0e = Int64(132000),
-            a_f0 = 1.0e-4, a_f1 = 2.0e-12, a_f2 = 3.0e-20)
-        @test PositionVelocityTime.clock_reference_time(b1c_data) == 132000
-        @test PositionVelocityTime.ephemeris_reference_time(b1c_data) == 132000
-        @test PositionVelocityTime.clock_bias(b1c_data) == 1.0e-4
-
-        b2b_data = GNSSDecoder.BeiDouB2bData(;
-            t_0c = Int64(132000), a_f0 = 1.0e-4, a_f1 = 2.0e-12, a_f2 = 3.0e-20)
-        @test PositionVelocityTime.clock_bias(b2b_data) == 1.0e-4
-        @test PositionVelocityTime.clock_drift(b2b_data) == 2.0e-12
-        @test PositionVelocityTime.clock_drift_rate(b2b_data) == 3.0e-20
-
-        # And the polynomial actually built from them matches the ICD expression.
+        # signals, directly off the field names every GNSSDecoder container
+        # spells the same way — pin the polynomial they build against the ICD
+        # expression on a BeiDou container.
         t = 132769.0
         Δt = t - d1.data.t_0c
         @test PositionVelocityTime.calc_satellite_clock_drift(d1, t) ≈

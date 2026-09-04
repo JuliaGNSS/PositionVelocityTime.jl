@@ -74,18 +74,17 @@ here are seconds-of-week counts on each satellite's own system scale unless a
 function says otherwise.
 
 ```@docs
-PositionVelocityTime.SPEEDOFLIGHT
+PositionVelocityTime.SPEED_OF_LIGHT
 PositionVelocityTime.calc_corrected_time
 PositionVelocityTime.calc_satellite_clock_drift
 PositionVelocityTime.get_sat_position
 PositionVelocityTime.get_sat_velocity
-PositionVelocityTime.correct_week_crossovers
+PositionVelocityTime.fold_week_crossover
 PositionVelocityTime.BiasColumns
-PositionVelocityTime.BiasLayout
 PositionVelocityTime.decide_bias_layout
 PositionVelocityTime.calc_ρ_hat!
 PositionVelocityTime.calc_H
-PositionVelocityTime.calc_e
+PositionVelocityTime.calc_line_of_sight
 PositionVelocityTime.calc_DOP
 PositionVelocityTime.time_scale_offset_to_gpst
 PositionVelocityTime.calc_time_scale_offsets

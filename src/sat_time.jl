@@ -1,5 +1,5 @@
 """
-    correct_week_crossovers(t) -> Float64
+    fold_week_crossover(t) -> Float64
 
 Fold a difference of two seconds-of-week counts modulo the week, into
 `(-302400, 302400]`: near a week rollover the two operands sit on opposite
@@ -7,7 +7,7 @@ sides of the wrap and their raw difference is off by ±604800 s. Every time
 difference in this package — and in a consumer differencing transmit times —
 must pass through this.
 """
-function correct_week_crossovers(t)
+function fold_week_crossover(t)
     half_week = SECONDS_PER_WEEK / 2
     t + (t > half_week ? -2 * half_week : (t < -half_week ? 2 * half_week : 0.0))
 end
@@ -49,35 +49,13 @@ end
 
 function calc_relativistic_correction(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data
-    time_from_ephemeris_reference_epoch =
-        correct_week_crossovers(t - ephemeris_reference_time(data))
+    time_from_ephemeris_reference_epoch = fold_week_crossover(t - data.t_0e)
     # √A from the effective elements: the broadcast `sqrt_A` directly for LNAV/Galileo,
     # `√(A_REF + ΔA)` for CNAV/CNAV-2 (which carry no `sqrt_A` field).
     el = orbital_elements(data, decoder.constants.μ, time_from_ephemeris_reference_epoch)
     E = calc_eccentric_anomaly(decoder, t)
     decoder.constants.F * data.e * el.sqrt_A * sin(E)
 end
-
-"""
-    clock_reference_time(data) -> Real
-    clock_bias(data)           -> Real
-    clock_drift(data)          -> Real
-    clock_drift_rate(data)     -> Real
-
-The SV clock-correction polynomial `Δt = a_f0 + a_f1·(t − t_0c) + a_f2·(t − t_0c)²`,
-read field by field so the polynomial itself can be written once for every
-navigation message.
-
-Every navigation message GNSSDecoder produces spells these fields the same way,
-so one method serves all of them. They are read through accessors anyway, rather
-than as `data.a_f0` at each site, because that is what let the BeiDou containers
-be adopted while they still disagreed on the spelling — and what would absorb the
-next such difference in one line instead of branching the clock model.
-"""
-clock_reference_time(data::GNSSDecoder.AbstractGNSSData) = data.t_0c
-clock_bias(data::GNSSDecoder.AbstractGNSSData) = data.a_f0
-clock_drift(data::GNSSDecoder.AbstractGNSSData) = data.a_f1
-clock_drift_rate(data::GNSSDecoder.AbstractGNSSData) = data.a_f2
 
 function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, system, t)
     Δtr = calc_relativistic_correction(decoder, t)
@@ -86,11 +64,11 @@ function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, system, t)
     # rollover `t` and `t_0c` sit on opposite sides of the wrap, and the raw
     # difference of ±604800 s puts ~a_f1·604800 ≈ microseconds (kilometres of
     # range) into a polynomial whose real argument is seconds.
-    Δt_from_reference = correct_week_crossovers(t - clock_reference_time(data))
+    Δt_from_reference = fold_week_crossover(t - data.t_0c)
     Δt =
-        clock_bias(data) +
-        clock_drift(data) * Δt_from_reference +
-        clock_drift_rate(data) * Δt_from_reference^2 +
+        data.a_f0 +
+        data.a_f1 * Δt_from_reference +
+        data.a_f2 * Δt_from_reference^2 +
         Δtr
     t - correct_by_group_delay(decoder, system, Δt)
 end
@@ -111,8 +89,7 @@ The rate of the relativistic periodic term `Δt_rel = F·e·√A·sin(E)` that
 """
 function calc_satellite_clock_drift(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data
-    clock_drift(data) +
-    2 * clock_drift_rate(data) * correct_week_crossovers(t - clock_reference_time(data))
+    data.a_f1 + 2 * data.a_f2 * fold_week_crossover(t - data.t_0c)
 end
 
 # Group-delay / inter-signal correction, selected by the *ranging* signal `system`
@@ -258,6 +235,96 @@ correct_by_group_delay(
 ) =
     t -
     galileo_group_delay_scaling(system) * decoder.data.BGD_E1_E5a
+
+# BeiDou references its broadcast clock polynomial to the B3I signal, on both the
+# legacy and the BDS-3 messages, and then publishes a group delay per signal to
+# get from there to the signal a range was actually generated on
+# (BDS-SIS-ICD-B1I-3.0 §5.2.4.10, BDS-SIS-ICD-B1C-1.0 §7.6 and its B2a/B2b
+# counterparts). B3I itself therefore needs no correction at all — the one
+# ranging signal in this package whose clock is already referred to it. The data
+# components carry an additional inter-signal correction on top of their band's
+# pilot group delay (`ISC_B1Cd`, `ISC_B2ad`), exactly like the GPS L1C and L5
+# ISCs above.
+#
+# `group_delay_term` appears on B2a's terms and on no others, which is not an
+# oversight but the decoder's gating read back. `is_decoding_completed_for_positioning`
+# requires a signal's own single-band correction wherever it rides in the block the
+# gate already waits for, and excludes it where requiring it would mean waiting on a
+# message the ICD does not schedule:
+#
+#   - D1/D2 gates `T_GD1`, the correction for the one band it is decoded on that has
+#     a ranging signal here (not `T_GD2` — see the B1I method below); B1C gates
+#     `T_GD_B1Cp` and `ISC_B1Cd` (bits
+#     546-569 of the same CRC-protected subframe 2 as the ephemeris); B2b gates
+#     `T_GD_B2bI` (same MT30 as the clock). All read unwrapped — a `nothing` there
+#     means a broken decoder, and taking it as zero would hide that as a metre of
+#     range.
+#   - B2a alone is excluded: `T_GD_B2ap`, `ISC_B2ad` and `T_GD_B1Cp` ride in MT30
+#     only, while the clock and IODC are in all of MT30-34, and BDS-SIS-ICD-B2a-1.0
+#     §6.2 schedules only the MT10/11 pair. Gating on MT30 would gate on an interval
+#     nothing bounds, so those really can be absent and are taken as zero.
+
+# Legacy D1/D2 on B1I: T_GD1 is the B1I group delay differential. The message also
+# carries T_GD2, for BDS-2's B2I, and nothing reads it: B2I has no signal definition
+# in GNSSSignals and will not get one (JuliaGNSS/GNSSSignals.jl#156 — 13 of the 15
+# remaining BDS-2 satellites were decommissioned in April 2026, leaving two IGSO
+# transmitters and no successor, since B2a and B2b replaced it on BDS-3). So this is
+# a field with no consumer rather than one awaiting a ranging signal.
+correct_by_group_delay(
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.BeiDouDNAVData},
+    ::GNSSSignals.BeiDouB1I,
+    t,
+) = t - decoder.data.T_GD1
+# ... and on B3I: none, the clock is already B3I-referenced.
+correct_by_group_delay(
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.BeiDouDNAVData},
+    ::GNSSSignals.BeiDouB3I,
+    t,
+) = t
+
+# B-CNAV1 (B1C) carries the B1C pilot group delay plus the data-component ISC. It
+# also broadcasts the B2a pilot's group delay, but no method reads it: a B2a range is
+# generated on the B2a component and so carries a B2a decoder, never a B1C one.
+correct_by_group_delay(
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.BeiDouB1CData},
+    ::GNSSSignals.BeiDouB1C_D,
+    t,
+) = t - decoder.data.T_GD_B1Cp - decoder.data.ISC_B1Cd
+correct_by_group_delay(
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.BeiDouB1CData},
+    ::GNSSSignals.BeiDouB1C_P,
+    t,
+) = t - decoder.data.T_GD_B1Cp
+# B-CNAV2 (B2a) mirrors it: the B2a pilot group delay plus the B2a data ISC. It too
+# carries the other band's pilot delay (`T_GD_B1Cp`) that nothing here reads.
+correct_by_group_delay(
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.BeiDouB2aData},
+    ::GNSSSignals.BeiDouB2aI,
+    t,
+) =
+    t - group_delay_term(decoder.data.T_GD_B2ap) -
+    group_delay_term(decoder.data.ISC_B2ad)
+correct_by_group_delay(
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.BeiDouB2aData},
+    ::GNSSSignals.BeiDouB2aQ,
+    t,
+) = t - group_delay_term(decoder.data.T_GD_B2ap)
+# B-CNAV3 (B2b) carries only its own: B2b_I has no pilot and no sibling ISC.
+correct_by_group_delay(
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.BeiDouB2bData},
+    ::GNSSSignals.BeiDouB2bI,
+    t,
+) = t - decoder.data.T_GD_B2bI
+
+# There is deliberately no catch-all method, and the methods above — GPS, Galileo and
+# BeiDou alike — cover exactly the ranging signals of the band each message is decoded
+# on, data component and pilot. Anything else is a cross-band pairing, which cannot
+# arise: a range is generated on the band its own data component was decoded from.
+# Returning `t` for such a call, as an earlier version did, is the one answer that
+# cannot be told apart from a correct zero correction; a `MethodError` says what
+# actually happened. (D1/D2 spans two bands because one message is broadcast on both
+# B1I and B3I, so both are same-band pairings with their own decoder — as are GPS
+# CNAV's L5 and L2C signals, for the same reason.)
 
 """
     calc_corrected_time(state::SatelliteState) -> Float64
