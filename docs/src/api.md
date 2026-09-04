@@ -88,8 +88,8 @@ PositionVelocityTime.calc_line_of_sight
 PositionVelocityTime.calc_DOP
 PositionVelocityTime.time_scale_offset_to_gpst
 PositionVelocityTime.calc_time_scale_offsets
-PositionVelocityTime.gpst_offset_available
-PositionVelocityTime.calc_gpst_offset
+PositionVelocityTime.time_offset_available
+PositionVelocityTime.calc_steering_offset
 PositionVelocityTime.get_week
 PositionVelocityTime.system_start_epoch
 PositionVelocityTime.day_of_year
@@ -103,7 +103,7 @@ The unexported internals the surface above links to, documented for reference:
 PositionVelocityTime.calc_H!
 PositionVelocityTime.user_position
 PositionVelocityTime.num_lsq_params
-PositionVelocityTime.calc_gpst_range_offsets
+PositionVelocityTime.calc_hub_range_offsets
 PositionVelocityTime.positive_definite_cholesky
 ```
 

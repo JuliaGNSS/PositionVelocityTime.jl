@@ -343,38 +343,44 @@ function calc_corrected_time(state::SatelliteState)
 end
 
 """
-    gpst_offset_available(decoder) -> Bool
+    time_offset_available(decoder, target::GNSSSignals.TimeSystem) -> Bool
 
 Whether `decoder` carries a usable broadcast offset from its own GNSS time system
-to GPS Time. Such an offset lets that constellation's measurements be expressed on
-the GPS clock, which makes a fix possible when the geometry is too weak to
-estimate an independent clock bias for it — see [`decide_bias_layout`](@ref).
+to `target`. Such an offset lets that constellation's measurements be expressed on
+the target system's clock, which makes a fix possible when the geometry is too
+weak to estimate an independent clock bias for it — see [`decide_bias_layout`](@ref),
+which collapses onto a hub system this way. Toward GPS Time that is Galileo's GGTO
+and BeiDou's BGTO; toward Galileo System Time it is BeiDou's BGTO variant and the
+GGTO GPS itself broadcasts on CNAV/CNAV-2.
 
 Delegates to GNSSDecoder's `get_time_offset`, which screens every way a signal can
-fail to have one: it broadcasts none (GPS L1 C/A, Galileo E6-B), it does but has
-not decoded one yet, it has but for a different target system, the ICD's
-"not available" sentinel is set (a `GNSS_ID` of 0; Galileo's all-ones GGTO), or —
-on Galileo — the reference week has not arrived yet, since word type 10 can be
-decoded before the week number is. Always `false` for a GPS decoder: GPST is the
-target, and the offset from a scale to itself is not a broadcast quantity.
+fail to have one: it broadcasts none toward `target` (GPS L1 C/A and Galileo E6-B
+broadcast none at all), it does but has not decoded one yet, the decoded one names
+a different target system, the ICD's "not available" sentinel is set (a `GNSS_ID`
+of 0; Galileo's all-ones GGTO), or — on Galileo — the reference week has not
+arrived yet, since word type 10 can be decoded before the week number is. Always
+`false` when `target` is the decoder's own system: the offset from a scale to
+itself is not a broadcast quantity.
 """
-gpst_offset_available(decoder::GNSSDecoder.GNSSDecoderState) =
-    !isnothing(get_time_offset(decoder, GPST()))
+time_offset_available(decoder::GNSSDecoder.GNSSDecoderState, target::GNSSSignals.TimeSystem) =
+    !isnothing(get_time_offset(decoder, target))
 
 """
-    calc_gpst_offset(decoder, t) -> Float64
+    calc_steering_offset(decoder, target::GNSSSignals.TimeSystem, t) -> Float64
 
-The broadcast *steering* offset between this constellation's time scale and GPS
-Time, in seconds, at its own time of week `t`. Subtract it to convert a transmit
-time to GPS time. Only defined where [`gpst_offset_available`](@ref) is `true`.
+The broadcast *steering* offset between this constellation's time scale and
+`target`'s, in seconds, at its own time of week `t`. Subtract it to convert a
+transmit time to the target system's time. Only defined where
+[`time_offset_available`](@ref) is `true` for the same `target`.
 
 Tens of nanoseconds: it is the residual between two atomic scales, not the
 whole difference between their counts. GNSSDecoder's `GNSSTimeOffset.A_0` folds
 in the *defined* whole-second offset as well — so that `t_target = t_own − Δt`
-holds for the seconds — and this takes that part back out, because
-[`calc_time_scale_offsets`](@ref) has already applied it to the transmit times
-before they were differenced. Both use the same `get_tai_offset` expression, so
-the two halves compose exactly rather than approximately.
+holds for the seconds — and this takes that part back out (as the difference of
+two [`time_scale_offset_to_gpst`](@ref) anchors, which is target-independent),
+because [`calc_time_scale_offsets`](@ref) has already applied it to the transmit
+times before they were differenced. Both use the same `get_tai_offset`
+expression, so the two halves compose exactly rather than approximately.
 
 !!! note "The subtraction costs about seven digits of the residual"
 
@@ -383,8 +389,12 @@ the two halves compose exactly rather than approximately.
     is irrelevant to a fix, but it is why the tests here compare the steering term
     with an explicit tolerance rather than the default `≈`.
 """
-function calc_gpst_offset(decoder::GNSSDecoder.GNSSDecoderState, t)
-    offset = get_time_offset(decoder, GPST())
+function calc_steering_offset(
+    decoder::GNSSDecoder.GNSSDecoderState,
+    target::GNSSSignals.TimeSystem,
+    t,
+)
+    offset = get_time_offset(decoder, target)
     # `t_0`/`WN_0` are absent on BeiDou D1/D2, whose two-term offset carries no
     # reference epoch at all; there Δτ is the time of week itself. Where they are
     # present, `WN_0` has already been lifted into the decoder's own week numbering
@@ -394,5 +404,8 @@ function calc_gpst_offset(decoder::GNSSDecoder.GNSSDecoderState, t)
         isnothing(offset.t_0) ? t :
         t - offset.t_0 + SECONDS_PER_WEEK * (get_week(decoder) - offset.WN_0)
     total = offset.A_0 + offset.A_1 * Δτ + offset.A_2 * Δτ^2
-    total - time_scale_offset_to_gpst(get_time_system(decoder))
+    total - (
+        time_scale_offset_to_gpst(get_time_system(decoder)) -
+        time_scale_offset_to_gpst(target)
+    )
 end

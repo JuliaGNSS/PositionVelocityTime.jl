@@ -202,7 +202,7 @@ end
         # `AbstractGalileoEphemerisData`, and keying on the narrower supertype is what
         # makes these answer "no" rather than raise a `FieldError` on a field that was
         # never broadcast.
-        @test PositionVelocityTime.gpst_offset_available(e6b) == false
+        @test PositionVelocityTime.time_offset_available(e6b, GPST()) == false
         @test PositionVelocityTime.ntcm_g_params(e6b) === nothing
         @test PositionVelocityTime.klobuchar_params(e6b) === nothing
         # A week number genuinely does not exist for C/NAV, so this is a MethodError

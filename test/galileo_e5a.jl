@@ -76,10 +76,10 @@
     end
 
     @testset "GGTO (shared word-type-10 layout with E1B)" begin
-        @test !PositionVelocityTime.gpst_offset_available(e5a)
+        @test !PositionVelocityTime.time_offset_available(e5a, GPST())
         g = swap(GNSSDecoder.GalileoE5aData(e5a_eph; A_0G = 5e-9, A_1G = 1e-15, t_0G = 100, WN_0G = 1134))
-        @test PositionVelocityTime.gpst_offset_available(g)
-        @test PositionVelocityTime.calc_gpst_offset(g, 132000.0) ≈
+        @test PositionVelocityTime.time_offset_available(g, GPST())
+        @test PositionVelocityTime.calc_steering_offset(g, GPST(), 132000.0) ≈
               5e-9 + 1e-15 * (132000.0 - 100 + 604800 * mod(d.WN - 1134, 64))
     end
 end

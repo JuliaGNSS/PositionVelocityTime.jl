@@ -388,8 +388,8 @@ end
 
 Decide the full least-squares bias layout — one clock column per GNSS time system plus
 the per-band inter-frequency-bias columns from [`band_ifb_layout`](@ref) — and return
-it as `(; bias_columns, extra_bands, reference_bands, gpst_offset_decoders)`, or
-`nothing` when the constellation cannot be solved:
+it as `(; bias_columns, extra_bands, reference_bands, hub_system, hub_offset_decoders)`,
+or `nothing` when the constellation cannot be solved:
 
 - `bias_columns::BiasColumns`: the per-satellite column assignment (see
   [`BiasColumns`](@ref)).
@@ -398,17 +398,19 @@ it as `(; bias_columns, extra_bands, reference_bands, gpst_offset_decoders)`, or
 - `reference_bands::Vector{Symbol}`: per IFB column, the reference band of its coverage
   component — the anchor that column's bias is measured against (see
   [`band_ifb_layout`](@ref)).
-- `gpst_offset_decoders::Dict`: per collapsed time system, the decoder whose broadcast
-  offset to GPS Time converts that system's measurements — the same vocabulary as
-  [`gpst_offset_available`](@ref), which decides membership, and
-  [`calc_gpst_offset`](@ref), which evaluates one entry (see
-  [`calc_gpst_range_offsets`](@ref)). Empty for a layout that estimates every clock
-  bias independently, which is the common case.
+- `hub_system::Union{Nothing,GNSSSignals.TimeSystem}`: the system the collapsed
+  clocks were merged onto, or `nothing` for a layout that estimates every clock bias
+  independently, which is the common case.
+- `hub_offset_decoders::Dict`: per collapsed time system, the decoder whose broadcast
+  offset to `hub_system` converts that system's measurements — the same vocabulary as
+  [`time_offset_available`](@ref), which decides membership, and
+  [`calc_steering_offset`](@ref), which evaluates one entry (see
+  [`calc_hub_range_offsets`](@ref)). Empty exactly when `hub_system` is `nothing`.
 
 Every input is a classification of the epoch, never a transmit time: the counts, the
-coverage graph and `gpst_offset_available` are all the decision needs. The offsets its
-`gpst_offset_decoders` enable are built afterwards, once [`calc_pvt`](@ref) has the transmit
-times.
+coverage graph and `time_offset_available` are all the decision needs. The offsets its
+`hub_offset_decoders` enable are built afterwards, once [`calc_pvt`](@ref) has the
+transmit times.
 
 The decision is observability-driven, not merely count-driven:
 
@@ -420,15 +422,22 @@ The decision is observability-driven, not merely count-driven:
   the geometry, so neither inherits the broadcast-GGTO error (the satellite group delays
   are already removed per satellite upstream, so the per-band column carries the receiver
   chain).
-- Otherwise merge every non-GPS clock that can be merged onto GPS, using the offset to
-  GPS Time that constellation broadcasts — the GGTO for Galileo, the BGTO for BeiDou
-  (see [`gpst_offset_available`](@ref)). This removes a clock unknown per merged system
-  (the scarce-satellite case) and reconnects a disjoint band split (the disconnected
-  case — where a band's IFB column would otherwise be collinear with the stranded
-  constellation's clock), making the inter-frequency bias observable again (it then
-  carries the broadcast-offset error, alongside the offset-based inter-system bias). A
-  system whose satellites carry no such offset keeps its own clock column, so a mixed
-  epoch can collapse Galileo and leave BeiDou independent, or the reverse.
+- Otherwise merge every clock that can be merged onto a *hub* system, using a
+  broadcast offset to that hub (see [`time_offset_available`](@ref)). Hubs are tried
+  in the fixed order GPST, GST, BDT, and the first whose merged layout has enough
+  satellites wins, so the choice is deterministic and a GPS-anchored collapse behaves
+  exactly as it always did. Toward GPS Time the offsets on the air are Galileo's GGTO
+  and BeiDou's BGTO; toward Galileo System Time they are BeiDou's BGTO variant and
+  the GGTO GPS itself broadcasts on CNAV/CNAV-2 — which is what lets a GPS-free
+  Galileo + BeiDou epoch, or a GPS + Galileo epoch whose Galileo satellites have not
+  decoded their GGTO yet, still collapse. The merge removes a clock unknown per
+  merged system (the scarce-satellite case) and reconnects a disjoint band split (the
+  disconnected case — where a band's IFB column would otherwise be collinear with the
+  stranded constellation's clock), making the inter-frequency bias observable again
+  (it then carries the broadcast-offset error, alongside the offset-based
+  inter-system bias). A system whose satellites carry no offset to the hub keeps its
+  own clock column, so a mixed epoch can collapse Galileo and leave BeiDou
+  independent, or the reverse.
 - Failing that, fall back to the (already observability-restricted) independent layout
   if the satellite count allows. No IFB column is created for a band stranded on its own
   constellation, so its inter-frequency bias folds into that constellation's clock and
@@ -469,45 +478,50 @@ function decide_bias_layout(states, systems, bands)
             extra_bands, reference_bands, num_components)
     end
 
-    as_bias_layout(layout, gpst_offset_decoders) = (;
+    as_bias_layout(layout, hub_system, hub_offset_decoders) = (;
         bias_columns = BiasColumns(layout.clock_bias_indices, layout.num_clock_biases,
             layout.ifb_indices, length(layout.extra_bands)),
         layout.extra_bands,
         layout.reference_bands,
-        gpst_offset_decoders,
+        hub_system,
+        hub_offset_decoders,
     )
 
     independent_layout = bias_layout_for(systems)
-    gpst_offset_decoders = Dict{GNSSSignals.TimeSystem,GNSSDecoder.GNSSDecoderState}()
+    hub_offset_decoders = Dict{GNSSSignals.TimeSystem,GNSSDecoder.GNSSDecoderState}()
     if independent_layout.num_components == 1 && enough_satellites(independent_layout)
-        return as_bias_layout(independent_layout, gpst_offset_decoders)
+        return as_bias_layout(independent_layout, nothing, hub_offset_decoders)
     end
 
-    # Connected-but-scarce or disconnected: try collapsing every non-GPS system that
-    # broadcasts an offset to GPS Time onto GPS. The offset is one constellation-wide
-    # value whichever of its satellites reports it, so the first decoded copy per system
-    # converts all of that system's measurements.
-    if GPST() in systems
+    # Connected-but-scarce or disconnected: try collapsing every other system that
+    # broadcasts an offset to a hub system onto that hub. The offset is one
+    # constellation-wide value whichever of its satellites reports it, so the first
+    # decoded copy per system converts all of that system's measurements. Hubs are
+    # tried in a fixed order, so the choice is deterministic and GPS wins whenever it
+    # can; BDT closes the list only for completeness — no signal broadcasts an offset
+    # toward BDT today, so its loop finds nothing.
+    for hub_system in (GPST(), GST(), BDT())
+        hub_system in systems || continue
+        empty!(hub_offset_decoders)
         for j = 1:num_sats
             sys = systems[j]
-            sys == GPST() && continue
-            haskey(gpst_offset_decoders, sys) && continue
-            gpst_offset_available(states[j].decoder) || continue
-            gpst_offset_decoders[sys] = states[j].decoder
+            sys == hub_system && continue
+            haskey(hub_offset_decoders, sys) && continue
+            time_offset_available(states[j].decoder, hub_system) || continue
+            hub_offset_decoders[sys] = states[j].decoder
         end
-    end
-    if !isempty(gpst_offset_decoders)
+        isempty(hub_offset_decoders) && continue
         merged_layout = bias_layout_for(
-            map(sys -> haskey(gpst_offset_decoders, sys) ? GPST() : sys, systems))
+            map(sys -> haskey(hub_offset_decoders, sys) ? hub_system : sys, systems))
         if enough_satellites(merged_layout)
-            return as_bias_layout(merged_layout, gpst_offset_decoders)
+            return as_bias_layout(merged_layout, hub_system, hub_offset_decoders)
         end
     end
 
     # No collapse available. The independent layout is still observable (its IFBs are
     # component-restricted); use it if there are enough satellites, otherwise unsolvable.
     enough_satellites(independent_layout) ?
-    as_bias_layout(independent_layout, empty!(gpst_offset_decoders)) : nothing
+    as_bias_layout(independent_layout, nothing, empty!(hub_offset_decoders)) : nothing
 end
 
 """
@@ -562,7 +576,7 @@ satellite position must still be propagated from the untouched transmit time
 against the message's own `t_0e`, which is on the broadcasting system's scale, so
 shifting the time itself would move the offset into the ephemeris — about 55 km
 of along-track error at BeiDou MEO velocities. `SatInfo.time` and
-[`calc_gpst_offset`](@ref) likewise keep the unconverted value.
+[`calc_steering_offset`](@ref) likewise keep the unconverted value.
 """
 function calc_time_scale_offsets(systems, primary_system)
     primary = time_scale_offset_to_gpst(primary_system)
@@ -570,28 +584,29 @@ function calc_time_scale_offsets(systems, primary_system)
 end
 
 """
-    calc_gpst_range_offsets(gpst_offset_decoders, systems, times) -> Vector{Float64}
+    calc_hub_range_offsets(hub_offset_decoders, hub_system, systems, times) -> Vector{Float64}
 
 Per-satellite range offsets (metres) that carry a clock collapse into the measurements,
 as decided by [`decide_bias_layout`](@ref): all-zero for the satellites of a system
-that keeps its own clock unknown — all of them when `gpst_offset_decoders` is empty —
+that keeps its own clock unknown — all of them when `hub_offset_decoders` is empty —
 and otherwise `−c · Δt_systems` for each satellite of a collapsed system, evaluated at
 its own transmit time.
 
-The broadcast offset is `Δt_systems = (that system's time) − GPST` (see
-[`calc_gpst_offset`](@ref): the GGTO for Galileo, the BGTO for BeiDou), so a transmit
-time becomes GPS time by SUBTRACTING it; the modeled range therefore carries
-`−c·Δt_systems`, and the solve yields `inter_system_biases[sys] = −c·Δt_systems`. Which
-satellite of a system reported the offset does not matter — it is one
-constellation-wide value — so `decide_bias_layout` picks the first decoded copy per
-system and it converts all of that system's measurements.
+The broadcast offset is `Δt_systems = (that system's time) − (the hub system's)` (see
+[`calc_steering_offset`](@ref): the GGTO for Galileo toward a GPS hub, the BGTO for
+BeiDou toward either), so a transmit time becomes hub time by SUBTRACTING it; the
+modeled range therefore carries `−c·Δt_systems`, and the solve yields
+`inter_system_biases[sys] = −c·Δt_systems`. Which satellite of a system reported the
+offset does not matter — it is one constellation-wide value — so
+`decide_bias_layout` picks the first decoded copy per system and it converts all of
+that system's measurements.
 """
-function calc_gpst_range_offsets(gpst_offset_decoders, systems, times)
+function calc_hub_range_offsets(hub_offset_decoders, hub_system, systems, times)
     offsets = zeros(length(systems))
     for j in eachindex(systems)
-        decoder = get(gpst_offset_decoders, systems[j], nothing)
+        decoder = get(hub_offset_decoders, systems[j], nothing)
         isnothing(decoder) && continue
-        offsets[j] = -SPEED_OF_LIGHT * calc_gpst_offset(decoder, times[j])
+        offsets[j] = -SPEED_OF_LIGHT * calc_steering_offset(decoder, hub_system, times[j])
     end
     offsets
 end
@@ -670,12 +685,13 @@ least one satellite, and a system contributing a single satellite spends it enti
 on that system's clock bias), of which `3 + M` must come from *distinct* satellites: a
 satellite tracked on several bands supplies one line of sight, and its extra
 measurements constrain the inter-frequency biases rather than the geometry. When either
-condition fails but GPS is present alongside a constellation whose message carries a
-broadcast offset to GPS Time — Galileo's GGTO (Galileo–GPS Time Offset) or BeiDou's
-BGTO (BDT–GNSS Time Offset) — that constellation's clock bias is collapsed onto GPS
-using the broadcast offset, which makes a 4-satellite mixed fix possible. Estimating an
-independent bias is preferred whenever the geometry allows it, since it avoids the
-broadcast offset's own error.
+condition fails, constellations whose messages carry a broadcast offset to another
+tracked system — Galileo's GGTO (Galileo–GPS Time Offset), BeiDou's BGTO (BDT–GNSS
+Time Offset, toward GPS or Galileo), or the GGTO GPS itself broadcasts on CNAV/CNAV-2
+— have their clock bias collapsed onto that hub system using the broadcast offset,
+which makes a 4-satellite mixed fix possible (see [`decide_bias_layout`](@ref) for the
+hub order). Estimating an independent bias is preferred whenever the geometry allows
+it, since it avoids the broadcast offset's own error.
 
 Unless disabled via `enable_ionospheric_correction`, the ionospheric delay is
 corrected automatically using only the coefficients decoded from the navigation
@@ -760,7 +776,7 @@ function calc_pvt(
     # receiver inter-frequency bias — one per band beyond a per-coverage-component
     # reference. (`get_signal_id`, `:GPSL1CA` …, is the per-signal `sats` identity used
     # below, not a grouping key.) `decide_bias_layout` then decides the full bias layout:
-    # it keeps only observable IFBs and falls back to a GGTO collapse when the geometry
+    # it keeps only observable IFBs and falls back to a hub collapse when the geometry
     # is disconnected or under-determined.
     systems = map(state -> get_time_system(state.system), healthy_states)
     bands = map(state -> get_band_id(state.system), healthy_states)
@@ -769,7 +785,8 @@ function calc_pvt(
     # after the solve by the DOP.
     bias_layout = decide_bias_layout(healthy_states, systems, bands)
     isnothing(bias_layout) && return prev_pvt
-    (; bias_columns, extra_bands, reference_bands, gpst_offset_decoders) = bias_layout
+    (; bias_columns, extra_bands, reference_bands, hub_system, hub_offset_decoders) =
+        bias_layout
     (; clock_bias_indices, num_clock_biases) = bias_columns
 
     times = map(calc_corrected_time, healthy_states)
@@ -786,14 +803,15 @@ function calc_pvt(
     sat_positions_mat = stack(sat_positions)
 
     # Primary system — its clock bias, reference time, week and start epoch
-    # define the reported time. A GGTO collapse (signalled by fewer clock biases
-    # than systems) is anchored on GPS, so GPS must be primary there; otherwise
-    # pick the system with the most satellites (best-conditioned reported time),
-    # breaking ties by first appearance.
+    # define the reported time. A collapse is anchored on its hub system, so the
+    # hub must be primary there; otherwise pick the system with the most
+    # satellites (best-conditioned reported time), breaking ties by first
+    # appearance.
     unique_systems = unique(systems)
     primary_system =
-        num_clock_biases < length(unique_systems) ? GPST() :
-        unique_systems[argmax([count(==(sys), systems) for sys in unique_systems])]
+        isnothing(hub_system) ?
+        unique_systems[argmax([count(==(sys), systems) for sys in unique_systems])] :
+        hub_system
     primary_clock_index = clock_bias_indices[findfirst(==(primary_system), systems)]
 
     # The common reference cancels out of the reported time (the primary clock
@@ -806,12 +824,12 @@ function calc_pvt(
     pseudo_ranges, reference_time =
         calc_pseudo_ranges(times .+ calc_time_scale_offsets(systems, primary_system))
     # The known per-satellite broadcast steering offset (zero unless that system was
-    # collapsed onto GPS), as a measurement correction like the atmospheric delays
+    # collapsed onto the hub), as a measurement correction like the atmospheric delays
     # below. Kept for the inter-system-bias readout at the end, which reports this
     # term alone: the time-count difference already removed above is a convention, not
     # a bias, and belongs in neither the readout nor the solve.
-    gpst_offsets = calc_gpst_range_offsets(gpst_offset_decoders, systems, times)
-    pseudo_ranges = pseudo_ranges .- gpst_offsets
+    hub_offsets = calc_hub_range_offsets(hub_offset_decoders, hub_system, systems, times)
+    pseudo_ranges = pseudo_ranges .- hub_offsets
 
     # The primary system's week and start epoch date the epoch absolutely: the day of
     # year feeds the tropospheric mapping's seasonal term here, and week/start epoch
@@ -931,7 +949,7 @@ function calc_pvt(
         sys == primary_system && continue
         j = findfirst(==(sys), systems)
         inter_system_biases[sys] =
-            (ξ[3+clock_bias_indices[j]] + gpst_offsets[j] - time_correction) * m
+            (ξ[3+clock_bias_indices[j]] + hub_offsets[j] - time_correction) * m
     end
 
     # Receiver inter-frequency biases relative to the reference band, in meters
