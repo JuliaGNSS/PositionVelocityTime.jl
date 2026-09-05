@@ -1,5 +1,20 @@
 # Changelog
 
+# [5.4.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.3.0...v5.4.0) (2026-09-05)
+
+
+### Bug Fixes
+
+* fold the week wrap out of the pseudorange differencing ([dac3b5f](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/dac3b5f88d72978823bd33215a264647c56e1cdc)), closes [GNSSDecoder.jl#89](https://github.com/GNSSDecoder.jl/issues/89)
+* survive week rollovers, spurious warm-start roots, and iono order ([9e48961](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/9e489611b3631724402bc8c18089efa236790ceb))
+
+
+### Features
+
+* collapse scarce epochs onto any hub system, not just GPS Time ([edc8464](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/edc8464b4ea9a1ee437d96657fcad5ad071b8ebd))
+* implement BDGIM, the BDS-3 broadcast ionospheric model ([a77ec0b](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/a77ec0bf991f46b8d9d71b3b9916b26bfba0023c))
+* support the Galileo E5b/E6-B and BeiDou signals ([022b051](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/022b0511c0be4748046fc88a4fce76e2dd99af18))
+
 # [5.3.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.2.0...v5.3.0) (2026-09-03)
 
 
