@@ -26,6 +26,11 @@ measurement_rows(states; approximate_year = 2021) = first(
 # `carrier_hz` is a ranging signal's carrier as the plain `Float64` in Hz that
 # `ionospheric_delay` takes — the `center_frequency` field of a measurement row.
 carrier_hz(system) = ustrip(Hz, get_center_frequency(system))
+# The inferred return type of `f(::types...)`. `Base.infer_return_type` says this in one
+# call but only from Julia 1.11; `Base.return_types` is the spelling that also works on
+# the 1.10 this package supports, and `only` is the assertion that the signature picks
+# out exactly one method — which is what makes the two equivalent here.
+inferred_return_type(f, types) = only(Base.return_types(f, types))
 
 include("aqua.jl")
 include("fixtures.jl")
