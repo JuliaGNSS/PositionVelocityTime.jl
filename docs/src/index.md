@@ -62,18 +62,58 @@ using Tracking
 sat_state = SatelliteState(decoder, gpsl1, tracked_sat)
 ```
 
-Compute the PVT solution:
+Group the satellites by their ranging signal and compute the PVT solution:
 
 ```julia
-pvt = calc_pvt(sat_states)
+using PositionVelocityTime: SignalGroup
+
+pvt = calc_pvt((
+    gps = SignalGroup(GPSL1CA(), gps_sat_states),
+    galileo = SignalGroup(GalileoE1B(), galileo_sat_states),
+))
 lla = get_LLA(pvt)  # latitude, longitude, altitude
 ```
 
-Satellites from different constellations may be passed together. Because each GNSS
+Each group holds the satellites tracked on one signal, as a `Dictionary` keyed by PRN or
+as a plain vector. A single group needs no NamedTuple around it —
+`calc_pvt(SignalGroup(GPSL1CA(), gps_sat_states))` is a complete one-constellation solve
+— and a flat vector of mixed [`SatelliteState`](@ref)s can be converted with
+[`PositionVelocityTime.signal_groups`](@ref). With `Tracking` loaded, a whole
+`TrackState` and its decoders convert in one call:
+
+```julia
+using Tracking
+pvt = calc_pvt(PositionVelocityTime.signal_groups(track_state, decoders))
+```
+
+Satellites from different constellations may be combined this way. Because each GNSS
 references its broadcasts to its own system time, [`calc_pvt`](@ref) estimates one
 receiver clock bias per GNSS time system, so a combined fix needs at least `3 + M`
 satellites for `M` distinct systems. The per-system clock offsets are reported as
 `pvt.inter_system_biases` relative to `pvt.reference_system`.
+
+!!! note "Migrating from 5.x"
+
+    `calc_pvt` used to take a flat `AbstractVector{<:SatelliteState}`. Pooling several
+    constellations into one vector made its element type abstract, which turned every
+    per-satellite call inside the solve into a dynamic dispatch — a mixed 14-satellite
+    epoch cost about five times a single-constellation one. Groups fix that at the
+    source, and behind them the solver now works on one flat, parameter-free
+    measurement row and compiles once for every constellation mix.
+
+    The mechanical translation of a `calc_pvt(states)` call is
+    `calc_pvt(PositionVelocityTime.signal_groups(states))`. That works and is the
+    documented bridge, but it is the slow path by construction: the group NamedTuple's
+    type is only known at runtime, so the collection pass stays inference-blind (the
+    solver behind it does not). A receiver that already keeps its satellites per signal
+    — which is the shape `Tracking.jl` and `GNSSReceiver.jl` carry — should name its
+    groups instead and pay nothing.
+
+    The measurement-model surface moved with it: its per-satellite functions now take
+    the [`PositionVelocityTime.SatelliteMeasurement`](@ref) rows that
+    [`PositionVelocityTime.collect_measurements`](@ref) produces, rather than
+    `SatelliteState`s plus parallel classification vectors. See
+    [The Measurement-Model Surface](@ref).
 
 If too few healthy satellites are tracked to solve the constellation — or the geometry
 turns out to be degenerate — [`calc_pvt`](@ref) returns the `prev_pvt` it was given (the

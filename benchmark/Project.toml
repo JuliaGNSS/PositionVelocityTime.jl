@@ -1,5 +1,6 @@
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+Dictionaries = "85a47980-9c8c-11e8-2b9f-f7ca1fa99fb4"
 GNSSDecoder = "bf6b1ec8-12ad-4501-972c-3dec0d675c2b"
 GNSSSignals = "52c80523-2a4e-5c38-8979-05588f836870"
 PositionVelocityTime = "52ec0b5e-ee36-11ea-211c-3d844fc5682d"

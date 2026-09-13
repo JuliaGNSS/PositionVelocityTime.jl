@@ -50,11 +50,23 @@ sat_state = SatelliteState(decoder, gpsl1, tracked_sat)
 ## Usage
 
 ### User position calculation
-The function 
+Satellite states are handed over grouped by their ranging signal, one
+`PositionVelocityTime.SignalGroup` per signal:
 ```julia
-calc_pvt(sat_states)
-``` 
-provides a complete position calculation. A fix needs at least 4 healthy, fully decoded
+using PositionVelocityTime: SignalGroup
+
+calc_pvt((
+    gps = SignalGroup(GPSL1CA(), gps_sat_states),
+    galileo = SignalGroup(GalileoE1B(), galileo_sat_states),
+))
+```
+provides a complete position calculation. A single group can be passed on its own, and a
+flat vector of mixed satellite states converts with
+`PositionVelocityTime.signal_groups(sat_states)`. Grouping is what keeps the solve
+type-stable across constellations — see the migration note in the documentation if you
+are coming from 5.x, where `calc_pvt` took that flat vector directly.
+
+A fix needs at least 4 healthy, fully decoded
 satellites (more for a multi-GNSS or multi-band set); when the epoch cannot be solved,
 the previous solution is returned unchanged instead of an error, so a receiver can pass
 whatever it currently tracks.

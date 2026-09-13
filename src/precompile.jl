@@ -4,12 +4,20 @@
 # four ephemerides — the position fix it has been waiting a minute for arrives
 # seconds late while every tracking loop sits unattended (GNSSReceiver.jl#107).
 #
-# The solver is specialised on the navigation-data type it is handed, so every
-# type this package dispatches on is solved here: GPS LNAV (`GPSL1CAData`), GPS
-# CNAV on both its signals (`GPSCNAVData` on L5I and L2CM), GPS CNAV-2
+# What is specialised on the navigation-data type is the *collection* pass
+# (`collect_measurements`): the decoder accessors, the propagator, the clock
+# polynomial and the broadcast time offsets. The solver behind the flat
+# `SatelliteMeasurement` row is one body shared by every data type and every
+# constellation mix, so it is compiled by the first solve here and reused by all
+# the others — which is what lets this workload be a list of data types rather
+# than a list of their combinations.
+#
+# So: one solve per type this package dispatches on — GPS LNAV (`GPSL1CAData`),
+# GPS CNAV on both its signals (`GPSCNAVData` on L5I and L2CM), GPS CNAV-2
 # (`GPSL1C_DData`) and Galileo I/NAV and F/NAV (`GalileoINAVData`,
-# `GalileoE5aData`) — cold, warm-started, with and without the atmospheric
-# corrections, and as one mixed GPS + Galileo constellation.
+# `GalileoE5aData`) — plus, once, the solver paths a data type does not vary:
+# warm start, corrections disabled, a `Vector`-backed group and a two-group
+# mixed constellation.
 #
 # The satellites are the test suite's own fixtures (`test/fixtures.jl`): decoder
 # states captured over Aachen on 2021-05-31 with the code phases, carrier
@@ -788,24 +796,37 @@ end
         _precompile_states(system, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B())
     l1ca = gps(GPSL1CA())
     e1b = galileo(GalileoE1B())
+    # A `Dictionary`-backed group keyed by PRN — the shape a receiver carrying its
+    # satellites per signal hands over, and what the Tracking extension builds.
+    group(signal, states) =
+        SignalGroup(signal, Dictionary([s.decoder.prn for s in states], states))
     @compile_workload begin
-        for states in (
-            l1ca,
-            gps(GPSL5I(), _precompile_cnav),
-            gps(GPSL2CM(), _precompile_cnav),
-            gps(GPSL1C_D(), _precompile_cnav2),
-            e1b,
-            galileo(GalileoE5aI(), _precompile_fnav),
-            [l1ca; e1b],
+        for signal_group in (
+            group(GPSL1CA(), l1ca),
+            group(GPSL5I(), gps(GPSL5I(), _precompile_cnav)),
+            group(GPSL2CM(), gps(GPSL2CM(), _precompile_cnav)),
+            group(GPSL1C_D(), gps(GPSL1C_D(), _precompile_cnav2)),
+            group(GalileoE1B(), e1b),
+            group(GalileoE5aI(), galileo(GalileoE5aI(), _precompile_fnav)),
         )
-            pvt = calc_pvt(states; approximate_year = 2021)
-            calc_pvt(states, pvt; approximate_year = 2021)
-            calc_pvt(
-                states;
-                approximate_year = 2021,
-                enable_ionospheric_correction = false,
-                enable_tropospheric_correction = false,
-            )
+            calc_pvt(signal_group; approximate_year = 2021)
         end
+        # The paths that do not vary with the navigation-data type, compiled once on
+        # GPS L1 C/A and shared from there: the warm-start branch of the least-squares
+        # solve, the correction-free branch, the `Vector`-backed group, and the
+        # multi-group shape of a mixed-constellation epoch.
+        l1ca_group = group(GPSL1CA(), l1ca)
+        pvt = calc_pvt(l1ca_group; approximate_year = 2021)
+        calc_pvt(l1ca_group, pvt; approximate_year = 2021)
+        calc_pvt(
+            l1ca_group;
+            approximate_year = 2021,
+            enable_ionospheric_correction = false,
+            enable_tropospheric_correction = false,
+        )
+        calc_pvt(SignalGroup(GPSL1CA(), l1ca); approximate_year = 2021)
+        mixed = (gps = l1ca_group, galileo = group(GalileoE1B(), e1b))
+        mixed_pvt = calc_pvt(mixed; approximate_year = 2021)
+        calc_pvt(mixed, mixed_pvt; approximate_year = 2021)
     end
 end
