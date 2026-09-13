@@ -92,10 +92,10 @@
         # its result is inferred exactly. (The ionospheric-correction half is a small
         # `Union` by design — `_solve_pvt` takes it `@nospecialize`d so that the model
         # choice cannot multiply the solver's compiled copies.)
-        @test Base.infer_return_type(
+        @test inferred_return_type(
             PositionVelocityTime.collect_measurements, Tuple{typeof(groups)}
         ).parameters[1] === Vector{PositionVelocityTime.SatelliteMeasurement}
-        @test Base.infer_return_type(calc_pvt, Tuple{typeof(groups)}) === PVTSolution
+        @test inferred_return_type(calc_pvt, Tuple{typeof(groups)}) === PVTSolution
 
         # The point of the flat row: one compiled body of the solver serves every
         # constellation mix. Solve six differently-shaped epochs and count the

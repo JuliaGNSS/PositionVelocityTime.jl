@@ -60,7 +60,7 @@ end
     # conversion is fully inferable — unlike `signal_groups` over a flat vector, whose
     # NamedTuple type is only known at runtime.
     @test isconcretetype(eltype(groups.gps.satellites))
-    @test Base.infer_return_type(
+    @test inferred_return_type(
         PositionVelocityTime.signal_groups, Tuple{typeof(track_state), typeof(decoders)}
     ) === typeof(groups)
 
