@@ -601,13 +601,25 @@ is_collapsed(hub_rows, system) = any(row -> row.time_system === system, hub_rows
 # Distinct physical satellites among `measurements`, identified by `(time system, PRN)`
 # — a PRN is unique only within its GNSS, and a satellite tracked on several bands
 # contributes several rows but one line of sight.
+#
+# Counted by scanning the rows already in hand, rather than by collecting the keys into
+# a set: a `(TimeSystem, Int)` key is not `isbits` — the time system is an abstract
+# field — so a vector of them heap-allocates one box per satellite, inside the solver,
+# on every epoch. That is precisely the per-satellite allocation the flat row exists to
+# remove. The scan is quadratic in the satellite count where the set would be linear,
+# which for the dozens of rows an epoch holds is the cheaper of the two by a wide
+# margin, and it allocates nothing at all.
 function count_distinct_satellites(measurements)
-    seen = Tuple{GNSSSignals.TimeSystem,Int}[]
-    for measurement in measurements
-        key = (measurement.time_system, measurement.prn)
-        any(other -> other[1] === key[1] && other[2] == key[2], seen) || push!(seen, key)
+    distinct = 0
+    for j in eachindex(measurements)
+        measurement = measurements[j]
+        repeated = any(firstindex(measurements):(j-1)) do i
+            measurements[i].prn == measurement.prn &&
+                measurements[i].time_system === measurement.time_system
+        end
+        repeated || (distinct += 1)
     end
-    length(seen)
+    distinct
 end
 
 """
