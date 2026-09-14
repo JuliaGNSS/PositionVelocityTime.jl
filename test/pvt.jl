@@ -7,7 +7,7 @@
     # default `now()` anchor would start picking the wrong rollover cycle
     # for these archived fixtures).
     pvt = calc_pvt(
-        states;
+        signal_group(states);
         approximate_year = 2021,
         enable_ionospheric_correction = false,
         enable_tropospheric_correction = false,
@@ -19,7 +19,7 @@
     @test pvt.relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.63Hz + freq_offset) atol = 0.01Hz
 
     warm_pvt = calc_pvt(
-        states,
+        signal_group(states),
         pvt;
         approximate_year = 2021,
         enable_ionospheric_correction = false,
@@ -36,7 +36,7 @@ end
     # Fixture data was recorded on 2021-05-31. See the note on the
     # Galileo testset above for why we pin `approximate_year`.
     pvt = calc_pvt(
-        states;
+        signal_group(states);
         approximate_year = 2021,
         enable_ionospheric_correction = false,
         enable_tropospheric_correction = false,
@@ -48,7 +48,7 @@ end
     @test pvt.relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.59Hz + freq_offset) atol = 0.01Hz
 
     warm_pvt = calc_pvt(
-        states,
+        signal_group(states),
         pvt;
         approximate_year = 2021,
         enable_ionospheric_correction = false,
@@ -119,11 +119,14 @@ function with_prn(state, prn)
 end
 
 @testset "PVT GPS L1 + Galileo E1B combined, frequency offset $freq_offset" for freq_offset in (0.0Hz, 500Hz, -1000Hz)
-    states = [gps_l1_states(freq_offset); galileo_e1b_states(freq_offset)]
+    groups = (
+        gps = signal_group(gps_l1_states(freq_offset)),
+        galileo = signal_group(galileo_e1b_states(freq_offset)),
+    )
 
     # Independent inter-system-bias solve: 8 GPS + 5 Galileo satellites, with one
     # clock bias per system (3 + 2 unknowns).
-    pvt = calc_pvt(states; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    pvt = calc_pvt(groups; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     expected_pos = ECEF(4.0186793226897363e6, 427033.09443239716, 4.918251247796992e6)
     @test pvt.position ≈ expected_pos rtol = 1e-8
     @test pvt.velocity ≈ ECEF(-1.4405743822415678, 0.5393693783528187, -2.135825176671574) atol = 1e-3
@@ -136,8 +139,8 @@ end
 
     # The combined fix agrees with each single-system fix and with the
     # GPS-anchored time scale.
-    gps_only = calc_pvt(gps_l1_states(freq_offset); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    gal_only = calc_pvt(galileo_e1b_states(freq_offset); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    gps_only = calc_pvt(signal_group(gps_l1_states(freq_offset)); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    gal_only = calc_pvt(signal_group(galileo_e1b_states(freq_offset)); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test norm(pvt.position - gps_only.position) < 5
     @test norm(pvt.position - gal_only.position) < 5
     @test pvt.time ≈ gps_only.time
@@ -175,7 +178,7 @@ end
     @test all(isfinite, rate_resids)
     @test maximum(abs, rate_resids) < 10.0m/s
 
-    warm_pvt = calc_pvt(states, pvt; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    warm_pvt = calc_pvt(groups, pvt; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test get_LLA(warm_pvt) ≈ get_LLA(pvt)
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
@@ -188,8 +191,9 @@ end
 
     # The full independent solution provides the reference position and the
     # inter-system time offset that the GGTO must encode.
-    reference = calc_pvt([gps; gal]; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    gps_only = calc_pvt(gps; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    reference = calc_pvt((signal_group(gps), signal_group(gal)); approximate_year = 2021,
+        enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    gps_only = calc_pvt(signal_group(gps); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     # reference_system is GPS (most satellites), so the Galileo inter-system bias
     # is Galileo − GPS = −c·(GST − GPST). The physical broadcast GGTO that would
     # reproduce it is its negation, in seconds.
@@ -198,14 +202,14 @@ end
     # 3 GPS + 1 Galileo: the independent solve needs 3 + 2 = 5 satellites, so
     # without GGTO the constellation is under-determined and calc_pvt returns the
     # (origin) previous solution.
-    subset = [gps[1:3]; gal[1:1]]
+    subset = (signal_group(gps[1:3]), signal_group(gal[1:1]))
     @test calc_pvt(subset; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false).position == ECEF(0, 0, 0)
 
     # With the GGTO available the Galileo clock bias collapses onto GPS, so a
     # 4-satellite fix becomes possible and reproduces the full-constellation
     # position. A wrong offset sign would corrupt the single Galileo measurement
     # (here c·Δ ≈ 2.4e6 m), so reproducing the reference also pins the sign.
-    subset_ggto = [gps[1:3]; [with_ggto(gal[1]; A_0G = Δ)]]
+    subset_ggto = (signal_group(gps[1:3]), signal_group([with_ggto(gal[1]; A_0G = Δ)]))
     pvt = calc_pvt(subset_ggto; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test pvt.position != ECEF(0, 0, 0)
     @test norm(pvt.position - reference.position) < 10
@@ -218,14 +222,14 @@ end
     # is still the fourth distinct satellite the collapsed layout needs, so relabelling
     # it leaves the fix untouched (PRN-only identity would count three and bail).
     collided = with_prn(with_ggto(gal[1]; A_0G = Δ), gps[1].decoder.prn)
-    pvt_collided = calc_pvt([gps[1:3]; [collided]]; approximate_year = 2021,
+    pvt_collided = calc_pvt((signal_group(gps[1:3]), signal_group([collided])); approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test pvt_collided.position == pvt.position
 
     # A single Galileo satellite carrying the GGTO is enough to collapse the
     # whole Galileo set: here only the first of two Galileo satellites has it.
     @test !PositionVelocityTime.time_offset_available(gal[2].decoder, GPST())
-    mixed = [gps[1:2]; [with_ggto(gal[1]; A_0G = Δ), gal[2]]]
+    mixed = (signal_group(gps[1:2]), signal_group([with_ggto(gal[1]; A_0G = Δ), gal[2]]))
     pvt_mixed = calc_pvt(mixed; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test pvt_mixed.position != ECEF(0, 0, 0)
     @test norm(pvt_mixed.position - reference.position) < 50
@@ -234,32 +238,67 @@ end
     # inter-system bias (relative to the GPS reference) equals −c·A_0G, because a
     # Galileo measurement is moved into the GPS frame by subtracting GST − GPST.
     A_big = 1.0e-6
-    big = calc_pvt([gps[1:3]; [with_ggto(gal[1]; A_0G = A_big)]]; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    big = calc_pvt((signal_group(gps[1:3]), signal_group([with_ggto(gal[1]; A_0G = A_big)]));
+        approximate_year = 2021, enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false)
     @test big.inter_system_biases[GST()] ≈ -C * A_big * m rtol = 1e-6
 
     # calc_steering_offset evaluates the OS SIS ICD word-type-10 polynomial, taking
-    # the reference week difference modulo 64.
+    # the reference week difference modulo 64. `broadcast_time_offset` is the flattened
+    # `BroadcastTimeOffset` the collection pass puts on every measurement row.
     g = with_ggto(gal[1]; A_0G = 5.0e-9, A_1G = 1.0e-15, t_0G = 100, WN_0G = 1134)
-    @test PositionVelocityTime.calc_steering_offset(g.decoder, GPST(), 132000.0) ≈
+    ggto = PositionVelocityTime.broadcast_time_offset(g.decoder, GPST())
+    @test PositionVelocityTime.calc_steering_offset(ggto, 132000.0) ≈
           5.0e-9 + 1.0e-15 * (132000.0 - 100 + 604800 * mod(1136 - 1134, 64))
+    @test ggto.available
     @test PositionVelocityTime.time_offset_available(g.decoder, GPST())
     @test !PositionVelocityTime.time_offset_available(gal[1].decoder, GPST())
     @test !PositionVelocityTime.time_offset_available(gps[1].decoder, GPST())
+    # A target no message broadcasts an offset toward is reported unavailable rather
+    # than looked up and missed.
+    @test !PositionVelocityTime.broadcast_time_offset(g.decoder, BDT()).available
 
-    # calc_hub_range_offsets turns the decoder `decide_bias_layout` selected into the
+    # calc_hub_range_offsets turns the rows `decide_bias_layout` selected into the
     # per-satellite range corrections: −c·GGTO for the collapsed (Galileo) satellites at
     # their own transmit times, zero for the anchor system's. An independent layout
-    # (an empty decoder map) needs no conversion at all.
-    offset_systems = [GPST(), GST(), GPST(), GST()]
-    offset_times = [100.0, 200.0, 300.0, 400.0]
-    hub_offset_decoders = Dict(GST() => g.decoder)
-    offsets = PositionVelocityTime.calc_hub_range_offsets(
-        hub_offset_decoders, GPST(), offset_systems, offset_times)
-    @test offsets[[1, 3]] == [0.0, 0.0]
-    @test offsets[[2, 4]] ≈
-          [-C * PositionVelocityTime.calc_steering_offset(g.decoder, GPST(), t) for t in (200.0, 400.0)]
+    # (no hub at all) needs no conversion at all.
+    offset_rows = measurement_rows((
+        signal_group(gps[1:2]),
+        signal_group([
+            with_ggto(gal[1]; A_0G = 5.0e-9, A_1G = 1.0e-15, t_0G = 100, WN_0G = 1134),
+            gal[2],
+        ]),
+    ))
+    # The measurement form of `time_offset_available` reads the flag the collection pass
+    # flattened onto each row, and has to agree with the decoder form it was derived
+    # from — row 3 is the Galileo satellite carrying the GGTO, row 4 the one without,
+    # rows 1-2 are GPS, whose offset toward its own time system is not a broadcast
+    # quantity.
+    available(row, target) = PositionVelocityTime.time_offset_available(row, target)
+    @test available(offset_rows[3], GPST())
+    @test !available(offset_rows[4], GPST())
+    @test !available(offset_rows[1], GPST())
+    @test [available(row, GPST()) for row in offset_rows] ==
+          [PositionVelocityTime.time_offset_available(state.decoder, GPST()) for state in
+           [gps[1:2]; [with_ggto(gal[1]; A_0G = 5.0e-9, A_1G = 1.0e-15, t_0G = 100,
+               WN_0G = 1134), gal[2]]]]
+    # No message broadcasts an offset toward BDT, so every row reports it unavailable
+    # rather than indexing something that is not there.
+    @test !any(row -> available(row, BDT()), offset_rows)
+
+    hub_rows = [offset_rows[3]]
+    offsets = PositionVelocityTime.calc_hub_range_offsets(offset_rows, hub_rows, GPST())
+    @test offsets[[1, 2]] == [0.0, 0.0]
+    @test offsets[[3, 4]] ≈ [
+        -C * PositionVelocityTime.calc_steering_offset(ggto, row.time) for
+        row in offset_rows[3:4]
+    ]
+    # Both Galileo rows are converted by the one row that carries the offset, each at
+    # its own transmit time — so the two corrections differ (by the polynomial's drift
+    # term) rather than being one shared scalar.
+    @test offsets[3] != offsets[4]
     @test PositionVelocityTime.calc_hub_range_offsets(
-        Dict(), nothing, offset_systems, offset_times) == zeros(4)
+        offset_rows, PositionVelocityTime.SatelliteMeasurement[], nothing) == zeros(4)
 end
 
 @testset "PVT primary system is the most-populated GNSS" begin
@@ -268,9 +307,9 @@ end
     # — should be Galileo, the constellation with more satellites.
     gps = gps_l1_states(0.0Hz)
     gal = galileo_e1b_states(0.0Hz)
-    states = [gps[1:2]; gal]
-    pvt = calc_pvt(states; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    gal_only = calc_pvt(gal; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    groups = (signal_group(gps[1:2]), signal_group(gal))
+    pvt = calc_pvt(groups; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    gal_only = calc_pvt(signal_group(gal); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
 
     @test pvt.reference_system == GST()
     @test Set(keys(pvt.inter_system_biases)) == Set([GPST()])
@@ -290,11 +329,15 @@ end
     gal_h_idx = findfirst(healthy, gal)
     shared_prn = gps_h.decoder.prn
     collided = with_prn(gal[gal_h_idx], shared_prn)
-    states = [gps; collided; gal[setdiff(1:length(gal), gal_h_idx)]]
+    groups = (
+        signal_group(gps),
+        signal_group([collided]),
+        signal_group(gal[setdiff(1:length(gal), gal_h_idx)]),
+    )
 
-    baseline = calc_pvt([gps; gal]; approximate_year = 2021,
+    baseline = calc_pvt((signal_group(gps), signal_group(gal)); approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    pvt = calc_pvt(states; approximate_year = 2021,
+    pvt = calc_pvt(groups; approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
 
     # Both the GPS and the Galileo satellite with the shared PRN survive as
@@ -337,25 +380,28 @@ end
     kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
     gps = gps_l1_states(0.0Hz)
-    reference = calc_pvt(gps; kwargs...)
+    reference = calc_pvt(signal_group(gps); kwargs...)
     @test reference.position != ECEF(0, 0, 0)
 
     # Too few states to hold 3 position + 1 clock unknown, down to none at all: with no
-    # previous solution the default (origin) one comes back unchanged.
+    # previous solution the default (origin) one comes back unchanged. The signal is
+    # passed explicitly because `n = 0` leaves no satellite to read it off — a group
+    # carries its ranging signal precisely so that an empty one is still well formed.
     for n in 0:3
-        pvt = calc_pvt(gps[1:n]; kwargs...)
+        scarce = signal_group(gps[1].system, gps[1:n])
+        pvt = calc_pvt(scarce; kwargs...)
         @test pvt.position == ECEF(0, 0, 0)
         @test isnothing(pvt.time)
         @test isempty(pvt.sats)
         # Given a previous fix, that fix is what is carried forward.
-        @test calc_pvt(gps[1:n], reference; kwargs...) === reference
+        @test calc_pvt(scarce, reference; kwargs...) === reference
     end
 
     # An unhealthy satellite is dropped before the count is taken, so 4 states carrying
     # only 3 usable ones exit exactly as 3 states do.
     unhealthy = [gps[1:3]; [with_health_bad(gps[4])]]
     @test length(unhealthy) == 4
-    @test calc_pvt(unhealthy, reference; kwargs...) === reference
+    @test calc_pvt(signal_group(unhealthy), reference; kwargs...) === reference
 end
 
 # Regression: a degenerate geometry must be reported, not thrown out of a least-squares
@@ -405,19 +451,14 @@ end
     # reach a singular solve if the DOP check were ever moved after it.
     @testset "a degenerate line-of-sight set is degenerate for the velocity design" begin
         states = gps_l1_states(0.0Hz)[1:4]
-        times = map(PositionVelocityTime.calc_corrected_time, states)
-        sat_pvs = map(
-            (state, time) ->
-                PositionVelocityTime.calc_satellite_position_and_velocity(state.decoder, time),
-            states,
-            times,
-        )
+        measurements, _ = PositionVelocityTime.collect_measurements(
+            signal_group(states); approximate_year = 2021)
         # Only H's first three columns — the line-of-sight unit vectors — are read; the
         # per-system clock columns are collapsed into a single drift column internally,
         # so one trailing column of ones stands in for them here.
         design(dirs) = reduce(vcat, [[normalize(d)' 1.0] for d in dirs])
         velocity_and_drift(dirs) = PositionVelocityTime.calc_user_velocity_and_clock_drift(
-            sat_pvs, states, times, design(dirs))
+            measurements, design(dirs))
 
         # Four well-spread directions ⇒ solvable: a finite [vx, vy, vz, ċ], plus one
         # finite post-fit range-rate residual per satellite.
@@ -425,7 +466,7 @@ end
             [[1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0]])
         @test length(solution) == 4
         @test all(isfinite, solution)
-        @test length(rate_residuals) == length(states)
+        @test length(rate_residuals) == length(measurements)
         @test all(isfinite, rate_residuals)
         # A post-fit least-squares residual is orthogonal to every column of its design
         # — the line-of-sight columns and the common clock-drift column of ones. That is
@@ -464,7 +505,7 @@ end
     kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
     states = gps_l1_states(0.0Hz)
-    cold = calc_pvt(states; kwargs...)
+    cold = calc_pvt(signal_group(states); kwargs...)
 
     # Previous solutions displaced by 1 m, 30 m and 100 km. With no position-dependent
     # correction active the measurements define one optimum, so every start must reach
@@ -475,7 +516,7 @@ end
             time_correction = cold.time_correction,
             reference_system = cold.reference_system,
         )
-        warm = calc_pvt(states, stale; kwargs...)
+        warm = calc_pvt(signal_group(states), stale; kwargs...)
         @test norm(warm.position - cold.position) < 1e-4
         @test warm.time ≈ cold.time
         # The residuals are those of the converged fit, not of the stale position.
@@ -499,7 +540,7 @@ end
     kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
     states = gps_l1_states(0.0Hz)
-    good = calc_pvt(states; kwargs...)
+    good = calc_pvt(signal_group(states); kwargs...)
 
     # A previous solution 2.7e8 m out, carrying the DOP such a fix earns (the observed
     # incident read PDOP 587) — exactly what feeding a locked-in epoch's output back in
@@ -510,7 +551,7 @@ end
         reference_system = good.reference_system,
         dop = PositionVelocityTime.DOP(613.0, 587.0, 400.0, 430.0, 176.6),
     )
-    recovered = calc_pvt(states, poisoned; kwargs...)
+    recovered = calc_pvt(signal_group(states), poisoned; kwargs...)
 
     # The seed is discarded whole, so the epoch is indistinguishable from one solved
     # without any previous solution at all — not merely closer to it.
@@ -528,7 +569,7 @@ end
     # An unsolvable epoch (too few satellites) returns the previous solution exactly
     # as passed, distrusted or not — the gate withholds it from the solve, not from
     # the caller.
-    @test calc_pvt(states[1:3], poisoned; kwargs...) === poisoned
+    @test calc_pvt(signal_group(states[1:3]), poisoned; kwargs...) === poisoned
 end
 
 @testset "residuals are observed minus computed" begin
@@ -569,13 +610,6 @@ end
     # a receiver forming the same residual from its loops' `λ · carrier_doppler` has to
     # respect; getting it wrong inverts the field without changing any magnitude.
     states = gps_l1_states(0.0Hz)[1:5]
-    times = map(PositionVelocityTime.calc_corrected_time, states)
-    sat_pvs = map(
-        (state, time) ->
-            PositionVelocityTime.calc_satellite_position_and_velocity(state.decoder, time),
-        states,
-        times,
-    )
     # Only H's line-of-sight columns and one column of ones are read, and the sign
     # result holds for any full-rank design, so a spread-out synthetic one is enough.
     H = reduce(vcat, [[normalize(d)' 1.0] for d in
@@ -589,13 +623,13 @@ end
         carrier_doppler = doppler,
     )
 
-    _, base = PositionVelocityTime.calc_user_velocity_and_clock_drift(
-        sat_pvs, states, times, H)
+    rows(v) = first(PositionVelocityTime.collect_measurements(
+        signal_group(v); approximate_year = 2021))
+    _, base = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(states), H)
     Δdoppler = 50.0Hz
     faster = copy(states)
     faster[3] = with_doppler(states[3], states[3].carrier_doppler + Δdoppler)
-    _, closing = PositionVelocityTime.calc_user_velocity_and_clock_drift(
-        sat_pvs, faster, times, H)
+    _, closing = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(faster), H)
     λ = PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(states[3].system))
     @test -λ * ustrip(Hz, Δdoppler) < closing[3] - base[3] < 0.0
 end

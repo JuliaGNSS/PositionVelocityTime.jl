@@ -314,7 +314,7 @@ system.
 
 The residuals are `measured − modeled` range rate (m/s), the same orientation as the
 pseudorange residuals of [`user_position`](@ref) and in the same satellite order as
-`states`. They are the range-rate analogue of the post-fit pseudorange residual: a
+`measurements`. They are the range-rate analogue of the post-fit pseudorange residual: a
 per-satellite Doppler-consistency / outlier indicator. Measured and modeled are both
 taken in `yⱼ`'s sense below, in which a *receding* satellite reads positive — the same
 quantity and sign as RTKLIB's `resdop` residual, and hence the negative of the
@@ -323,8 +323,8 @@ Doppler-signed range rate a tracking loop works in (see the note at the residual
 Requires a geometry whose position design `H` has full column rank — the caller
 establishes that with [`calc_DOP`](@ref) before calling this; see the comment at the solve.
 """
-function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states, times, H)
-    num_sats = length(states)
+function calc_user_velocity_and_clock_drift(measurements, H)
+    num_sats = length(measurements)
     # Normal-equations form of the 4-unknown velocity + clock-drift least squares.
     # The velocity design row is [eₓ e_y e_z 1]: the pseudorange's position partial
     # (H's first three columns, the negated receiver→satellite line of sight) plus the
@@ -333,26 +333,27 @@ function calc_user_velocity_and_clock_drift(sat_positions_and_velocities, states
     # Hᵀy (length 4) row by row keeps the (num_sats × 4) design matrix unmaterialised
     # and the solve a fixed 4×4 regardless of satellite count — no per-count
     # recompilation and no per-epoch heap allocation. The Doppler wavelength is
-    # evaluated per satellite from its own carrier frequency.
+    # evaluated per satellite from its own carrier frequency. Every quantity the loop
+    # needs — the Doppler, the carrier, the satellite clock drift and velocity — is a
+    # field of the flat [`SatelliteMeasurement`](@ref) row, so no decoder is touched
+    # and this compiles once for every constellation mix.
     HtH = zero(SMatrix{4,4,Float64})
     Hty = zero(SVector{4,Float64})
     # The normal-equations form does not keep the design rows, so the measurements are
     # kept here instead and turned into post-fit residuals in place after the solve —
-    # cheaper than a second pass that recomputes each `yⱼ` (Doppler, wavelength and
-    # satellite clock drift) from the decoder.
+    # cheaper than a second pass that recomputes each `yⱼ` from the row.
     rate_residuals = Vector{Float64}(undef, num_sats)
     for j in 1:num_sats
-        state = states[j]
-        sat_pv = sat_positions_and_velocities[j]
-        λ = SPEED_OF_LIGHT / upreferred(get_center_frequency(state.system) / Hz)
-        doppler = upreferred(state.carrier_doppler / Hz)
-        clock_drift = calc_satellite_clock_drift(state.decoder, times[j])
+        measurement = measurements[j]
+        λ = SPEED_OF_LIGHT / measurement.center_frequency
+        doppler = measurement.carrier_doppler
+        clock_drift = measurement.clock_drift
         # The pseudorange's position partial — the negative of the
         # receiver→satellite line of sight — already computed for the position
         # solve and stored in H's first three columns (calc_H).
         e = SVector{3}(view(H, j, 1:3))
         a = SVector(e[1], e[2], e[3], 1.0)
-        yⱼ = -(doppler * λ - clock_drift * SPEED_OF_LIGHT - dot(e, get_sat_velocity(sat_pv)))
+        yⱼ = -(doppler * λ - clock_drift * SPEED_OF_LIGHT - dot(e, measurement.velocity))
         rate_residuals[j] = yⱼ
         HtH += a * a'
         Hty += a * yⱼ

@@ -125,6 +125,12 @@ dependency of this package.
     carrier_phase::CP = 0.0
 end
 
+# The signal-group container and the flat per-satellite measurement row every function
+# below works on, plus the collection pass that turns the former into the latter.
+# Included here rather than with the rest at the bottom of the file because the solver
+# methods further down annotate their arguments with these types.
+include("measurement.jl")
+
 """
     DOP
 
@@ -330,10 +336,17 @@ function calc_course_over_ground(position::ECEF, velocity::ECEF)
 end
 
 """
-    band_ifb_layout(systems, bands) -> (ifb_indices, extra_bands, reference_bands, num_components)
+    band_ifb_layout(system_keys, bands)
+        -> (ifb_indices, extra_bands, reference_bands, num_components)
 
 Lay out the receiver inter-frequency biases from the (constellation × band) coverage
-graph. Two bands share a *coverage component* iff some constellation is tracked on
+graph. `system_keys[j]` and `bands[j]` are satellite `j`'s constellation and frequency
+band; the constellation enters only through equality and first appearance, so any
+per-satellite key that separates the constellations will do — [`decide_bias_layout`](@ref)
+passes the *clock column* of each satellite, which is exactly that and, unlike the
+`TimeSystem` singletons themselves, concretely typed.
+
+Two bands share a *coverage component* iff some constellation is tracked on
 both (directly or through a chain of shared constellations); within a component the
 clock/IFB split has a single gauge freedom, so one reference band per component (the
 most-populated, ties by first appearance) is fixed and an IFB column is created only
@@ -348,7 +361,7 @@ deterministically) and `reference_bands[i]` is the reference band of that column
 coverage component (the anchor its IFB is measured against); `num_components` is the
 number of coverage components (`1` ⇔ the graph is connected).
 """
-function band_ifb_layout(systems, bands)
+function band_ifb_layout(system_keys, bands)
     unique_bands = unique(bands)
     # Union-find over bands: union the bands a single constellation is tracked on.
     parent = Dict(b => b for b in unique_bands)
@@ -357,8 +370,9 @@ function band_ifb_layout(systems, bands)
         ra, rc = root(a), root(c)
         ra == rc || (parent[ra] = rc)
     end
-    for sys in unique(systems)
-        sys_bands = unique(bands[i] for i in eachindex(systems) if systems[i] == sys)
+    for sys in unique(system_keys)
+        sys_bands =
+            unique(bands[i] for i in eachindex(system_keys) if system_keys[i] == sys)
         for k in 2:length(sys_bands)
             link_bands!(sys_bands[1], sys_bands[k])
         end
@@ -383,13 +397,33 @@ function band_ifb_layout(systems, bands)
 end
 
 """
-    decide_bias_layout(states, systems, bands)
-        -> Union{NamedTuple,Nothing}
+    BiasLayout
+
+The full least-squares bias layout of one epoch, as [`decide_bias_layout`](@ref) returns
+it: a `NamedTuple` type spelled out so the decision has a concrete return type. That
+matters beyond tidiness — the layout is destructured straight into the solver, which is
+compiled once for every constellation mix, so an unresolved field type here would become
+a dynamic dispatch on every epoch. See [`decide_bias_layout`](@ref) for what each field
+means.
+"""
+const BiasLayout = @NamedTuple{
+    bias_columns::BiasColumns,
+    extra_bands::Vector{Symbol},
+    reference_bands::Vector{Symbol},
+    hub_system::Union{Nothing,GNSSSignals.TimeSystem},
+    hub_rows::Vector{SatelliteMeasurement},
+}
+
+"""
+    decide_bias_layout(measurements) -> Union{BiasLayout,Nothing}
 
 Decide the full least-squares bias layout — one clock column per GNSS time system plus
-the per-band inter-frequency-bias columns from [`band_ifb_layout`](@ref) — and return
-it as `(; bias_columns, extra_bands, reference_bands, hub_system, hub_offset_decoders)`,
-or `nothing` when the constellation cannot be solved:
+the per-band inter-frequency-bias columns from [`band_ifb_layout`](@ref) — for the flat
+[`SatelliteMeasurement`](@ref) rows of one epoch, and return it as
+a [`BiasLayout`](@ref),
+or `nothing` when the constellation cannot be solved. Every classification the decision
+needs — each satellite's `time_system`, `band_id`, `prn` and `time_offsets` — is a
+field of the row:
 
 - `bias_columns::BiasColumns`: the per-satellite column assignment (see
   [`BiasColumns`](@ref)).
@@ -401,16 +435,17 @@ or `nothing` when the constellation cannot be solved:
 - `hub_system::Union{Nothing,GNSSSignals.TimeSystem}`: the system the collapsed
   clocks were merged onto, or `nothing` for a layout that estimates every clock bias
   independently, which is the common case.
-- `hub_offset_decoders::Dict`: per collapsed time system, the decoder whose broadcast
-  offset to `hub_system` converts that system's measurements — the same vocabulary as
-  [`time_offset_available`](@ref), which decides membership, and
+- `hub_rows::Vector{SatelliteMeasurement}`: one row per collapsed time system — the
+  satellite whose broadcast offset to `hub_system` converts that whole system's
+  measurements. Each row carries its own `time_system`, so it is its own key. The same
+  vocabulary as [`time_offset_available`](@ref), which decides membership, and
   [`calc_steering_offset`](@ref), which evaluates one entry (see
   [`calc_hub_range_offsets`](@ref)). Empty exactly when `hub_system` is `nothing`.
 
-Every input is a classification of the epoch, never a transmit time: the counts, the
-coverage graph and `time_offset_available` are all the decision needs. The offsets its
-`hub_offset_decoders` enable are built afterwards, once [`calc_pvt`](@ref) has the
-transmit times.
+Only the *classification* fields of each row are read, never its transmit time: the
+counts, the coverage graph and the availability flags are all the decision needs. The
+offsets its `hub_rows` enable are evaluated afterwards, at each satellite's own
+transmit time.
 
 The decision is observability-driven, not merely count-driven:
 
@@ -453,13 +488,15 @@ too, and thus necessary but not sufficient: a returned layout can still have deg
 is left to the checks `calc_pvt` makes on the solved geometry — the DOP's positive-definite
 test and the velocity solve's own — rather than pre-screened.
 """
-function decide_bias_layout(states, systems, bands)
-    num_sats = length(states)
+function decide_bias_layout(measurements)::Union{Nothing,BiasLayout}
+    num_sats = length(measurements)
+    systems = [measurement.time_system for measurement in measurements]
+    bands = [measurement.band_id for measurement in measurements]
     # Distinct physical satellites, identified by `(time system, PRN)` — a PRN is only
     # unique within its GNSS. A satellite tracked on several bands appears once per band in
-    # `states` but supplies one line of sight, so only distinct satellites constrain the
-    # geometry and clock unknowns; its repeats constrain the inter-frequency biases.
-    num_distinct_sats = length(unique(zip(systems, (state.decoder.prn for state in states))))
+    # `measurements` but supplies one line of sight, so only distinct satellites constrain
+    # the geometry and clock unknowns; its repeats constrain the inter-frequency biases.
+    num_distinct_sats = count_distinct_satellites(measurements)
     # Both are necessary for a full-rank design (`H` has `3 + M + B` columns, and its rows
     # take only `num_distinct_sats` distinct values outside the IFB columns), neither is
     # sufficient: the geometry itself can still be degenerate, which `calc_pvt` screens
@@ -469,28 +506,35 @@ function decide_bias_layout(states, systems, bands)
         num_distinct_sats >= 3 + layout.num_clock_biases
 
     function bias_layout_for(effective_systems)
-        unique_effective = unique(effective_systems)
-        index = Dict(sys => i for (i, sys) in enumerate(unique_effective))
-        clock_bias_indices = [index[sys] for sys in effective_systems]
+        unique_effective = unique_time_systems(effective_systems)
+        clock_bias_indices =
+            [time_system_index(unique_effective, sys) for sys in effective_systems]
+        # The clock column, not the time system itself, keys the coverage graph: it
+        # separates the constellations identically (and in the same first-appearance
+        # order) while being a concretely-typed `Int`, where the abstractly-typed
+        # `TimeSystem` field would cost a dynamic dispatch on every comparison and hash
+        # inside `band_ifb_layout`.
         ifb_indices, extra_bands, reference_bands, num_components =
-            band_ifb_layout(effective_systems, bands)
+            band_ifb_layout(clock_bias_indices, bands)
         (; clock_bias_indices, num_clock_biases = length(unique_effective), ifb_indices,
             extra_bands, reference_bands, num_components)
     end
 
-    as_bias_layout(layout, hub_system, hub_offset_decoders) = (;
+    as_bias_layout(layout, hub_system, hub_rows) = (;
         bias_columns = BiasColumns(layout.clock_bias_indices, layout.num_clock_biases,
             layout.ifb_indices, length(layout.extra_bands)),
         layout.extra_bands,
         layout.reference_bands,
         hub_system,
-        hub_offset_decoders,
+        hub_rows,
     )
 
     independent_layout = bias_layout_for(systems)
-    hub_offset_decoders = Dict{GNSSSignals.TimeSystem,GNSSDecoder.GNSSDecoderState}()
+    # One row per collapsed system; a row carries its own `time_system`, so it is its
+    # own key and no separate dictionary is needed.
+    hub_rows = SatelliteMeasurement[]
     if independent_layout.num_components == 1 && enough_satellites(independent_layout)
-        return as_bias_layout(independent_layout, nothing, hub_offset_decoders)
+        return as_bias_layout(independent_layout, nothing, hub_rows)
     end
 
     # Connected-but-scarce or disconnected: try collapsing every other system that
@@ -500,28 +544,82 @@ function decide_bias_layout(states, systems, bands)
     # tried in a fixed order, so the choice is deterministic and GPS wins whenever it
     # can; BDT closes the list only for completeness — no signal broadcasts an offset
     # toward BDT today, so its loop finds nothing.
-    for hub_system in (GPST(), GST(), BDT())
-        hub_system in systems || continue
-        empty!(hub_offset_decoders)
-        for j = 1:num_sats
-            sys = systems[j]
-            sys == hub_system && continue
-            haskey(hub_offset_decoders, sys) && continue
-            time_offset_available(states[j].decoder, hub_system) || continue
-            hub_offset_decoders[sys] = states[j].decoder
+    for (hub_index, hub_system) in enumerate(CANDIDATE_HUB_SYSTEMS)
+        any(sys -> sys === hub_system, systems) || continue
+        empty!(hub_rows)
+        for measurement in measurements
+            measurement.time_system === hub_system && continue
+            is_collapsed(hub_rows, measurement.time_system) && continue
+            measurement.time_offsets[hub_index].available || continue
+            push!(hub_rows, measurement)
         end
-        isempty(hub_offset_decoders) && continue
+        isempty(hub_rows) && continue
         merged_layout = bias_layout_for(
-            map(sys -> haskey(hub_offset_decoders, sys) ? hub_system : sys, systems))
+            map(sys -> is_collapsed(hub_rows, sys) ? hub_system : sys, systems))
         if enough_satellites(merged_layout)
-            return as_bias_layout(merged_layout, hub_system, hub_offset_decoders)
+            return as_bias_layout(merged_layout, hub_system, hub_rows)
         end
     end
 
     # No collapse available. The independent layout is still observable (its IFBs are
     # component-restricted); use it if there are enough satellites, otherwise unsolvable.
     enough_satellites(independent_layout) ?
-    as_bias_layout(independent_layout, nothing, empty!(hub_offset_decoders)) : nothing
+    as_bias_layout(independent_layout, nothing, empty!(hub_rows)) : nothing
+end
+
+# Four identity-based helpers over the abstractly-typed `time_system` field. Every
+# `GNSSSignals.TimeSystem` is a singleton, so `===` is both the exactly right
+# comparison and the one that compiles to a pointer test — where `==` or a `Dict`
+# lookup would cost a dynamic dispatch per satellite, which is the whole thing the
+# flat row exists to avoid.
+
+"""
+    unique_time_systems(systems) -> Vector{GNSSSignals.TimeSystem}
+
+The distinct GNSS time systems of `systems` (an iterable of `TimeSystem`s), in order of
+first appearance — the order that fixes the clock columns of [`BiasColumns`](@ref).
+"""
+function unique_time_systems(systems)
+    unique_systems = GNSSSignals.TimeSystem[]
+    for system in systems
+        any(other -> other === system, unique_systems) || push!(unique_systems, system)
+    end
+    unique_systems
+end
+
+"""
+    time_system_index(systems, system) -> Union{Int,Nothing}
+
+Position of `system` in `systems`, or `nothing` if absent.
+"""
+time_system_index(systems, system) = findfirst(other -> other === system, systems)
+
+# Whether `system` is one of the systems collapsed onto the hub, i.e. whether
+# `hub_rows` holds a representative row for it.
+is_collapsed(hub_rows, system) = any(row -> row.time_system === system, hub_rows)
+
+# Distinct physical satellites among `measurements`, identified by `(time system, PRN)`
+# — a PRN is unique only within its GNSS, and a satellite tracked on several bands
+# contributes several rows but one line of sight.
+#
+# Counted by scanning the rows already in hand, rather than by collecting the keys into
+# a set: a `(TimeSystem, Int)` key is not `isbits` — the time system is an abstract
+# field — so a vector of them heap-allocates one box per satellite, inside the solver,
+# on every epoch. That is precisely the per-satellite allocation the flat row exists to
+# remove. The scan is quadratic in the satellite count where the set would be linear,
+# which for the dozens of rows an epoch holds is the cheaper of the two by a wide
+# margin, and it allocates nothing at all.
+function count_distinct_satellites(measurements)
+    distinct = 0
+    for j in eachindex(measurements)
+        measurement = measurements[j]
+        repeated = any(firstindex(measurements):(j-1)) do i
+            measurements[i].prn == measurement.prn &&
+                measurements[i].time_system === measurement.time_system
+        end
+        repeated || (distinct += 1)
+    end
+    distinct
 end
 
 """
@@ -557,7 +655,7 @@ time_scale_offset_to_gpst(time_system::GNSSSignals.TimeSystem) =
     ustrip(s, get_tai_offset(GPST()) - get_tai_offset(time_system))
 
 """
-    calc_time_scale_offsets(systems, primary_system) -> Vector{Float64}
+    calc_time_scale_offsets(measurements, primary_system) -> Vector{Float64}
 
 Seconds to add to each satellite's transmit time to express it in
 `primary_system`'s count, so that `calc_pseudo_ranges` may difference them.
@@ -578,17 +676,20 @@ shifting the time itself would move the offset into the ephemeris — about 55 k
 of along-track error at BeiDou MEO velocities. `SatInfo.time` and
 [`calc_steering_offset`](@ref) likewise keep the unconverted value.
 """
-function calc_time_scale_offsets(systems, primary_system)
+function calc_time_scale_offsets(measurements, primary_system)
     primary = time_scale_offset_to_gpst(primary_system)
-    map(sys -> primary - time_scale_offset_to_gpst(sys), systems)
+    # Each row already carries its own anchor (`count_offset_to_gpst`), precomputed by
+    # `collect_measurements`; reading it back off the abstract `time_system` field
+    # would be a dynamic dispatch per satellite.
+    map(measurement -> primary - measurement.count_offset_to_gpst, measurements)
 end
 
 """
-    calc_hub_range_offsets(hub_offset_decoders, hub_system, systems, times) -> Vector{Float64}
+    calc_hub_range_offsets(measurements, hub_rows, hub_system) -> Vector{Float64}
 
 Per-satellite range offsets (metres) that carry a clock collapse into the measurements,
 as decided by [`decide_bias_layout`](@ref): all-zero for the satellites of a system
-that keeps its own clock unknown — all of them when `hub_offset_decoders` is empty —
+that keeps its own clock unknown — all of them when `hub_rows` is empty —
 and otherwise `−c · Δt_systems` for each satellite of a collapsed system, evaluated at
 its own transmit time.
 
@@ -598,21 +699,28 @@ BeiDou toward either), so a transmit time becomes hub time by SUBTRACTING it; th
 modeled range therefore carries `−c·Δt_systems`, and the solve yields
 `inter_system_biases[sys] = −c·Δt_systems`. Which satellite of a system reported the
 offset does not matter — it is one constellation-wide value — so
-`decide_bias_layout` picks the first decoded copy per system and it converts all of
-that system's measurements.
+`decide_bias_layout` picks the first decoded copy per system (`hub_rows`) and it
+converts all of that system's measurements.
 """
-function calc_hub_range_offsets(hub_offset_decoders, hub_system, systems, times)
-    offsets = zeros(length(systems))
-    for j in eachindex(systems)
-        decoder = get(hub_offset_decoders, systems[j], nothing)
-        isnothing(decoder) && continue
-        offsets[j] = -SPEED_OF_LIGHT * calc_steering_offset(decoder, hub_system, times[j])
+function calc_hub_range_offsets(measurements, hub_rows, hub_system)
+    offsets = zeros(length(measurements))
+    isnothing(hub_system) && return offsets
+    hub_index = hub_system_index(hub_system)
+    for (j, measurement) in enumerate(measurements)
+        # `hub_rows` holds at most one row per collapsed system (two in practice), so a
+        # linear identity scan beats hashing an abstractly-typed key.
+        row_index =
+            findfirst(row -> row.time_system === measurement.time_system, hub_rows)
+        isnothing(row_index) && continue
+        offsets[j] =
+            -SPEED_OF_LIGHT * calc_steering_offset(
+                hub_rows[row_index].time_offsets[hub_index], measurement.time)
     end
     offsets
 end
 
 """
-    predict_atmospheric_delays(ξ, states, sat_positions, correction,
+    predict_atmospheric_delays(ξ, measurements, correction,
                                reference_time, doy, enable_tropospheric_correction) -> Vector{Float64}
 
 Per-satellite ionospheric + tropospheric delay (metres), to be subtracted from the
@@ -634,21 +742,27 @@ computed once and reused across satellites.
 """
 function predict_atmospheric_delays(
     ξ,
-    states,
-    sat_positions,
+    measurements,
     correction,
     reference_time,
     doy,
     enable_tropospheric_correction,
-)
+)::Vector{Float64}
+    # The return annotation is load-bearing, not decoration. `_solve_pvt` takes
+    # `correction` `@nospecialize`d — five compiled copies of the solver, one per
+    # ionospheric model, is exactly what the flat row exists to avoid — so at that call
+    # site `correction` is `Any` and this function's own return type is inferred `Any`
+    # too. Without the annotation that `Any` propagates into the corrected pseudoranges
+    # and from there through `user_position`, `calc_H` and the DOP, costing the solver
+    # its types for the sake of one argument it never looks at.
     user_pos = ECEF(ξ[1], ξ[2], ξ[3])
     user_lla = LLAfromECEF(wgs84)(user_pos)
     enu_from_ecef = ENUfromECEF(user_pos, wgs84)
-    map(states, sat_positions) do state, sat_pos
-        elevation, azimuth = _elevation_azimuth(enu_from_ecef, sat_pos)
+    map(measurements) do measurement
+        elevation, azimuth = _elevation_azimuth(enu_from_ecef, measurement.position)
         iono = ionospheric_delay(
             correction,
-            state.system,
+            measurement.center_frequency,
             elevation,
             azimuth,
             user_lla,
@@ -662,8 +776,7 @@ function predict_atmospheric_delays(
 end
 
 """
-    calc_pvt(states::AbstractVector{<:SatelliteState},
-             prev_pvt::PVTSolution = PVTSolution();
+    calc_pvt(groups, prev_pvt::PVTSolution = PVTSolution();
              approximate_year::Integer = year(now(UTC)),
              enable_ionospheric_correction::Bool = true,
              enable_tropospheric_correction::Bool = true) -> PVTSolution
@@ -709,10 +822,36 @@ zenith delays mapped to the line of sight by the Niell mapping functions.
 See [`tropospheric_delay`](@ref).
 
 # Arguments
-- `states`: Vector of [`SatelliteState`](@ref) for observed satellites. Each
-  (signal, PRN) pair must appear at most once — a receiver produces one
-  measurement per signal per satellite, and a duplicate would enter the
-  least-squares solve twice.
+- `groups`: this epoch's measurements, as [`SignalGroups`](@ref) — a `NamedTuple` of
+  [`SignalGroup`](@ref)s, one per ranging signal, each holding that signal's
+  [`SatelliteState`](@ref)s. A bare `Tuple` of groups is accepted (and numbered
+  `group1`, `group2`, …), as is a single `SignalGroup` (which becomes the `:default`
+  group), so a one-constellation solve stays a one-liner:
+
+  ```julia
+  using PositionVelocityTime: SignalGroup
+  calc_pvt(SignalGroup(GPSL1CA(), gps_states))
+  calc_pvt((gps = SignalGroup(GPSL1CA(), gps_states),
+            galileo = SignalGroup(GalileoE1B(), galileo_states)))
+  ```
+
+  Grouping is what makes the solve type-stable: within a group every satellite shares
+  one concrete state type, so [`collect_measurements`](@ref) dispatches statically, and
+  the solver behind it compiles once for every constellation mix. Build the groups where
+  the satellites are tracked — with `Tracking` loaded,
+  [`signal_groups`](@ref)`(track_state, decoders)` builds them from a whole `TrackState`.
+  A pooled `Vector{SatelliteState}`, which is what this function took before 6.0, is
+  refused with an error saying what to build instead.
+
+  Each `(signal, PRN)` pair must appear at most once — a receiver produces one
+  measurement per signal per satellite, and a duplicate would enter the least-squares
+  solve twice. A `Dictionary`-backed group prevents this within itself; two groups that
+  share a ranging signal can still collide, and are not checked for.
+
+  **Order is significant**, as vector order was before it: the flat measurement order
+  is group order × within-group order, and it fixes the primary system's tie-break
+  ("most satellites, ties by first appearance"), [`band_ifb_layout`](@ref)'s
+  reference-band tie-break, and the insertion order of `PVTSolution.sats`.
 - `prev_pvt`: Previous PVT solution used as initial guess (default: origin). A
   previous solution whose own DOP is implausible (`GDOP < 0`, or `PDOP` above
   `MAX_TRUSTED_WARM_START_PDOP` = 50) is not used as a seed and the epoch is
@@ -745,11 +884,36 @@ whatever it currently tracks each epoch and carry `prev_pvt` forward. Distrust o
 `prev_pvt` exactly as passed.
 """
 function calc_pvt(
-    states::AbstractVector{<:SatelliteState},
+    groups,
     prev_pvt::PVTSolution = PVTSolution();
     approximate_year::Integer = year(now(UTC)),
     enable_ionospheric_correction::Bool = true,
     enable_tropospheric_correction::Bool = true,
+)
+    # The function barrier. `collect_measurements` specialises on the group shape and
+    # reduces it to flat rows; `_solve_pvt` below is one compiled body for every
+    # constellation mix there is.
+    measurements, ionospheric_correction = collect_measurements(groups; approximate_year)
+    _solve_pvt(
+        measurements,
+        enable_ionospheric_correction ? ionospheric_correction : nothing,
+        prev_pvt,
+        enable_tropospheric_correction,
+    )
+end
+
+# The solver: ~200 lines that must compile exactly once, so every argument is either a
+# concrete type or explicitly non-specialising.
+#
+# `ionospheric_correction` is `@nospecialize`d: it is a small `Union` of the four
+# coefficient-set types plus `nothing`, and specialising the whole solver on it would
+# multiply its compiled copies by five for no gain. `predict_atmospheric_delays` is the
+# inner barrier that does specialise on it, once per model, where the work actually is.
+function _solve_pvt(
+    measurements::Vector{SatelliteMeasurement},
+    @nospecialize(ionospheric_correction),
+    prev_pvt::PVTSolution,
+    enable_tropospheric_correction::Bool,
 )
     # Gauss-Newton converges within its seed's basin, so a spurious far-away root
     # would re-seed itself epoch after epoch. Such roots flag themselves with an
@@ -761,43 +925,29 @@ function calc_pvt(
         (prev_pvt.dop.GDOP < 0 || prev_pvt.dop.PDOP > MAX_TRUSTED_WARM_START_PDOP)
     seed_pvt = distrusted ? PVTSolution() : prev_pvt
 
-    # Keep a satellite only if its full nav-data set is decoded and it reports healthy.
-    # Checking completeness first guarantees the health bit has been decoded.
-    healthy_indices = findall(
-        x -> is_decoding_completed_for_positioning(x.decoder) && is_sat_healthy(x.decoder),
-        states,
-    )
-    healthy_states = view(states, healthy_indices)
-    num_sats = length(healthy_states)
+    num_sats = length(measurements)
 
-    # Classify each satellite by the GNSSSignals keys that drive the solution.
-    # `get_time_system` (`GPST()`/`GST()`) groups the receiver clock bias — one per time
-    # system, ordered by first appearance; `get_band_id` (`:L1`, `:L5`, …) groups the
-    # receiver inter-frequency bias — one per band beyond a per-coverage-component
-    # reference. (`get_signal_id`, `:GPSL1CA` …, is the per-signal `sats` identity used
-    # below, not a grouping key.) `decide_bias_layout` then decides the full bias layout:
-    # it keeps only observable IFBs and falls back to a hub collapse when the geometry
-    # is disconnected or under-determined.
-    systems = map(state -> get_time_system(state.system), healthy_states)
-    bands = map(state -> get_band_id(state.system), healthy_states)
-
-    # Solvability is decided here. A degenerate geometry, which no count can see, is caught
-    # after the solve by the DOP.
-    bias_layout = decide_bias_layout(healthy_states, systems, bands)
+    # Every satellite that was not decoded-complete-and-healthy has already been
+    # dropped by `collect_measurements`, and each surviving row carries the GNSSSignals
+    # keys that drive the solution: `time_system` (`GPST()`/`GST()`/`BDT()`) groups the
+    # receiver clock bias — one per time system, ordered by first appearance —
+    # and `band_id` (`:L1`, `:L5`, …) groups the receiver inter-frequency bias — one
+    # per band beyond a per-coverage-component reference. (`signal_id`, `:GPSL1CA` …, is
+    # the per-signal `sats` identity used below, not a grouping key.)
+    #
+    # Solvability is decided here: `decide_bias_layout` keeps only observable IFBs and
+    # falls back to a hub collapse when the geometry is disconnected or
+    # under-determined. A degenerate geometry, which no count can see, is caught after
+    # the solve by the DOP.
+    bias_layout = decide_bias_layout(measurements)
     isnothing(bias_layout) && return prev_pvt
-    (; bias_columns, extra_bands, reference_bands, hub_system, hub_offset_decoders) =
-        bias_layout
+    (; bias_columns, extra_bands, reference_bands, hub_system, hub_rows) = bias_layout
     (; clock_bias_indices, num_clock_biases) = bias_columns
 
-    times = map(calc_corrected_time, healthy_states)
-
-    # Propagating the ephemerides.
-    sat_positions_and_velocities = map(
-        (state, time) -> calc_satellite_position_and_velocity(state.decoder, time),
-        healthy_states,
-        times,
-    )
-    sat_positions = map(get_sat_position, sat_positions_and_velocities)
+    # Transmit times and propagated ephemerides, both already evaluated per satellite
+    # by the collection pass.
+    times = map(measurement -> measurement.time, measurements)
+    sat_positions = map(measurement -> measurement.position, measurements)
     # Built once here and reused below. `stack` collects the SVector
     # columns into a single 3×N `Matrix{Float64}` in one pass.
     sat_positions_mat = stack(sat_positions)
@@ -807,12 +957,21 @@ function calc_pvt(
     # hub must be primary there; otherwise pick the system with the most
     # satellites (best-conditioned reported time), breaking ties by first
     # appearance.
-    unique_systems = unique(systems)
+    unique_systems =
+        unique_time_systems(measurement.time_system for measurement in measurements)
     primary_system =
         isnothing(hub_system) ?
-        unique_systems[argmax([count(==(sys), systems) for sys in unique_systems])] :
-        hub_system
-    primary_clock_index = clock_bias_indices[findfirst(==(primary_system), systems)]
+        unique_systems[argmax([
+            count(measurement -> measurement.time_system === sys, measurements) for
+            sys in unique_systems
+        ])] : hub_system
+    # `something`, not a bare `findfirst`: the primary system is either one of the
+    # systems present or the hub, which `decide_bias_layout` only returns when it is
+    # present — so this never fails, and saying so keeps the index an `Int` rather than
+    # a `Union{Int,Nothing}` that would widen the clock column and the DOP call below.
+    primary_index = something(
+        findfirst(measurement -> measurement.time_system === primary_system, measurements))
+    primary_clock_index = clock_bias_indices[primary_index]
 
     # The common reference cancels out of the reported time (the primary clock
     # bias absorbs it), so any latest-transmit-time reference works — but the times
@@ -822,32 +981,33 @@ function calc_pvt(
     # column, but a parameter nine orders of magnitude above the others in the normal
     # equations. Zero for GPS and Galileo, and for any single-constellation epoch.
     pseudo_ranges, reference_time =
-        calc_pseudo_ranges(times .+ calc_time_scale_offsets(systems, primary_system))
+        calc_pseudo_ranges(times .+ calc_time_scale_offsets(measurements, primary_system))
     # The known per-satellite broadcast steering offset (zero unless that system was
     # collapsed onto the hub), as a measurement correction like the atmospheric delays
     # below. Kept for the inter-system-bias readout at the end, which reports this
     # term alone: the time-count difference already removed above is a convention, not
     # a bias, and belongs in neither the readout nor the solve.
-    hub_offsets = calc_hub_range_offsets(hub_offset_decoders, hub_system, systems, times)
+    hub_offsets = calc_hub_range_offsets(measurements, hub_rows, hub_system)
     pseudo_ranges = pseudo_ranges .- hub_offsets
 
     # The primary system's week and start epoch date the epoch absolutely: the day of
     # year feeds the tropospheric mapping's seasonal term here, and week/start epoch
     # date the reported time after the solve.
-    primary_state = healthy_states[findfirst(==(primary_system), systems)]
-    week = get_week(primary_state.decoder; approximate_year)
-    start_time = system_start_epoch(primary_state.system)
-    doy = day_of_year(primary_state.system, week, reference_time)
+    primary_measurement = measurements[primary_index]
+    week = primary_measurement.week
+    start_time = primary_measurement.system_start_epoch
+    doy = day_of_year(primary_measurement.system_start_time, week, reference_time)
 
     # Seed each clock bias from the previous solution, reconstructing a system's
     # absolute bias from the reference bias plus its stored inter-system bias.
     prev_abs_bias(sys) =
-        sys == seed_pvt.reference_system ? seed_pvt.time_correction :
+        sys === seed_pvt.reference_system ? seed_pvt.time_correction :
         seed_pvt.time_correction + get(seed_pvt.inter_system_biases, sys, 0.0m)
     prev_ξ = zeros(num_lsq_params(bias_columns))
     prev_ξ[1], prev_ξ[2], prev_ξ[3] = seed_pvt.position
     for j in 1:num_sats
-        prev_ξ[3+clock_bias_indices[j]] = ustrip(m, prev_abs_bias(systems[j]))
+        prev_ξ[3+clock_bias_indices[j]] =
+            ustrip(m, prev_abs_bias(measurements[j].time_system))
     end
     # Only warm-start an IFB column from the previous solution when that band's bias was
     # measured against the same reference band; a reference change (the anchor differs
@@ -862,13 +1022,11 @@ function calc_pvt(
     end
 
     # Atmospheric corrections, summed per satellite and subtracted from the
-    # pseudoranges. The ionospheric model is chosen for the whole solve. The
-    # prediction is the top-level `predict_atmospheric_delays`, a function
-    # barrier that specialises on the concrete type of the `Union`-typed
-    # `ionospheric_correction`.
-    ionospheric_correction =
-        enable_ionospheric_correction ? select_ionospheric_correction(healthy_states) :
-        nothing
+    # pseudoranges. The ionospheric model was chosen for the whole solve by the
+    # collection pass. The prediction is the top-level `predict_atmospheric_delays`, a
+    # function barrier that specialises on the concrete type of the `Union`-typed
+    # `ionospheric_correction` this body deliberately does not specialise on.
+    #
     # Is any atmospheric correction active at all? When neither the ionosphere (no
     # model selected) nor the troposphere contributes, skip `predict_atmospheric_delays`
     # entirely and the solve runs on the raw pseudoranges.
@@ -884,7 +1042,7 @@ function calc_pvt(
             user_position(sat_positions_mat, pseudo_ranges, bias_columns, prev_ξ)
         if correct_atmosphere
             atmospheric_delays = predict_atmospheric_delays(
-                ξ_uncorrected, healthy_states, sat_positions, ionospheric_correction,
+                ξ_uncorrected, measurements, ionospheric_correction,
                 reference_time, doy, enable_tropospheric_correction)
             user_position(
                 sat_positions_mat, pseudo_ranges .- atmospheric_delays, bias_columns, ξ_uncorrected)
@@ -898,7 +1056,7 @@ function calc_pvt(
         corrected_ranges =
             correct_atmosphere ?
             pseudo_ranges .- predict_atmospheric_delays(
-                prev_ξ, healthy_states, sat_positions, ionospheric_correction,
+                prev_ξ, measurements, ionospheric_correction,
                 reference_time, doy, enable_tropospheric_correction) : pseudo_ranges
         user_position(sat_positions_mat, corrected_ranges, bias_columns, prev_ξ)
     end
@@ -917,8 +1075,8 @@ function calc_pvt(
 
     dop.GDOP < 0 && return prev_pvt
 
-    user_velocity_and_clock_drift, rate_residuals = calc_user_velocity_and_clock_drift(
-        sat_positions_and_velocities, healthy_states, times, H)
+    user_velocity_and_clock_drift, rate_residuals =
+        calc_user_velocity_and_clock_drift(measurements, H)
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
         user_velocity_and_clock_drift[2],
@@ -946,8 +1104,8 @@ function calc_pvt(
     # polynomial's drift term over the transmit-time spread — sub-millimetre).
     inter_system_biases = Dict{GNSSSignals.TimeSystem,typeof(1.0m)}()
     for sys in unique_systems
-        sys == primary_system && continue
-        j = findfirst(==(sys), systems)
+        sys === primary_system && continue
+        j = findfirst(measurement -> measurement.time_system === sys, measurements)
         inter_system_biases[sys] =
             (ξ[3+clock_bias_indices[j]] + hub_offsets[j] - time_correction) * m
     end
@@ -963,8 +1121,8 @@ function calc_pvt(
     # Per-satellite `sats` key: (signal id, PRN) — signal-level (not time system), so a
     # satellite tracked on two signals of one constellation stays distinct; the
     # receiver-clock grouping is separate, by time system.
-    healthy_sat_keys =
-        map(state -> (get_signal_id(state.system), state.decoder.prn), healthy_states)
+    sat_keys = map(
+        measurement -> (measurement.signal_id, measurement.prn), measurements)
 
     PVTSolution(
         position,
@@ -974,7 +1132,7 @@ function calc_pvt(
         time,
         relative_clock_drift,
         dop,
-        Dictionary(healthy_sat_keys, sat_infos),
+        Dictionary(sat_keys, sat_infos),
         primary_system,
         inter_system_biases,
         inter_frequency_biases,
