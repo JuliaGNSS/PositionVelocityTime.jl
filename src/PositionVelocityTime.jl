@@ -823,11 +823,13 @@ See [`tropospheric_delay`](@ref).
             galileo = SignalGroup(GalileoE1B(), galileo_states)))
   ```
 
-  A receiver that keeps its satellites in a flat vector can convert with
-  [`signal_groups`](@ref), at the cost of inference (see there). Grouping is what makes
-  the solve type-stable: within a group every satellite shares one concrete state type,
-  so [`collect_measurements`](@ref) dispatches statically, and the solver behind it
-  compiles once for every constellation mix.
+  Grouping is what makes the solve type-stable: within a group every satellite shares
+  one concrete state type, so [`collect_measurements`](@ref) dispatches statically, and
+  the solver behind it compiles once for every constellation mix. Build the groups where
+  the satellites are tracked — with `Tracking` loaded,
+  [`signal_groups`](@ref)`(track_state, decoders)` builds them from a whole `TrackState`.
+  A pooled `Vector{SatelliteState}`, which is what this function took before 6.0, is
+  refused with an error saying what to build instead.
 
   Each `(signal, PRN)` pair must appear at most once — a receiver produces one
   measurement per signal per satellite, and a duplicate would enter the least-squares

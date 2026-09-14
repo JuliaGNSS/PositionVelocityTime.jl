@@ -60,11 +60,11 @@ calc_pvt((
     galileo = SignalGroup(GalileoE1B(), galileo_sat_states),
 ))
 ```
-provides a complete position calculation. A single group can be passed on its own, and a
-flat vector of mixed satellite states converts with
-`PositionVelocityTime.signal_groups(sat_states)`. Grouping is what keeps the solve
-type-stable across constellations — see the migration note in the documentation if you
-are coming from 5.x, where `calc_pvt` took that flat vector directly.
+provides a complete position calculation. A single group can be passed on its own, and
+with `Tracking` loaded `PositionVelocityTime.signal_groups(track_state, decoders)` builds
+a whole epoch's groups from a `TrackState`. Grouping is what keeps the solve type-stable
+across constellations — see the migration note in the documentation if you are coming
+from 5.x, where `calc_pvt` took a flat vector of satellite states directly.
 
 A fix needs at least 4 healthy, fully decoded
 satellites (more for a multi-GNSS or multi-band set); when the epoch cannot be solved,

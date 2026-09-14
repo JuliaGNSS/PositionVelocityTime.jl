@@ -24,6 +24,11 @@ collection pass the solver sees one flat, parameter-free
 [`PositionVelocityTime.SatelliteMeasurement`](@ref) row per satellite and therefore
 compiles **once** for every constellation mix.
 
+Groups are built where the satellites are tracked, not derived from a pooled vector at
+solve time — [`PositionVelocityTime.signal_groups`](@ref) builds a whole epoch's groups
+from a `Tracking.TrackState`. There is deliberately no conversion from a flat
+`Vector{SatelliteState}`; `calc_pvt` refuses one with an error saying what to build.
+
 ```@docs
 PositionVelocityTime.SignalGroup
 PositionVelocityTime.SignalGroups
@@ -161,9 +166,9 @@ three keys, all provided by GNSSSignals (3.3+) and read from a satellite's rangi
 receiver-clock grouping (one bias per time system); `GNSSSignals.get_band_id` (e.g. `:L1`,
 `:L5`) drives inter-frequency-bias grouping (one bias per band); and
 `GNSSSignals.get_signal_id` (e.g. `:GPSL1CA`) is the per-signal identity used in the `sats`
-key of [`PVTSolution`](@ref), and the key
-[`PositionVelocityTime.signal_groups`](@ref) groups by. All three are read off the
-ranging signal once, by the collection pass, and carried on every
+key of [`PVTSolution`](@ref), and the key a
+[`PositionVelocityTime.SignalGroup`](@ref) is one signal's worth of. All three are read
+off the ranging signal once, by the collection pass, and carried on every
 [`PositionVelocityTime.SatelliteMeasurement`](@ref) as `time_system`, `band_id` and
 `signal_id`.
 
