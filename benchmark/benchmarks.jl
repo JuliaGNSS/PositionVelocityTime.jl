@@ -44,17 +44,11 @@ mixed_group["cold"] = @benchmarkable calc_pvt($MIXED_INPUT)
 mixed_group["warm"] = @benchmarkable calc_pvt($MIXED_INPUT, $MIXED_PREV)
 SUITE["calc_pvt"]["GPSL1+GalileoE1B"]["$(MIXED_SATS)sats"] = mixed_group
 
-# Two 6.0-only measurements, absent from the base revision's run (AirspeedVelocity
-# reports a benchmark only present on one side as new rather than as a regression):
-# the documented flat-vector bridge, whose cost has to stay bounded to the collection
-# pass, and that collection pass on its own — the half that specialises on the group
-# shape, and the half a consumer running its own estimator over the measurement model
-# pays.
+# The collection pass on its own, a 6.0-only measurement absent from the base
+# revision's run (AirspeedVelocity reports a benchmark present on only one side as new
+# rather than as a regression): the half that specialises on the group shape, and the
+# half a consumer running its own estimator over the measurement model pays.
 if HAS_SIGNAL_GROUPS
-    MIXED_STATES = make_mixed_states()
-    mixed_group["cold, via signal_groups"] =
-        @benchmarkable calc_pvt(PositionVelocityTime.signal_groups($MIXED_STATES))
-
     SUITE["collect_measurements"] = BenchmarkGroup()
     SUITE["collect_measurements"]["GPSL1"] =
         @benchmarkable PositionVelocityTime.collect_measurements($GPS_INPUT)

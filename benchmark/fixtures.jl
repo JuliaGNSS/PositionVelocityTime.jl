@@ -70,6 +70,3 @@ make_galileo_input() = pvt_input(GalileoE1B(), galileo_e1b_states(0.0Hz))
 
 "9 GPS L1 C/A satellites over Aachen, 2021-05-31 (from test/fixtures.jl)."
 make_gps_input() = pvt_input(GPSL1CA(), gps_l1_states(0.0Hz))
-
-"The same 14 satellites as a flat vector, for the `signal_groups` bridge benchmark."
-make_mixed_states() = [gps_l1_states(0.0Hz); galileo_e1b_states(0.0Hz)]

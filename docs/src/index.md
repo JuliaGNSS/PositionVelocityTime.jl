@@ -76,10 +76,8 @@ lla = get_LLA(pvt)  # latitude, longitude, altitude
 
 Each group holds the satellites tracked on one signal, as a `Dictionary` keyed by PRN or
 as a plain vector. A single group needs no NamedTuple around it —
-`calc_pvt(SignalGroup(GPSL1CA(), gps_sat_states))` is a complete one-constellation solve
-— and a flat vector of mixed [`SatelliteState`](@ref)s can be converted with
-[`PositionVelocityTime.signal_groups`](@ref). With `Tracking` loaded, a whole
-`TrackState` and its decoders convert in one call:
+`calc_pvt(SignalGroup(GPSL1CA(), gps_sat_states))` is a complete one-constellation solve.
+With `Tracking` loaded, a whole `TrackState` and its decoders become groups in one call:
 
 ```julia
 using Tracking
@@ -101,13 +99,13 @@ satellites for `M` distinct systems. The per-system clock offsets are reported a
     source, and behind them the solver now works on one flat, parameter-free
     measurement row and compiles once for every constellation mix.
 
-    The mechanical translation of a `calc_pvt(states)` call is
-    `calc_pvt(PositionVelocityTime.signal_groups(states))`. That works and is the
-    documented bridge, but it is the slow path by construction: the group NamedTuple's
-    type is only known at runtime, so the collection pass stays inference-blind (the
-    solver behind it does not). A receiver that already keeps its satellites per signal
-    — which is the shape `Tracking.jl` and `GNSSReceiver.jl` carry — should name its
-    groups instead and pay nothing.
+    There is deliberately no conversion function from the old input: `calc_pvt` refuses
+    a pooled vector with an error saying what to build. A converter would have had to
+    infer the grouping from whatever signals the vector happened to hold, which is a
+    runtime property — so the conversion itself would be inference-blind, reintroducing
+    in one place the dispatch the grouping removes everywhere else. Build the groups
+    where the satellites are tracked, which is the shape `Tracking.jl` and
+    `GNSSReceiver.jl` already carry, and hand the same groups to `calc_pvt`.
 
     The measurement-model surface moved with it: its per-satellite functions now take
     the [`PositionVelocityTime.SatelliteMeasurement`](@ref) rows that

@@ -137,17 +137,18 @@ end
         gal_bare = mkstate(GNSSDecoderState(GalileoE1B(), 2), GalileoE1B())
         gal_ntcm = mkstate(galileo_decoder_with(121.13, 0.35, 0.013, 1100), GalileoE1B())
 
+        select = PositionVelocityTime.select_ionospheric_correction
         # Nothing decoded → no correction
-        @test PositionVelocityTime.select_ionospheric_correction(signal_groups([gps_bare, gal_bare])) ===
-              nothing
-        # Only Klobuchar → Klobuchar
-        @test PositionVelocityTime.select_ionospheric_correction(signal_groups([gps_klob, gps_bare])) isa
+        @test select((signal_group([gps_bare]), signal_group([gal_bare]))) === nothing
+        # Only Klobuchar → Klobuchar. Both satellites are on one signal, so they are
+        # one group.
+        @test select(signal_group([gps_klob, gps_bare])) isa
               PositionVelocityTime.KlobucharParams
         # Only Galileo → NTCM-G
-        @test PositionVelocityTime.select_ionospheric_correction(signal_groups([gal_ntcm, gal_bare])) isa
+        @test select(signal_group([gal_ntcm, gal_bare])) isa
               PositionVelocityTime.NTCMGParams
         # Both available → NTCM-G wins (more accurate)
-        @test PositionVelocityTime.select_ionospheric_correction(signal_groups([gps_klob, gal_ntcm])) isa
+        @test select((signal_group([gps_klob]), signal_group([gal_ntcm]))) isa
               PositionVelocityTime.NTCMGParams
     end
 
@@ -360,7 +361,7 @@ end
             code_phase = 0.0,
             carrier_doppler = 0.0Hz,
         )
-        correction = PositionVelocityTime.select_ionospheric_correction(signal_groups([state]))
+        correction = PositionVelocityTime.select_ionospheric_correction(signal_group([state]))
         @test correction isa PositionVelocityTime.NTCMGParams
         el, az = PositionVelocityTime._elevation_azimuth(ENUfromECEF(user, wgs84), sat)
         delay = PositionVelocityTime.ionospheric_delay(
@@ -794,23 +795,32 @@ end
         )
 
         select = PositionVelocityTime.select_ionospheric_correction
+        # Each of these satellites is on a signal of its own, so each is its own group;
+        # the tuple's order is the order the scan sees them in, which is what the
+        # preference rungs below are asserted against.
+        one(state) = signal_group([state])
         # BDGIM alone corrects a BDS-3-only epoch, which used to get nothing at all.
-        @test select(signal_groups([bds3])) isa PositionVelocityTime.BDGIMParams
+        @test select(one(bds3)) isa PositionVelocityTime.BDGIMParams
         # It beats both Klobuchar sources, and loses to NTCM-G.
-        @test select(signal_groups([bds3, gps])) isa PositionVelocityTime.BDGIMParams
-        @test select(signal_groups([gps, bds3])) isa PositionVelocityTime.BDGIMParams
-        @test select(signal_groups([bds3, bds2])) isa PositionVelocityTime.BDGIMParams
-        @test select(signal_groups([bds2, bds3])) isa PositionVelocityTime.BDGIMParams
-        @test select(signal_groups([bds3, gal])) isa PositionVelocityTime.NTCMGParams
-        @test select(signal_groups([gal, bds3])) isa PositionVelocityTime.NTCMGParams
-        @test select(signal_groups([gal, bds3, gps, bds2])) isa PositionVelocityTime.NTCMGParams
+        @test select((one(bds3), one(gps))) isa PositionVelocityTime.BDGIMParams
+        @test select((one(gps), one(bds3))) isa PositionVelocityTime.BDGIMParams
+        @test select((one(bds3), one(bds2))) isa PositionVelocityTime.BDGIMParams
+        @test select((one(bds2), one(bds3))) isa PositionVelocityTime.BDGIMParams
+        @test select((one(bds3), one(gal))) isa PositionVelocityTime.NTCMGParams
+        @test select((one(gal), one(bds3))) isa PositionVelocityTime.NTCMGParams
+        @test select((one(gal), one(bds3), one(gps), one(bds2))) isa
+              PositionVelocityTime.NTCMGParams
         # Without a BDS-3 satellite the previous order is untouched, and each
         # Klobuchar source keeps its own variant of the model.
-        @test select(signal_groups([gps, bds2])) isa PositionVelocityTime.KlobucharParams
-        @test select(signal_groups([bds2])) isa PositionVelocityTime.BeiDouKlobucharParams
+        @test select((one(gps), one(bds2))) isa PositionVelocityTime.KlobucharParams
+        @test select(one(bds2)) isa PositionVelocityTime.BeiDouKlobucharParams
         # The BeiDou branch asks both accessors: a legacy satellite alongside a BDS-3
-        # one contributes its Klobuchar set without shadowing the BDGIM one.
-        @test select(signal_groups([bds2, bds3, bds2_second])) isa PositionVelocityTime.BDGIMParams
-        @test select(signal_groups(SatelliteState[])) === nothing
+        # one contributes its Klobuchar set without shadowing the BDGIM one. The two
+        # legacy satellites are deliberately in separate groups, which is what puts one
+        # of them *after* the BDS-3 satellite in scan order.
+        @test select((one(bds2), one(bds3), one(bds2_second))) isa
+              PositionVelocityTime.BDGIMParams
+        # An epoch with no groups at all — the receiver tracking nothing yet.
+        @test select(()) === nothing
     end
 end

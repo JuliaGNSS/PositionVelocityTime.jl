@@ -624,7 +624,7 @@
             ranging_state(dnav_decoder(state; prn = 20 + i), BeiDouB1I(), user, t_rx)
             for (i, state) in enumerate(galileo)
         ]
-        pvt = calc_pvt(signal_groups(b1i); kw...)
+        pvt = calc_pvt(signal_group(b1i); kw...)
         @test length(pvt.sats) == length(galileo)
         @test pvt.reference_system == BDT()
         @test norm(pvt.position - user) < 1e-2
@@ -657,7 +657,7 @@
                 t_rx + 14,
             ) for state in gps_l1_states(0.0Hz)
         ]
-        pvt_gps = calc_pvt(signal_groups(gps_matched); kw...)
+        pvt_gps = calc_pvt(signal_group(gps_matched); kw...)
         @test PositionVelocityTime.get_week(gps_matched[1].decoder;
             approximate_year = 2021) == 2156
         @test norm(pvt_gps.position - user) < 1e-2
@@ -671,7 +671,7 @@
             ranging_state(dnav_decoder(state; prn = 20 + i), BeiDouB3I(), user, t_rx)
             for (i, state) in enumerate(galileo)
         ]
-        two_band = calc_pvt(signal_groups([b1i; b3i]); kw...)
+        two_band = calc_pvt((signal_group(b1i), signal_group(b3i)); kw...)
         @test norm(two_band.position - user) < 1e-2
         @test collect(keys(two_band.inter_frequency_biases)) == [:B3I]
         @test abs(two_band.inter_frequency_biases[:B3I].value) < 1e-2m
@@ -709,8 +709,8 @@
                 !isapprox(d.code_phase, p.code_phase) for (d, p) in zip(on_data, on_pilot)
             )
 
-            pvt_data = calc_pvt(signal_groups(on_data); kw...)
-            pvt_pilot = calc_pvt(signal_groups(on_pilot); kw...)
+            pvt_data = calc_pvt(signal_group(on_data); kw...)
+            pvt_pilot = calc_pvt(signal_group(on_pilot); kw...)
             @test length(pvt_pilot.sats) == length(galileo)
             @test norm(pvt_pilot.position - user) < 1e-2
             @test norm(pvt_pilot.position - pvt_data.position) < 1e-2
@@ -726,7 +726,7 @@
             ranging_state(b2a_decoder(state), BeiDouB2aI(), user, t_rx)
             for state in galileo
         ]
-        pvt = calc_pvt(signal_groups(b2a_states); kw...)
+        pvt = calc_pvt(signal_group(b2a_states); kw...)
         @test length(pvt.sats) == length(galileo)
         @test norm(pvt.position - user) < 1e-2
     end
@@ -773,9 +773,10 @@
         # BeiDou only on B1I, so the band-coverage graph is disconnected and neither
         # band gets an inter-frequency-bias column — each constellation's chain delay
         # folds into its own clock. The inter-system bias then reads out as −c·Δ.
-        plenty = [gps; beidou([21, 22, 23, 24])]
-        pvt = calc_pvt(signal_groups(plenty); kw...)
-        @test length(pvt.sats) == length(plenty)
+        plenty_beidou = beidou([21, 22, 23, 24])
+        plenty = (signal_group(gps), signal_group(plenty_beidou))
+        pvt = calc_pvt(plenty; kw...)
+        @test length(pvt.sats) == length(gps) + length(plenty_beidou)
         @test norm(pvt.position - user) < 1e-2
         @test haskey(pvt.inter_system_biases, BDT())
         # The steering term alone, ~3.6 m — not the 4.2e9 m the structural count
@@ -814,7 +815,7 @@
         # collapses onto GPS and the epoch solves anyway — the BeiDou counterpart of
         # the existing Galileo GGTO fallback, and the reason `decide_bias_layout` was
         # generalised past GST.
-        scarce = [gps[1:3]; beidou_l1([21]; bgto = Δ)]
+        scarce = (signal_group(gps[1:3]), signal_group(beidou_l1([21]; bgto = Δ)))
         # Pin the *shape*, not just the outcome: two time systems and four satellites,
         # so the independent layout is arithmetically impossible and the collapse is
         # the only route to a fix. That is what makes this the assertion that catches
@@ -823,13 +824,13 @@
         # there is nowhere for 4.2e9 m to go and the position itself is wrong. Stated
         # here because a suite whose every case has enough satellites for the
         # independent layout can miss a defect that produces no fixes at all.
-        @test length(unique(map(st -> get_time_system(st.system), scarce))) == 2
-        @test length(scarce) == 4
+        @test length(unique(get_time_system(group.signal) for group in scarce)) == 2
+        @test sum(length(group.satellites) for group in scarce) == 4
         @test PositionVelocityTime.decide_bias_layout(
             measurement_rows(scarce),
         ).bias_columns.num_clock_biases == 1
 
-        collapsed = calc_pvt(signal_groups(scarce); kw...)
+        collapsed = calc_pvt(scarce; kw...)
         @test collapsed.reference_system == GPST()
         @test length(collapsed.sats) == 4
         # A 4-satellite solve has no redundancy at all, so the millimetre-scale
@@ -845,7 +846,7 @@
         # Without the BGTO the same four satellites are unsolvable — no collapse is
         # available and the independent layout cannot be paid for — and `calc_pvt`
         # says so by returning the previous solution rather than throwing.
-        @test calc_pvt(signal_groups([gps[1:3]; beidou_l1([21])]); kw...).position ==
+        @test calc_pvt((signal_group(gps[1:3]), signal_group(beidou_l1([21]))); kw...).position ==
               PVTSolution().position
 
         # A Galileo satellite carrying a GGTO and a BeiDou one carrying a BGTO collapse
@@ -867,7 +868,11 @@
         # Three GPS + one BeiDou + one Galileo, all on L1. Three independent clocks
         # would need six satellites; collapsing both non-GPS systems onto GPS needs
         # four, so the layout is decided by the two broadcast offsets together.
-        mixed = [gps[1:3]; beidou_l1([21]; bgto = Δ); [galileo_ggto]]
+        mixed = (
+            signal_group(gps[1:3]),
+            signal_group(beidou_l1([21]; bgto = Δ)),
+            signal_group([galileo_ggto]),
+        )
         mixed_rows = measurement_rows(mixed)
         @test map(row -> row.time_system, mixed_rows) ==
               [GPST(), GPST(), GPST(), BDT(), GST()]
@@ -907,14 +912,14 @@
         gal_states = [
             ranging_state(st.decoder, st.system, user, t_rx) for st in galileo[1:3]
         ]
-        gps_free = [gal_states; [beidou_gal_bgto]]
+        gps_free = (signal_group(gal_states), signal_group([beidou_gal_bgto]))
         gst_layout = PositionVelocityTime.decide_bias_layout(measurement_rows(gps_free))
         @test !isnothing(gst_layout)
         @test gst_layout.hub_system == GST()
         @test map(row -> row.time_system, gst_layout.hub_rows) == [BDT()]
         @test gst_layout.bias_columns.num_clock_biases == 1
 
-        gst_collapsed = calc_pvt(signal_groups(gps_free); kw...)
+        gst_collapsed = calc_pvt(gps_free; kw...)
         @test gst_collapsed.reference_system == GST()
         @test length(gst_collapsed.sats) == 4
         @test norm(gst_collapsed.position - user) < 5e-2

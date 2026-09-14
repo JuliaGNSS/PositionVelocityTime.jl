@@ -66,49 +66,39 @@ _normalize_signal_groups(group::SignalGroup) = (default = group,)
 end
 
 """
-    PositionVelocityTime.signal_groups(states::AbstractVector{<:SatelliteState})
-        -> NamedTuple of SignalGroup
+    PositionVelocityTime.signal_groups(track_state, decoders) -> NamedTuple of SignalGroup
 
-Group a flat vector of [`SatelliteState`](@ref)s into the [`SignalGroups`](@ref)
-[`calc_pvt`](@ref) takes, keyed by `get_signal_id(state.system)` — the same key a
-receiver groups by, so a consumer that already keeps its satellites per signal should
-build its groups directly instead of routing through here. Within a group the
-satellites are stored in a `Dictionary` keyed by PRN, in first-appearance order, so
-the flat order this produces is the order `states` had.
+Build one epoch's [`SignalGroups`](@ref) from a receiver's own per-signal state. The
+method that does this lives in the `Tracking` extension and takes a `Tracking.TrackState`
+together with that receiver's decoders; see it for the details.
 
-!!! warning "This is the slow path, by construction"
-
-    The resulting NamedTuple's type depends on which signals `states` happens to
-    contain, which is a runtime property — so this call is inference-blind and the
-    per-satellite work of [`collect_measurements`](@ref) it feeds is dynamically
-    dispatched, exactly as the old vector entry point was. The *solver* still compiles
-    once (that is what the flat measurement row buys), so the cost is bounded by the
-    collection pass; but a caller that can name its groups statically avoids it
-    entirely.
-
-Throws if one signal carries the same PRN twice — a duplicate `(signal, PRN)` would
-enter the least-squares solve twice.
+There is deliberately **no** method taking a flat `Vector{SatelliteState}`. Groups are
+not a wrapper around the old input — they are the shape a receiver already has, and
+converting a pooled vector back into them at every epoch would reintroduce, in the
+conversion, exactly the dynamic dispatch the grouping exists to remove. Build the groups
+where the satellites are tracked, and hand the same groups to [`calc_pvt`](@ref).
 """
-function signal_groups(states::AbstractVector{<:SatelliteState})
-    ids = Symbol[]
-    grouped = Any[]
-    for state in states
-        id = get_signal_id(state.system)
-        index = findfirst(==(id), ids)
-        if isnothing(index)
-            push!(ids, id)
-            push!(grouped, [state])
-        else
-            push!(grouped[index], state)
-        end
-    end
-    NamedTuple{(ids...,)}(
-        map(grouped) do group
-            SignalGroup(
-                first(group).system,
-                Dictionary([state.decoder.prn for state in group], group),
-            )
-        end |> Tuple,
+function signal_groups end
+
+# A flat vector of satellite states is what `calc_pvt` took before 6.0. It has no
+# meaningful normalization — the signals it pools are a runtime property, so any
+# grouping derived here would be inference-blind — and silently accepting it would hide
+# that. Say so instead, and point at what to build.
+function _normalize_signal_groups(states::AbstractVector{<:SatelliteState})
+    throw(
+        ArgumentError(
+            string(
+                "`calc_pvt` takes signal groups, not a vector of `SatelliteState`s. ",
+                "Group the satellites by their ranging signal:\n\n",
+                "    using PositionVelocityTime: SignalGroup\n",
+                "    calc_pvt((gps     = SignalGroup(GPSL1CA(),   gps_states),\n",
+                "              galileo = SignalGroup(GalileoE1B(), galileo_states)))\n\n",
+                "A single group needs no NamedTuple around it, and each group's ",
+                "satellites may be a `Dictionary` keyed by PRN or a plain vector. ",
+                "With `Tracking` loaded, `PositionVelocityTime.signal_groups(",
+                "track_state, decoders)` builds them from a whole `TrackState`.",
+            ),
+        ),
     )
 end
 

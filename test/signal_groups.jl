@@ -61,24 +61,23 @@
         ]
     end
 
-    @testset "signal_groups bridges a flat vector, preserving its order" begin
-        groups = signal_groups([gps; gal])
-        @test keys(groups) == (:GPSL1CA, :GalileoE1B)
-        # The group's signal is the satellites' own instance, not a fresh one (a
-        # GNSSSignals signal carries its code table, so it is not a singleton).
-        @test groups.GPSL1CA.signal === gps[1].system
-        @test collect(keys(groups.GalileoE1B.satellites)) ==
-              [state.decoder.prn for state in gal]
-        # Interleaving the vector regroups it, and the flat order that comes back out
-        # is group order — first appearance of each signal — not the vector's.
-        interleaved = signal_groups([gps[1], gal[1], gps[2], gal[2]])
-        @test keys(interleaved) == (:GPSL1CA, :GalileoE1B)
-        @test collect(keys(interleaved.GPSL1CA.satellites)) ==
-              [gps[1].decoder.prn, gps[2].decoder.prn]
-        # Same satellites, same fix, whichever way they are handed over.
-        @test calc_pvt(groups; kw...).position ==
-              calc_pvt((gps = gps_group, galileo = gal_group); kw...).position
-        @test isempty(signal_groups(SatelliteState[]))
+    @testset "a flat vector of satellite states is refused, with directions" begin
+        # The 5.x input. It is not accepted and not silently converted: the signals a
+        # pooled vector holds are a runtime property, so any grouping derived from it
+        # would be inference-blind — which is the thing groups exist to remove. The
+        # error says so and shows what to build instead.
+        err = try
+            calc_pvt([gps; gal]; kw...)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        message = sprint(showerror, err)
+        @test occursin("takes signal groups", message)
+        @test occursin("SignalGroup(GPSL1CA()", message)
+        # And it is raised at the entry point, not somewhere inside the solver.
+        @test occursin("calc_pvt", message)
     end
 
     @testset "collection is inferable and the solver compiles once" begin

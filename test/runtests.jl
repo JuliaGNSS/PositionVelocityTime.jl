@@ -5,24 +5,40 @@ using Unitful: Hz, m, s, °, ustrip
 # per-GNSS BGTO sets, the almanacs); the BeiDou tests build one directly, and it also
 # backs the satellites of a `PositionVelocityTime.SignalGroup`.
 using Dictionaries: Dictionaries, Dictionary
-# The fixtures build satellites as flat vectors, so most of the suite routes them
-# through `signal_groups` — the documented bridge — rather than naming its groups.
-# `SignalGroup` itself stays fully qualified everywhere: `Tracking` exports a type of
-# the same name, and `test/tracking_ext.jl` does `using Tracking`, so the deliberate
-# name collision is live in this very session.
-using PositionVelocityTime: signal_groups
+# The fixtures build one flat vector of `SatelliteState`s per ranging signal. This is
+# how the suite turns one of them into the `SignalGroup` that `calc_pvt` takes; an epoch
+# spanning several signals is written as several groups — a NamedTuple where the names
+# carry meaning, a bare tuple (numbered `group1`, `group2`, …) where they do not.
+#
+# `SignalGroup` stays fully qualified here and everywhere below: `Tracking` exports a
+# type of the same name, and `test/tracking_ext.jl` does `using Tracking`, so the
+# deliberate collision is live in this very session.
+function signal_group(signal, states)
+    ids = unique(get_signal_id(state.system) for state in states)
+    all(id -> id === get_signal_id(signal), ids) || error(
+        "signal_group takes the satellites of one ranging signal, got $ids — " *
+        "put each signal in its own group",
+    )
+    PositionVelocityTime.SignalGroup(
+        signal,
+        Dictionary([state.decoder.prn for state in states], states),
+    )
+end
+# The signal read off the satellites, for the usual case of a non-empty group. A group
+# that may be empty has to be given its signal explicitly — which is exactly why a
+# `SignalGroup` carries one rather than deriving it from its satellites.
+signal_group(states) = signal_group(first(states).system, states)
 
-# Two shorthands the suite uses wherever it exercises the measurement-model surface
+# Two more shorthands, for the tests that exercise the measurement-model surface
 # directly rather than through `calc_pvt`. They live here rather than in `fixtures.jl`,
 # which stays strictly the data shared with the benchmark script.
 #
-# `measurement_rows` is the flat `SatelliteMeasurement` rows behind a vector of
-# `SatelliteState`s — what the collection pass hands the solver. `approximate_year` is
-# pinned for the same reason every `calc_pvt` call here pins it: the fixtures were
-# recorded in 2021 and GPS L1 C/A's week number is 10 bits.
-measurement_rows(states; approximate_year = 2021) = first(
-    PositionVelocityTime.collect_measurements(signal_groups(states); approximate_year),
-)
+# `measurement_rows` is the flat `SatelliteMeasurement` rows behind one epoch's groups —
+# what the collection pass hands the solver. `approximate_year` is pinned for the same
+# reason every `calc_pvt` call here pins it: the fixtures were recorded in 2021 and
+# GPS L1 C/A's week number is 10 bits.
+measurement_rows(groups; approximate_year = 2021) =
+    first(PositionVelocityTime.collect_measurements(groups; approximate_year))
 # `carrier_hz` is a ranging signal's carrier as the plain `Float64` in Hz that
 # `ionospheric_delay` takes — the `center_frequency` field of a measurement row.
 carrier_hz(system) = ustrip(Hz, get_center_frequency(system))
