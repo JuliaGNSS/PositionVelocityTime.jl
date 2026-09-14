@@ -269,6 +269,23 @@ end
             gal[2],
         ]),
     ))
+    # The measurement form of `time_offset_available` reads the flag the collection pass
+    # flattened onto each row, and has to agree with the decoder form it was derived
+    # from — row 3 is the Galileo satellite carrying the GGTO, row 4 the one without,
+    # rows 1-2 are GPS, whose offset toward its own time system is not a broadcast
+    # quantity.
+    available(row, target) = PositionVelocityTime.time_offset_available(row, target)
+    @test available(offset_rows[3], GPST())
+    @test !available(offset_rows[4], GPST())
+    @test !available(offset_rows[1], GPST())
+    @test [available(row, GPST()) for row in offset_rows] ==
+          [PositionVelocityTime.time_offset_available(state.decoder, GPST()) for state in
+           [gps[1:2]; [with_ggto(gal[1]; A_0G = 5.0e-9, A_1G = 1.0e-15, t_0G = 100,
+               WN_0G = 1134), gal[2]]]]
+    # No message broadcasts an offset toward BDT, so every row reports it unavailable
+    # rather than indexing something that is not there.
+    @test !any(row -> available(row, BDT()), offset_rows)
+
     hub_rows = [offset_rows[3]]
     offsets = PositionVelocityTime.calc_hub_range_offsets(offset_rows, hub_rows, GPST())
     @test offsets[[1, 2]] == [0.0, 0.0]
