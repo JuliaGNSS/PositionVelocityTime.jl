@@ -658,31 +658,33 @@ const _PRECOMPILE_GALILEO_E1B_STATES = [
 const _PRECOMPILE_A_REF = 26_559_710.0
 const _PRECOMPILE_Ω_DOT_REF = -2.6e-9 * π
 
-# GPS LNAV ephemeris → the quasi-Keplerian CNAV / CNAV-2 form.
+# GPS LNAV ephemeris → the quasi-Keplerian CNAV / CNAV-2 form. The LNAV fields are
+# `Union{Nothing,…}` until decoded; `something` narrows them to their value, which
+# keeps these keyword calls statically dispatched in the trim check (`test/trim`).
 _precompile_modern_nav(T, d; extra...) = T(;
-    t_0e = d.t_0e,
-    ΔA = d.sqrt_A^2 - _PRECOMPILE_A_REF,
+    t_0e = something(d.t_0e),
+    ΔA = something(d.sqrt_A)^2 - _PRECOMPILE_A_REF,
     A_dot = 0.0,
-    Δn_0 = d.Δn,
+    Δn_0 = something(d.Δn),
     Δn_0_dot = 0.0,
-    M_0 = d.M_0,
-    e = d.e,
-    ω = d.ω,
-    Ω_0 = d.Ω_0,
-    i_0 = d.i_0,
-    ΔΩ_dot = d.Ω_dot - _PRECOMPILE_Ω_DOT_REF,
-    i_dot = d.i_dot,
-    C_is = d.C_is,
-    C_ic = d.C_ic,
-    C_rs = d.C_rs,
-    C_rc = d.C_rc,
-    C_us = d.C_us,
-    C_uc = d.C_uc,
-    t_0c = d.t_0c,
-    a_f0 = d.a_f0,
-    a_f1 = d.a_f1,
-    a_f2 = d.a_f2,
-    T_GD = d.T_GD,
+    M_0 = something(d.M_0),
+    e = something(d.e),
+    ω = something(d.ω),
+    Ω_0 = something(d.Ω_0),
+    i_0 = something(d.i_0),
+    ΔΩ_dot = something(d.Ω_dot) - _PRECOMPILE_Ω_DOT_REF,
+    i_dot = something(d.i_dot),
+    C_is = something(d.C_is),
+    C_ic = something(d.C_ic),
+    C_rs = something(d.C_rs),
+    C_rc = something(d.C_rc),
+    C_us = something(d.C_us),
+    C_uc = something(d.C_uc),
+    t_0c = something(d.t_0c),
+    a_f0 = something(d.a_f0),
+    a_f1 = something(d.a_f1),
+    a_f2 = something(d.a_f2),
+    T_GD = something(d.T_GD),
     extra...,
 )
 
@@ -691,7 +693,7 @@ _precompile_modern_nav(T, d; extra...) = T(;
 _precompile_cnav(d) = _precompile_modern_nav(
     GNSSDecoder.GPSCNAVData,
     d;
-    TOW = d.TOW,
+    TOW = something(d.TOW),
     WN = 2160,
     l1_health = false,
     l2_health = false,
@@ -703,8 +705,8 @@ _precompile_cnav(d) = _precompile_modern_nav(
 _precompile_cnav2(d) = _precompile_modern_nav(
     GNSSDecoder.GPSL1C_DData,
     d;
-    ITOW = d.TOW ÷ 7200,
-    toi = (d.TOW % 7200) ÷ 18,
+    ITOW = something(d.TOW) ÷ 7200,
+    toi = (something(d.TOW) % 7200) ÷ 18,
     WN = 2160,
     l1c_health = false,
 )

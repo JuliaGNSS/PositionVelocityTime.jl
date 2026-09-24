@@ -122,6 +122,24 @@ hub's broadcast offset is a tuple index rather than a dictionary lookup.
 """
 const CANDIDATE_HUB_SYSTEMS = (GPST(), GST(), BDT())
 
+"""
+    PositionVelocityTime.SupportedTimeSystem
+
+`Union{GPST,GST,BDT}`: the GNSS time systems a satellite can be on, which are exactly
+[`CANDIDATE_HUB_SYSTEMS`](@ref) — every system GNSSSignals defines is a candidate hub.
+The type of [`SatelliteMeasurement`](@ref)'s `time_system` field, and of the keys and
+the reference system of a [`PVTSolution`](@ref).
+
+A closed `Union` rather than the abstract `GNSSSignals.TimeSystem` so that every call on
+a time system — hashing it into `inter_system_biases`, `time_scale_offset_to_gpst`, a
+hub's offset index — is split into statically dispatched branches instead of being a
+dynamic dispatch, which a `juliac --trim` build rejects. The row it types stays one
+concrete type, so the solver still compiles once for every constellation mix. A time
+system GNSSSignals adds later has to be added to `CANDIDATE_HUB_SYSTEMS` anyway (the
+`time_offsets` tuple is indexed by it), and this follows.
+"""
+const SupportedTimeSystem = Union{map(typeof, CANDIDATE_HUB_SYSTEMS)...}
+
 # Position of a time system in `CANDIDATE_HUB_SYSTEMS`, or `nothing` for a system no
 # broadcast offset can target. Every element is a distinct singleton, so this folds to
 # a constant whenever the argument type is known.
@@ -191,12 +209,13 @@ compiles once for every mix.
   per-signal half of the `(signal, PRN)` key of `PVTSolution.sats`.
 - `band_id::Symbol`: `get_band_id` of the ranging signal (`:L1`, `:L5`, …), the
   grouping key of the receiver inter-frequency biases.
-- `time_system::GNSSSignals.TimeSystem`: `get_time_system` of the ranging signal
-  (`GPST()`, `GST()`, `BDT()`), the grouping key of the receiver clock biases. An
-  abstract field, but every instance is a singleton, so this is one pointer.
+- `time_system::SupportedTimeSystem`: `get_time_system` of the ranging signal
+  (`GPST()`, `GST()`, `BDT()`), the grouping key of the receiver clock biases. A small
+  `Union` of singletons (see [`SupportedTimeSystem`](@ref)), so the row stays concrete
+  and every call on the field splits statically.
 - `count_offset_to_gpst::Float64`: [`time_scale_offset_to_gpst`](@ref) of
-  `time_system`, precomputed — reading it off the abstract `time_system` field would
-  be a dynamic dispatch per satellite.
+  `time_system`, precomputed, so the solver reads a number rather than branching on
+  the time system per satellite.
 - `time::Float64`: the corrected transmit time ([`calc_corrected_time`](@ref)) as a
   seconds-of-week count **on this satellite's own system's scale**.
 - `position::SVector{3,Float64}`: satellite ECEF position at `time` (m).
@@ -207,7 +226,7 @@ compiles once for every mix.
 - `clock_drift::Float64`: [`calc_satellite_clock_drift`](@ref) at `time` (s/s).
 - `week::Int`: the absolute week number of `time_system`, with the GPS L1 C/A
   1024-week rollover already resolved against `approximate_year`.
-- `system_start_epoch::TAIEpoch{Float64}`: the TAI epoch of that system's week 0,
+- `system_start_epoch::TAITime`: the TAI epoch of that system's week 0,
   which dates the reported fix.
 - `system_start_time::DateTime`: the same origin as a calendar date, for
   [`day_of_year`](@ref).
@@ -218,7 +237,7 @@ struct SatelliteMeasurement
     prn::Int
     signal_id::Symbol
     band_id::Symbol
-    time_system::GNSSSignals.TimeSystem
+    time_system::SupportedTimeSystem
     count_offset_to_gpst::Float64
     time::Float64
     position::SVector{3,Float64}
@@ -227,7 +246,7 @@ struct SatelliteMeasurement
     center_frequency::Float64
     clock_drift::Float64
     week::Int
-    system_start_epoch::TAIEpoch{Float64}
+    system_start_epoch::TAITime
     system_start_time::DateTime
     time_offsets::NTuple{3,BroadcastTimeOffset}
 end
@@ -406,13 +425,15 @@ function collect_measurements(groups; approximate_year::Integer = year(now(UTC))
     # (five reallocations and copies for a dozen satellites). The reservation is the
     # unfiltered count — an unhealthy satellite leaves a little slack, never a regrowth.
     sizehint!(measurements, sum(group -> length(group.satellites), normalized; init = 0))
-    # `map` over the NamedTuple visits the groups in order, which is what makes the
-    # flat row order group order × within-group order.
-    candidates = map(normalized) do group
+    # `map` over the groups visits them in order, which is what makes the flat row order
+    # group order × within-group order. Over their `Tuple` rather than the `NamedTuple`
+    # itself: `map(f, ::NamedTuple)` only passes `f` on, so Julia does not specialise it
+    # on the closure, and every group's call would be a dynamic dispatch.
+    candidates = map(values(normalized)) do group
         collect_group!(measurements, group, approximate_year)
     end
     measurements,
-    select_from_ionospheric_candidates(merge_all_ionospheric_candidates(values(candidates)))
+    select_from_ionospheric_candidates(merge_all_ionospheric_candidates(candidates))
 end
 
 # One group's satellites, appended to `measurements`; returns the group's ionospheric

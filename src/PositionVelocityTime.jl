@@ -5,20 +5,22 @@ using CoordinateTransformations,
     GNSSDecoder,
     GNSSSignals,
     LinearAlgebra,
-    AstroTime,
-    LsqFit,
     StaticArrays,
     Unitful,
     Dates
 
 using Unitful: s, Hz, m, °, ustrip
 using Dictionaries: Dictionary
+
+include("tai_time.jl")
+using .TAITimes: TAITime
 # Unexported but documented decoder vocabulary this package shares: the week
 # length, and the two message-family supertypes the propagator dispatches on.
 using GNSSDecoder: SECONDS_PER_WEEK, AbstractGPSCNAVData, AbstractBeiDouCNAVData
 
 export calc_pvt,
     PVTSolution,
+    TAITime,
     SatInfo,
     InterFrequencyBias,
     SatelliteState,
@@ -159,7 +161,7 @@ Per-satellite information attached to a [`PVTSolution`](@ref) (one entry per
 satellite used in the fix).
 
 # Fields
-- `position::ECEF`: Satellite ECEF position at transmit time (metres).
+- `position::ECEF{Float64}`: Satellite ECEF position at transmit time (metres).
 - `time::Float64`: Satellite transmit time (system time of week, seconds).
 - `residual::typeof(1.0m)`: Post-fit least-squares pseudorange residual (metres) — the
   (atmosphere-corrected) measured minus the modeled pseudorange. A per-satellite
@@ -178,7 +180,7 @@ residual from its tracking loops' `λ · carrier_doppler` works in the opposite 
 `calc_user_velocity_and_clock_drift`, whose `yⱼ` sets that sign).
 """
 struct SatInfo
-    position::ECEF
+    position::ECEF{Float64}
     time::Float64
     residual::typeof(1.0m)
     rate_residual::typeof(1.0m/s)
@@ -210,8 +212,8 @@ end
 Complete Position, Velocity, and Time solution from GNSS measurements.
 
 # Fields
-- `position::ECEF`: User position in ECEF coordinates (meters)
-- `velocity::ECEF`: User velocity in ECEF coordinates (m/s)
+- `position::ECEF{Float64}`: User position in ECEF coordinates (meters)
+- `velocity::ECEF{Float64}`: User velocity in ECEF coordinates (m/s)
 - `course_over_ground::typeof(1.0°)`: Horizontal direction of travel (degrees), the
   azimuth of the velocity vector in the local East-North-Up frame at `position` —
   measured clockwise from true North and wrapped to `[0, 360)°`, following the GNSS
@@ -222,7 +224,8 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
 - `time_correction::typeof(1.0m)`: Estimated receiver clock bias of the reference GNSS
   (meters). For a multi-GNSS solution this is the bias of `reference_system`;
   other systems' biases are `time_correction + inter_system_biases[system]`.
-- `time::Union{TAIEpoch{Float64}, Nothing}`: Estimated time as a TAI epoch
+- `time::Union{TAITime, Nothing}`: Estimated time as a TAI epoch (see [`TAITime`](@ref);
+  with AstroTime loaded, `TAIEpoch(time)` converts it)
 - `relative_clock_drift::Float64`: Relative receiver clock drift (dimensionless)
 - `dop::Union{DOP, Nothing}`: Dilution of precision values
 - `sats::Dictionary{Tuple{Symbol, Int}, SatInfo}`: Maps `(signal, PRN)` to satellite
@@ -233,9 +236,9 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   signals of one constellation (a satellite tracked on GPS L1 C/A and L5 yields two
   entries sharing a PRN). Receiver-clock grouping is by time system, not signal —
   see `reference_system`.
-- `reference_system::Union{GNSSSignals.TimeSystem, Nothing}`: GNSS time system (e.g.
+- `reference_system::Union{SupportedTimeSystem, Nothing}`: GNSS time system (e.g.
   `GNSSSignals.GPST()`, `GST()`) that `time` and `time_correction` are referenced to.
-- `inter_system_biases::Dict{GNSSSignals.TimeSystem, typeof(1.0m)}`: For each GNSS time system
+- `inter_system_biases::Dict{SupportedTimeSystem, typeof(1.0m)}`: For each GNSS time system
   other than `reference_system`, the offset of that system's time scale relative to the reference
   system's (meters) — the inter-system bias. This is a **system / space-segment** effect,
   not a receiver one (this receiver has no inter-system hardware bias): it is the GNSS
@@ -262,17 +265,17 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   `n ≥ 3 + M + B` satellites for `M` time systems and `B` extra bands.
 """
 @kwdef struct PVTSolution
-    position::ECEF = ECEF(0, 0, 0)
-    velocity::ECEF = ECEF(0, 0, 0)
+    position::ECEF{Float64} = ECEF(0.0, 0.0, 0.0)
+    velocity::ECEF{Float64} = ECEF(0.0, 0.0, 0.0)
     course_over_ground::typeof(1.0°) = 0.0°
     time_correction::typeof(1.0m) = 0.0m
-    time::Union{TAIEpoch{Float64},Nothing} = nothing
+    time::Union{TAITime,Nothing} = nothing
     relative_clock_drift::Float64 = 0
     dop::Union{DOP,Nothing} = nothing
     sats::Dictionary{Tuple{Symbol,Int},SatInfo} = Dictionary{Tuple{Symbol,Int},SatInfo}()
-    reference_system::Union{GNSSSignals.TimeSystem,Nothing} = nothing
-    inter_system_biases::Dict{GNSSSignals.TimeSystem,typeof(1.0m)} =
-        Dict{GNSSSignals.TimeSystem,typeof(1.0m)}()
+    reference_system::Union{SupportedTimeSystem,Nothing} = nothing
+    inter_system_biases::Dict{SupportedTimeSystem,typeof(1.0m)} =
+        Dict{SupportedTimeSystem,typeof(1.0m)}()
     inter_frequency_biases::Dict{Symbol,InterFrequencyBias} =
         Dict{Symbol,InterFrequencyBias}()
 end
@@ -365,7 +368,7 @@ function band_ifb_layout(system_keys, bands)
     unique_bands = unique(bands)
     # Union-find over bands: union the bands a single constellation is tracked on.
     parent = Dict(b => b for b in unique_bands)
-    root(b) = parent[b] == b ? b : (parent[b] = root(parent[b]))
+    root(b) = find_root!(parent, b)
     function link_bands!(a, c)
         ra, rc = root(a), root(c)
         ra == rc || (parent[ra] = rc)
@@ -396,6 +399,20 @@ function band_ifb_layout(system_keys, bands)
     return ifb_indices, extra_bands, reference_bands, length(reference_of)
 end
 
+# The union-find root of `b` in `parent`, compressing the path to it. A loop rather
+# than the recursive closure it could be written as: a closure that calls itself is
+# boxed, which makes every call through it a dynamic dispatch.
+function find_root!(parent, b)
+    root = b
+    while parent[root] != root
+        root = parent[root]
+    end
+    while parent[b] != root
+        b, parent[b] = parent[b], root
+    end
+    return root
+end
+
 """
     BiasLayout
 
@@ -410,7 +427,7 @@ const BiasLayout = @NamedTuple{
     bias_columns::BiasColumns,
     extra_bands::Vector{Symbol},
     reference_bands::Vector{Symbol},
-    hub_system::Union{Nothing,GNSSSignals.TimeSystem},
+    hub_system::Union{Nothing,SupportedTimeSystem},
     hub_rows::Vector{SatelliteMeasurement},
 }
 
@@ -432,7 +449,7 @@ field of the row:
 - `reference_bands::Vector{Symbol}`: per IFB column, the reference band of its coverage
   component — the anchor that column's bias is measured against (see
   [`band_ifb_layout`](@ref)).
-- `hub_system::Union{Nothing,GNSSSignals.TimeSystem}`: the system the collapsed
+- `hub_system::Union{Nothing,SupportedTimeSystem}`: the system the collapsed
   clocks were merged onto, or `nothing` for a layout that estimates every clock bias
   independently, which is the common case.
 - `hub_rows::Vector{SatelliteMeasurement}`: one row per collapsed time system — the
@@ -490,7 +507,10 @@ test and the velocity solve's own — rather than pre-screened.
 """
 function decide_bias_layout(measurements)::Union{Nothing,BiasLayout}
     num_sats = length(measurements)
-    systems = [measurement.time_system for measurement in measurements]
+    # Typed, not inferred from the values: a comprehension widens mixed singletons to
+    # their `typejoin`, the abstract `TimeSystem`, on which every later call would be a
+    # dynamic dispatch.
+    systems = SupportedTimeSystem[measurement.time_system for measurement in measurements]
     bands = [measurement.band_id for measurement in measurements]
     # Distinct physical satellites, identified by `(time system, PRN)` — a PRN is only
     # unique within its GNSS. A satellite tracked on several bands appears once per band in
@@ -507,12 +527,15 @@ function decide_bias_layout(measurements)::Union{Nothing,BiasLayout}
 
     function bias_layout_for(effective_systems)
         unique_effective = unique_time_systems(effective_systems)
-        clock_bias_indices =
-            [time_system_index(unique_effective, sys) for sys in effective_systems]
+        # `something`: every system is in `unique_effective` by construction, and saying
+        # so keeps the columns a `Vector{Int}` rather than widening them with `Nothing`.
+        clock_bias_indices = [
+            something(time_system_index(unique_effective, sys)) for sys in effective_systems
+        ]
         # The clock column, not the time system itself, keys the coverage graph: it
         # separates the constellations identically (and in the same first-appearance
-        # order) while being a concretely-typed `Int`, where the abstractly-typed
-        # `TimeSystem` field would cost a dynamic dispatch on every comparison and hash
+        # order) while being a concretely-typed `Int`, where the `Union`-typed
+        # `time_system` field would branch on the system at every comparison and hash
         # inside `band_ifb_layout`.
         ifb_indices, extra_bands, reference_bands, num_components =
             band_ifb_layout(clock_bias_indices, bands)
@@ -554,8 +577,8 @@ function decide_bias_layout(measurements)::Union{Nothing,BiasLayout}
             push!(hub_rows, measurement)
         end
         isempty(hub_rows) && continue
-        merged_layout = bias_layout_for(
-            map(sys -> is_collapsed(hub_rows, sys) ? hub_system : sys, systems))
+        merged_layout = bias_layout_for(SupportedTimeSystem[
+            is_collapsed(hub_rows, sys) ? hub_system : sys for sys in systems])
         if enough_satellites(merged_layout)
             return as_bias_layout(merged_layout, hub_system, hub_rows)
         end
@@ -567,20 +590,20 @@ function decide_bias_layout(measurements)::Union{Nothing,BiasLayout}
     as_bias_layout(independent_layout, nothing, empty!(hub_rows)) : nothing
 end
 
-# Four identity-based helpers over the abstractly-typed `time_system` field. Every
+# Four identity-based helpers over the `time_system` field. Every
 # `GNSSSignals.TimeSystem` is a singleton, so `===` is both the exactly right
-# comparison and the one that compiles to a pointer test — where `==` or a `Dict`
-# lookup would cost a dynamic dispatch per satellite, which is the whole thing the
-# flat row exists to avoid.
+# comparison and the one that compiles to a pointer test — cheaper than `==` or a
+# `Dict` lookup, which branch on the field's `Union` (see `SupportedTimeSystem`) before
+# they compare anything.
 
 """
-    unique_time_systems(systems) -> Vector{GNSSSignals.TimeSystem}
+    unique_time_systems(systems) -> Vector{SupportedTimeSystem}
 
 The distinct GNSS time systems of `systems` (an iterable of `TimeSystem`s), in order of
 first appearance — the order that fixes the clock columns of [`BiasColumns`](@ref).
 """
 function unique_time_systems(systems)
-    unique_systems = GNSSSignals.TimeSystem[]
+    unique_systems = SupportedTimeSystem[]
     for system in systems
         any(other -> other === system, unique_systems) || push!(unique_systems, system)
     end
@@ -603,8 +626,8 @@ is_collapsed(hub_rows, system) = any(row -> row.time_system === system, hub_rows
 # contributes several rows but one line of sight.
 #
 # Counted by scanning the rows already in hand, rather than by collecting the keys into
-# a set: a `(TimeSystem, Int)` key is not `isbits` — the time system is an abstract
-# field — so a vector of them heap-allocates one box per satellite, inside the solver,
+# a set: a `(SupportedTimeSystem, Int)` key is not a concrete type — the time system is
+# a `Union` — so a vector of them heap-allocates one box per satellite, inside the solver,
 # on every epoch. That is precisely the per-satellite allocation the flat row exists to
 # remove. The scan is quadratic in the satellite count where the set would be linear,
 # which for the dozens of rows an epoch holds is the cheaper of the two by a wide
@@ -679,8 +702,8 @@ of along-track error at BeiDou MEO velocities. `SatInfo.time` and
 function calc_time_scale_offsets(measurements, primary_system)
     primary = time_scale_offset_to_gpst(primary_system)
     # Each row already carries its own anchor (`count_offset_to_gpst`), precomputed by
-    # `collect_measurements`; reading it back off the abstract `time_system` field
-    # would be a dynamic dispatch per satellite.
+    # `collect_measurements`, so this reads a number rather than branching on the
+    # `time_system` field per satellite.
     map(measurement -> primary - measurement.count_offset_to_gpst, measurements)
 end
 
@@ -708,7 +731,7 @@ function calc_hub_range_offsets(measurements, hub_rows, hub_system)
     hub_index = hub_system_index(hub_system)
     for (j, measurement) in enumerate(measurements)
         # `hub_rows` holds at most one row per collapsed system (two in practice), so a
-        # linear identity scan beats hashing an abstractly-typed key.
+        # linear identity scan beats hashing a key.
         row_index =
             findfirst(row -> row.time_system === measurement.time_system, hub_rows)
         isnothing(row_index) && continue
@@ -740,21 +763,44 @@ accurate to well under a millimetre — no iterate-to-convergence needed. The us
 geodetic coordinates and the ENU transform depend only on `ξ`, so they are
 computed once and reused across satellites.
 """
-function predict_atmospheric_delays(
+Base.@nospecializeinfer function predict_atmospheric_delays(
+    ξ,
+    measurements,
+    @nospecialize(correction),
+    reference_time,
+    doy,
+    enable_tropospheric_correction,
+)::Vector{Float64}
+    # The inner barrier of `_solve_pvt`, which takes `correction` `@nospecialize`d —
+    # five compiled copies of the solver, one per ionospheric model, is exactly what the
+    # flat row exists to avoid. So at that call site `correction` is `Any`, and this
+    # function takes it `@nospecialize`d too: with a single method, the call then
+    # resolves statically to this one unspecialised body, where an `Any` argument to a
+    # specialising function would be a dynamic dispatch (which a `juliac --trim` build
+    # rejects). The narrowing to each model's concrete type is spelled out here instead,
+    # so the per-satellite loop below still specialises once per model.
+    #
+    # The return annotation is load-bearing too: without it the `Any` argument makes the
+    # return type `Any`, which would propagate into the corrected pseudoranges and from
+    # there through `user_position`, `calc_H` and the DOP.
+    predict(model) = _predict_atmospheric_delays(
+        ξ, measurements, model, reference_time, doy, enable_tropospheric_correction)
+    correction isa KlobucharParams && return predict(correction)
+    correction isa BeiDouKlobucharParams && return predict(correction)
+    correction isa NTCMGParams && return predict(correction)
+    correction isa BDGIMParams && return predict(correction)
+    isnothing(correction) && return predict(nothing)
+    throw(ArgumentError("not an ionospheric correction: $(typeof(correction))"))
+end
+
+function _predict_atmospheric_delays(
     ξ,
     measurements,
     correction,
     reference_time,
     doy,
     enable_tropospheric_correction,
-)::Vector{Float64}
-    # The return annotation is load-bearing, not decoration. `_solve_pvt` takes
-    # `correction` `@nospecialize`d — five compiled copies of the solver, one per
-    # ionospheric model, is exactly what the flat row exists to avoid — so at that call
-    # site `correction` is `Any` and this function's own return type is inferred `Any`
-    # too. Without the annotation that `Any` propagates into the corrected pseudoranges
-    # and from there through `user_position`, `calc_H` and the DOP, costing the solver
-    # its types for the sake of one argument it never looks at.
+)
     user_pos = ECEF(ξ[1], ξ[2], ξ[3])
     user_lla = LLAfromECEF(wgs84)(user_pos)
     enu_from_ecef = ENUfromECEF(user_pos, wgs84)
@@ -907,9 +953,12 @@ end
 #
 # `ionospheric_correction` is `@nospecialize`d: it is a small `Union` of the four
 # coefficient-set types plus `nothing`, and specialising the whole solver on it would
-# multiply its compiled copies by five for no gain. `predict_atmospheric_delays` is the
-# inner barrier that does specialise on it, once per model, where the work actually is.
-function _solve_pvt(
+# multiply its compiled copies by five for no gain. `@nospecializeinfer` extends that
+# to inference, which would otherwise still build a copy per model wherever the caller's
+# correction type is known — as it is from `collect_measurements`. The inner barrier
+# that does specialise on the model, once per model, where the work actually is, sits
+# behind `predict_atmospheric_delays`.
+Base.@nospecializeinfer function _solve_pvt(
     measurements::Vector{SatelliteMeasurement},
     @nospecialize(ionospheric_correction),
     prev_pvt::PVTSolution,
@@ -1090,7 +1139,7 @@ function _solve_pvt(
     corrected_reference_time = reference_time - time_correction / SPEED_OF_LIGHT
 
     # Assumes `start_time.fraction == 0` (true for GPS/Galileo: integer-second origins).
-    time = TAIEpoch(
+    time = TAITime(
         week * 7 * 24 * 60 * 60 + floor(Int, corrected_reference_time) + start_time.second,
         corrected_reference_time - floor(Int, corrected_reference_time),
     )
@@ -1102,7 +1151,7 @@ function _solve_pvt(
     # collapsed system this is the broadcast offset −c·Δt_systems, read from the
     # system's first satellite (the per-satellite offsets differ only by the offset
     # polynomial's drift term over the transmit-time spread — sub-millimetre).
-    inter_system_biases = Dict{GNSSSignals.TimeSystem,typeof(1.0m)}()
+    inter_system_biases = Dict{SupportedTimeSystem,typeof(1.0m)}()
     for sys in unique_systems
         sys === primary_system && continue
         j = findfirst(measurement -> measurement.time_system === sys, measurements)
@@ -1140,7 +1189,7 @@ function _solve_pvt(
 end
 
 """
-    system_start_epoch(system) -> TAIEpoch
+    system_start_epoch(system) -> TAITime
 
 Absolute TAI epoch of a ranging signal's GNSS time-scale origin (week 0, time of
 week 0), from GNSSSignals' `get_tai_system_start_time` — the epoch already
@@ -1151,7 +1200,7 @@ label) and AstroTime's leap-aware conversion; GNSSSignals 4.1 states the TAI
 labels itself, which is also what makes the value safe to derive at
 precompile time.
 """
-system_start_epoch(system) = TAIEpoch(get_tai_system_start_time(system))
+system_start_epoch(system) = TAITime(get_tai_system_start_time(system))
 
 """
     get_week(decoder::GNSSDecoderState{<:GPSL1CAData}; approximate_year)
@@ -1219,6 +1268,8 @@ function get_LLA(pvt::PVTSolution)
     LLAfromECEF(wgs84)(pvt.position)
 end
 
+include("levenberg_marquardt.jl")
+using .LevenbergMarquardt: curve_fit
 include("user_position.jl")
 include("sat_time.jl")
 include("sat_position.jl")

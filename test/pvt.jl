@@ -14,7 +14,7 @@
     )
     expected_lla = LLA(; lat = 50.77885207231635, lon = 6.065568145321566, alt = 289.09688064471146)
     @test pvt.position ≈ ECEFfromLLA(wgs84)(expected_lla) rtol = 1e-8
-    @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
+    @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 9
     @test pvt.relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.63Hz + freq_offset) atol = 0.01Hz
 
@@ -43,7 +43,7 @@ end
     )
     expected_lla = LLA(; lat = 50.778851781017025, lon = 6.065622611231713, alt = 291.96260731963366)
     @test pvt.position ≈ ECEFfromLLA(wgs84)(expected_lla) rtol = 1e-8
-    @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
+    @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 2.5
     @test pvt.relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.59Hz + freq_offset) atol = 0.01Hz
 
@@ -130,7 +130,7 @@ end
     expected_pos = ECEF(4.0186793226897363e6, 427033.09443239716, 4.918251247796992e6)
     @test pvt.position ≈ expected_pos rtol = 1e-8
     @test pvt.velocity ≈ ECEF(-1.4405743822415678, 0.5393693783528187, -2.135825176671574) atol = 1e-3
-    @test pvt.time ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.285)
+    @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.285)
 
     # One clock bias per GNSS; the reference (GPS, most satellites) bias is
     # reported as time_correction, with Galileo's offset relative to it.

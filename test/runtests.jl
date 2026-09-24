@@ -49,6 +49,7 @@ carrier_hz(system) = ustrip(Hz, get_center_frequency(system))
 inferred_return_type(f, types) = only(Base.return_types(f, types))
 
 include("aqua.jl")
+include("tai_time.jl")
 include("fixtures.jl")
 include("sat_time.jl")
 include("sat_position.jl")

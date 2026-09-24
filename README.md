@@ -70,3 +70,11 @@ A fix needs at least 4 healthy, fully decoded
 satellites (more for a multi-GNSS or multi-band set); when the epoch cannot be solved,
 the previous solution is returned unchanged instead of an error, so a receiver can pass
 whatever it currently tracks.
+The estimated time `pvt.time` is a `TAITime` — whole TAI seconds since J2000 plus a
+fraction. With AstroTime loaded, `TAIEpoch(pvt.time)` converts it exactly.
+
+### Trimmed executables
+The solver compiles into a standalone executable with
+[JuliaC](https://github.com/JuliaLang/JuliaC.jl)'s `juliac --trim=safe` (Julia 1.12+);
+`test/trim` holds such an app and a check that builds it and compares its output with a
+regular Julia session.
