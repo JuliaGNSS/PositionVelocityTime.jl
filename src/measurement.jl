@@ -418,13 +418,38 @@ The flat row order is group order × within-group order, and it is significant �
 `approximate_year` resolves the GPS L1 C/A 1024-week rollover; see [`calc_pvt`](@ref).
 """
 function collect_measurements(groups; approximate_year::Integer = year(now(UTC)))
-    normalized = _normalize_signal_groups(groups)
     measurements = SatelliteMeasurement[]
     # An epoch's satellite count is known before a single row is built, and a row is
     # ~320 bytes, so reserving the whole vector up front saves the geometric regrowth
     # (five reallocations and copies for a dozen satellites). The reservation is the
     # unfiltered count — an unhealthy satellite leaves a little slack, never a regrowth.
-    sizehint!(measurements, sum(group -> length(group.satellites), normalized; init = 0))
+    sizehint!(measurements, sum(group -> length(group.satellites),
+        _normalize_signal_groups(groups); init = 0))
+    collect_measurements!(measurements, groups; approximate_year)
+end
+
+"""
+    collect_measurements!(measurements::Vector{SatelliteMeasurement}, groups;
+                          approximate_year = year(now(UTC)))
+        -> (measurements, ionospheric_correction)
+
+[`collect_measurements`](@ref) into an existing vector: `measurements` is emptied and
+refilled with this epoch's rows, which allocates nothing once it has held as many rows
+before. What it held is overwritten.
+"""
+collect_measurements!(
+    measurements::Vector{SatelliteMeasurement},
+    groups;
+    approximate_year::Integer = year(now(UTC)),
+) = measurements, _collect_measurements!(measurements, groups, approximate_year)
+
+# The collection pass proper, returning only the ionospheric correction. That is a
+# `Union` of `isbits` coefficient sets, which Julia returns unboxed; a tuple pairing it
+# with the (non-`isbits`) row vector would be a `Union` of non-`isbits` tuples, which it
+# returns boxed — an allocation per epoch in `calc_pvt!`.
+function _collect_measurements!(measurements, groups, approximate_year::Integer)
+    normalized = _normalize_signal_groups(groups)
+    empty!(measurements)
     # `map` over the groups visits them in order, which is what makes the flat row order
     # group order × within-group order. Over their `Tuple` rather than the `NamedTuple`
     # itself: `map(f, ::NamedTuple)` only passes `f` on, so Julia does not specialise it
@@ -432,7 +457,6 @@ function collect_measurements(groups; approximate_year::Integer = year(now(UTC))
     candidates = map(values(normalized)) do group
         collect_group!(measurements, group, approximate_year)
     end
-    measurements,
     select_from_ionospheric_candidates(merge_all_ionospheric_candidates(candidates))
 end
 

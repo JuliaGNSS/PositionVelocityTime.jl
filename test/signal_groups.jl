@@ -110,8 +110,9 @@
         @test length(rows) == length(gps) + length(gal)
         # Named groups make the collection pass statically dispatched: the rows half of
         # its result is inferred exactly. (The ionospheric-correction half is a small
-        # `Union` by design — `_solve_pvt` takes it `@nospecialize`d so that the model
-        # choice cannot multiply the solver's compiled copies.)
+        # `Union` by design — the solver takes it wrapped in the concrete
+        # `IonosphericModel`, so that the model choice cannot multiply its compiled
+        # copies.)
         @test inferred_return_type(
             PositionVelocityTime.collect_measurements, Tuple{typeof(groups)}
         ).parameters[1] === Vector{PositionVelocityTime.SatelliteMeasurement}
@@ -119,8 +120,8 @@
 
         # The point of the flat row: one compiled body of the solver serves every
         # constellation mix. Solve six differently-shaped epochs and count the
-        # specializations of `_solve_pvt` — there are two regardless, one for a live
-        # ionospheric model and one for `nothing`, and neither depends on the mix.
+        # specializations of `_solve_pvt!` — there is one, whatever the mix and whether
+        # or not an ionospheric model is live.
         for input in (
             gps_group, gal_group, (a = gps_group,), (a = gps_group, b = gal_group),
             (b = gal_group, a = gps_group), (gps_group, gal_group),
@@ -128,8 +129,8 @@
             calc_pvt(input; approximate_year = 2021)
         end
         specializations =
-            Base.specializations(only(methods(PositionVelocityTime._solve_pvt)))
-        @test count(!isnothing, collect(specializations)) <= 2
+            Base.specializations(only(methods(PositionVelocityTime._solve_pvt!)))
+        @test count(!isnothing, collect(specializations)) == 1
     end
 
     @testset "an epoch with no usable satellite is not a special case" begin
