@@ -127,20 +127,22 @@ currently tracks each epoch and carry the last solution forward.
 
 ### Solving without allocating
 
-`calc_pvt` returns a new solution every epoch. A receiver solving a steady stream of
-epochs can instead hand [`calc_pvt!`](@ref) the solution to overwrite and a reusable
-[`PVTWorkspace`](@ref) for its scratch; once both have held an epoch of that size, a
-solve allocates nothing:
+`calc_pvt` builds a new solution, containers and all, every epoch. A receiver solving a
+steady stream of epochs can instead hand [`calc_pvt!`](@ref) the previous solution as
+the one to reuse, and a [`PVTWorkspace`](@ref) for its scratch; once both have held an
+epoch of that size, a solve allocates nothing:
 
 ```julia
 pvt = PVTSolution()
 workspace = PVTWorkspace()
 for groups in epochs
-    calc_pvt!(pvt, workspace, groups, pvt)   # overwrite `pvt`, seeded from itself
+    pvt = calc_pvt!(pvt, workspace, groups, pvt)   # reuse `pvt`, seeded from itself
 end
 ```
 
-The overwrite is explicit — only the first argument is written, and `prev_pvt` is only
-read, so passing a different solution there keeps it intact. An epoch that cannot be
-solved leaves `pvt` holding a copy of `prev_pvt`, the answer `calc_pvt` would have
-returned.
+A [`PVTSolution`](@ref) is immutable, so `calc_pvt!` returns the new fix; what it reuses
+are the `sats` and bias containers of its first argument, which the returned solution
+takes over. That argument is the only thing overwritten — `prev_pvt` is only read, so
+passing a different solution there keeps it intact — and it is spent by the call: keep
+the returned solution. An epoch that cannot be solved returns `prev_pvt`, the answer
+`calc_pvt` would have returned.

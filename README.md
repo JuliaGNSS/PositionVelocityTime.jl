@@ -71,12 +71,13 @@ satellites (more for a multi-GNSS or multi-band set); when the epoch cannot be s
 the previous solution is returned unchanged instead of an error, so a receiver can pass
 whatever it currently tracks.
 
-To solve epoch after epoch without allocating, overwrite one solution in place with
-`calc_pvt!`, reusing a `PVTWorkspace` for the scratch buffers:
+To solve epoch after epoch without allocating, use `calc_pvt!`, which reuses the
+containers of the solution passed as its first argument and a `PVTWorkspace` for the
+scratch buffers. `PVTSolution` is immutable, so keep the returned solution:
 ```julia
 pvt = PVTSolution()
 workspace = PVTWorkspace()
-calc_pvt!(pvt, workspace, groups, pvt)  # writes only `pvt`; seeded from itself
+pvt = calc_pvt!(pvt, workspace, groups, pvt)  # reuses only `pvt`; seeded from itself
 ```
 The estimated time `pvt.time` is a `TAITime` — whole TAI seconds since J2000 plus a
 fraction. With AstroTime loaded, `TAIEpoch(pvt.time)` converts it exactly.

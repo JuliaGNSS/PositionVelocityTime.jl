@@ -270,13 +270,14 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   several references. Empty for a single-band solution. A solution then needs
   `n ≥ 3 + M + B` satellites for `M` time systems and `B` extra bands.
 
-Mutable so that [`calc_pvt!`](@ref) can overwrite one in place — its fields, and the
-contents of its `sats`, `inter_system_biases` and `inter_frequency_biases` containers —
-which is what makes a solve allocation-free. Only `calc_pvt!` does that, and only to the
-solution it is explicitly handed as its output; [`calc_pvt`](@ref) always returns a new
-one and never modifies the `prev_pvt` it reads.
+Immutable: a solution's fields cannot be reassigned once it is built. The allocation-free
+[`calc_pvt!`](@ref) returns a new solution too; what it reuses are the `sats`,
+`inter_system_biases` and `inter_frequency_biases` containers of the solution it is
+explicitly handed as its output, which the returned solution takes over.
+[`calc_pvt`](@ref) builds new containers every time and never modifies the `prev_pvt`
+it reads.
 """
-@kwdef mutable struct PVTSolution
+@kwdef struct PVTSolution
     position::ECEF{Float64} = ECEF(0.0, 0.0, 0.0)
     velocity::ECEF{Float64} = ECEF(0.0, 0.0, 0.0)
     course_over_ground::typeof(1.0°) = 0.0°
@@ -1142,7 +1143,7 @@ See [`tropospheric_delay`](@ref).
 # Returns
 A new [`PVTSolution`](@ref) containing position, velocity, time, DOP values, and
 satellite information; `prev_pvt` is never modified. [`calc_pvt!`](@ref) is the same
-solve writing into a solution passed to it, without allocating. Returns `prev_pvt` if the epoch cannot be solved: too few healthy
+solve reusing the containers of a solution passed to it, without allocating. Returns `prev_pvt` if the epoch cannot be solved: too few healthy
 satellites to solve the constellation (including the GGTO fallback and the
 distinct-satellite condition — a satellite tracked on several bands supplies one line of
 sight, so measurements alone are not enough), a geometry whose solved design matrix is
@@ -1158,44 +1159,51 @@ function calc_pvt(
     enable_ionospheric_correction::Bool = true,
     enable_tropospheric_correction::Bool = true,
 )
-    solution = PVTSolution()
-    solved = _calc_pvt!(solution, PVTWorkspace(), groups, prev_pvt, approximate_year,
-        enable_ionospheric_correction, enable_tropospheric_correction)
-    solved ? solution : prev_pvt
+    # A fresh solution lends the solve its (empty) containers; on an unsolvable epoch the
+    # solver hands `prev_pvt` itself back.
+    _, solution = _calc_pvt!(PVTSolution(), PVTWorkspace(), groups, prev_pvt,
+        approximate_year, enable_ionospheric_correction, enable_tropospheric_correction)
+    solution
 end
 
 """
     calc_pvt!(solution::PVTSolution, workspace::PVTWorkspace, groups, prev_pvt::PVTSolution;
               approximate_year::Integer = year(now(UTC)),
               enable_ionospheric_correction::Bool = true,
-              enable_tropospheric_correction::Bool = true) -> solution
+              enable_tropospheric_correction::Bool = true) -> PVTSolution
 
-[`calc_pvt`](@ref), writing the fix into `solution` and working in the buffers of
-`workspace`, so that a steady stream of epochs is solved without allocating. The
-solve is the same — same arguments, same keywords, same numbers.
+[`calc_pvt`](@ref), reusing the containers of `solution` and the buffers of `workspace`,
+so that a steady stream of epochs is solved without allocating. The solve is the same —
+same arguments, same keywords, same numbers — and so is the result it returns.
 
-**`solution` is overwritten**, and nothing else is: its fields are replaced and its
-`sats`, `inter_system_biases` and `inter_frequency_biases` containers are emptied and
-refilled in place (so anything sharing them — a `Dictionary` made by `map` over
-`solution.sats` shares its keys — sees the change; copy what you want to keep).
-`prev_pvt` is only read. Passing the same object as both is allowed and is the usual
-receiver loop — every value the seed needs is read before anything is written:
+[`PVTSolution`](@ref) is immutable, so the fix is a new solution, returned; keep the
+return value:
 
 ```julia
 pvt = PVTSolution()
 workspace = PVTWorkspace()
 for groups in epochs
-    calc_pvt!(pvt, workspace, groups, pvt)
+    pvt = calc_pvt!(pvt, workspace, groups, pvt)
 end
 ```
 
-Where [`calc_pvt`](@ref) would return `prev_pvt` — an epoch that cannot be solved —
-`solution` is set to a copy of `prev_pvt` (a no-op when they are the same object), so
-`solution` always holds the answer `calc_pvt` would have returned.
+**`solution` is the output argument, and the only thing overwritten**: the returned
+solution takes over its `sats`, `inter_system_biases` and `inter_frequency_biases`
+containers, which are emptied and refilled with this epoch's values. `solution` itself
+is therefore spent — its own fields still describe the epoch it was computed for, but
+its containers now hold the new one — so use the returned solution from here on, and
+copy anything of `solution` you want to keep before the call (a `Dictionary` made by
+`map` over `solution.sats` shares its keys, and sees the change too). `prev_pvt` is only
+read. Passing the same solution as both is allowed and is the usual receiver loop above:
+every value the seed needs is read before anything is written.
+
+Where [`calc_pvt`](@ref) returns `prev_pvt` — an epoch that cannot be solved — so does
+this: `prev_pvt` itself when it is `solution` (or shares its containers), and otherwise a
+copy of it in `solution`'s containers, so that `prev_pvt` stays untouched.
 
 It allocates nothing once `workspace` and `solution` have held an epoch with at least as
 many satellites and as many estimated biases; a larger epoch grows them, once. That
-covers everything from the collection pass to the reported solution, but not the
+covers everything from the collection pass to the returned solution, but not the
 `groups` themselves, which the caller builds (and can reuse too — a `SignalGroup`'s
 satellites may be any vector).
 
@@ -1211,15 +1219,15 @@ function calc_pvt!(
     enable_ionospheric_correction::Bool = true,
     enable_tropospheric_correction::Bool = true,
 )
-    solved = _calc_pvt!(solution, workspace, groups, prev_pvt, approximate_year,
+    solved, result = _calc_pvt!(solution, workspace, groups, prev_pvt, approximate_year,
         enable_ionospheric_correction, enable_tropospheric_correction)
-    solved || copy_solution!(solution, prev_pvt)
-    solution
+    solved ? result : copy_into(solution, prev_pvt)
 end
 
-# The collection pass and the solve, reporting whether the epoch was solved (and
-# `solution` written). Specialises on the group shape, like `collect_measurements`, and
-# is small; the solver behind it compiles once.
+# The collection pass and the solve: `(true, fix)` with the fix in `solution`'s
+# containers, or `(false, prev_pvt)` for an epoch that cannot be solved, with `solution`
+# untouched. Specialises on the group shape, like `collect_measurements`, and is small;
+# the solver behind it compiles once.
 function _calc_pvt!(
     solution,
     workspace,
@@ -1243,36 +1251,48 @@ function _calc_pvt!(
     )
 end
 
-# `solution` becomes a copy of `source`, reusing its containers.
-function copy_solution!(solution::PVTSolution, source::PVTSolution)
-    solution === source && return solution
-    solution.position = source.position
-    solution.velocity = source.velocity
-    solution.course_over_ground = source.course_over_ground
-    solution.time_correction = source.time_correction
-    solution.time = source.time
-    solution.relative_clock_drift = source.relative_clock_drift
-    solution.dop = source.dop
-    solution.reference_system = source.reference_system
-    if solution.sats !== source.sats
-        empty_keeping_capacity!(solution.sats)
-        for (key, sat_info) in pairs(source.sats)
-            set!(solution.sats, key, sat_info)
-        end
+# A copy of `source` in the containers of `solution`. `source` itself where the two
+# share their containers (above all, where they are the same solution): there is
+# nothing to copy, and copying a container onto itself would empty it.
+function copy_into(solution::PVTSolution, source::PVTSolution)
+    solution.sats === source.sats &&
+        solution.inter_system_biases === source.inter_system_biases &&
+        solution.inter_frequency_biases === source.inter_frequency_biases &&
+        return source
+    copy_container!(solution.sats, source.sats)
+    copy_container!(solution.inter_system_biases, source.inter_system_biases)
+    copy_container!(solution.inter_frequency_biases, source.inter_frequency_biases)
+    PVTSolution(
+        source.position,
+        source.velocity,
+        source.course_over_ground,
+        source.time_correction,
+        source.time,
+        source.relative_clock_drift,
+        source.dop,
+        solution.sats,
+        source.reference_system,
+        solution.inter_system_biases,
+        solution.inter_frequency_biases,
+    )
+end
+
+function copy_container!(destination::Dictionary, source::Dictionary)
+    destination === source && return destination
+    empty_keeping_capacity!(destination)
+    for (key, value) in pairs(source)
+        set!(destination, key, value)
     end
-    if solution.inter_system_biases !== source.inter_system_biases
-        empty!(solution.inter_system_biases)
-        for (system, bias) in source.inter_system_biases
-            solution.inter_system_biases[system] = bias
-        end
+    destination
+end
+
+function copy_container!(destination::Dict, source::Dict)
+    destination === source && return destination
+    empty!(destination)
+    for (key, value) in source
+        destination[key] = value
     end
-    if solution.inter_frequency_biases !== source.inter_frequency_biases
-        empty!(solution.inter_frequency_biases)
-        for (band, bias) in source.inter_frequency_biases
-            solution.inter_frequency_biases[band] = bias
-        end
-    end
-    solution
+    destination
 end
 
 # `empty!(::Dictionary)` hands the dictionary a fresh, minimal hash table, so refilling
@@ -1300,8 +1320,12 @@ end
 # barrier that does specialise on the model, once per model, where the work actually is,
 # sits behind `predict_atmospheric_delays!`.
 #
-# Returns whether the epoch was solved; only then is `solution` written, and only after
-# everything is read from `prev_pvt`, which may be the same object.
+# Returns `(true, fix)`, the fix a new solution holding `solution`'s containers, or
+# `(false, prev_pvt)` for an epoch that cannot be solved. The containers are written only
+# once the epoch is known to be solvable, and only after everything is read from
+# `prev_pvt`, which may be the same solution. A tuple rather than a
+# `Union{Nothing,PVTSolution}`: the solution holds references, so such a `Union` would
+# be returned boxed — an allocation per epoch.
 function _solve_pvt!(
     solution::PVTSolution,
     workspace::PVTWorkspace,
@@ -1334,7 +1358,7 @@ function _solve_pvt!(
     # falls back to a hub collapse when the geometry is disconnected or
     # under-determined. A degenerate geometry, which no count can see, is caught after
     # the solve by the DOP.
-    decide_bias_layout!(workspace.layout, measurements) || return false
+    decide_bias_layout!(workspace.layout, measurements) || return (false, prev_pvt)
     (; bias_columns, extra_bands, reference_bands, hub_system, hub_rows) =
         bias_layout(workspace.layout)
     (; clock_bias_indices, num_clock_biases) = bias_columns
@@ -1491,7 +1515,7 @@ function _solve_pvt!(
     dop = calc_DOP!(view(workspace.normal_matrix, 1:num_params, 1:num_params), H, position,
         primary_clock_index)
 
-    dop.GDOP < 0 && return false
+    dop.GDOP < 0 && return (false, prev_pvt)
 
     user_velocity_and_clock_drift, rate_residuals =
         calc_user_velocity_and_clock_drift!(workspace.rate_residuals, measurements, H)
@@ -1505,21 +1529,9 @@ function _solve_pvt!(
     # See https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/8
     corrected_reference_time = reference_time - time_correction / SPEED_OF_LIGHT
 
-    # Everything is read from `prev_pvt` by now, so `solution` — possibly the same
-    # object — is written from here on.
-    solution.position = position
-    solution.velocity = velocity
-    solution.course_over_ground = calc_course_over_ground(position, velocity)
-    solution.time_correction = time_correction * m
-    # Assumes `start_time.fraction == 0` (true for GPS/Galileo: integer-second origins).
-    solution.time = TAITime(
-        week * 7 * 24 * 60 * 60 + floor(Int, corrected_reference_time) + start_time.second,
-        corrected_reference_time - floor(Int, corrected_reference_time),
-    )
-    solution.relative_clock_drift = user_velocity_and_clock_drift[4] / SPEED_OF_LIGHT
-    solution.dop = dop
-    solution.reference_system = primary_system
-
+    # Everything is read from `prev_pvt` by now, so the containers of `solution` —
+    # possibly `prev_pvt`'s own — are written from here on.
+    #
     # Per-satellite `sats` key: (signal id, PRN) — signal-level (not time system), so a
     # satellite tracked on two signals of one constellation stays distinct; the
     # receiver-clock grouping is separate, by time system.
@@ -1557,7 +1569,26 @@ function _solve_pvt!(
             InterFrequencyBias(ξ[3+num_clock_biases+i] * m, reference_bands[i])
     end
 
-    return true
+    return true,
+    PVTSolution(
+        position,
+        velocity,
+        calc_course_over_ground(position, velocity),
+        time_correction * m,
+        # Assumes `start_time.fraction == 0` (true for GPS/Galileo: integer-second
+        # origins).
+        TAITime(
+            week * 7 * 24 * 60 * 60 + floor(Int, corrected_reference_time) +
+            start_time.second,
+            corrected_reference_time - floor(Int, corrected_reference_time),
+        ),
+        user_velocity_and_clock_drift[4] / SPEED_OF_LIGHT,
+        dop,
+        sats,
+        primary_system,
+        inter_system_biases,
+        inter_frequency_biases,
+    )
 end
 
 """
