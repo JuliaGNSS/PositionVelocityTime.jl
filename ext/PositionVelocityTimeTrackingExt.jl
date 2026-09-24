@@ -71,8 +71,8 @@ satellite keys — so the fix is indexed exactly as the tracking state is. Each 
 ranging signal is its first signal; see
 [`PositionVelocityTime.SignalGroup`](@ref)`(::Tracking.SignalGroup, decoders)`.
 
-Unlike `signal_groups` on a flat vector of states, this is fully inferable: the group
-names and every group's concrete type come from `track_state`'s own type.
+Fully inferable: the group names and every group's concrete type come from
+`track_state`'s own type (and from `decoders`' value types).
 """
 function PositionVelocityTime.signal_groups(
     track_state::Tracking.TrackState,

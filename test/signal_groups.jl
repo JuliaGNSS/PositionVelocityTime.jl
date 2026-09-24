@@ -1,5 +1,5 @@
 # Signal groups: the container `calc_pvt` takes, the normalization that accepts the
-# shorter spellings of it, the bridge from a flat vector, and the two properties the
+# shorter spellings of it, the refusal of anything else, and the two properties the
 # whole redesign exists for — one compiled solver for every constellation mix, and a
 # collection pass that is statically dispatched when the groups are named.
 #
@@ -78,6 +78,27 @@
         @test occursin("SignalGroup(GPSL1CA()", message)
         # And it is raised at the entry point, not somewhere inside the solver.
         @test occursin("calc_pvt", message)
+        @test occursin("not a vector of `SatelliteState`s", message)
+    end
+
+    @testset "groups of bare state vectors are refused, with the same directions" begin
+        # The first thing a 5.x call site is likely to be migrated to: the right keys,
+        # but the vectors not yet wrapped. It must fail at the entry point with the
+        # directions, not with a field error from deep inside the collection pass.
+        for input in ((gps = gps, galileo = gal), (gps, gal), (gps = gps_group, galileo = gal))
+            @test_throws ArgumentError calc_pvt(input; kw...)
+            message = try
+                calc_pvt(input; kw...)
+            catch e
+                sprint(showerror, e)
+            end
+            @test occursin("takes signal groups", message)
+            @test occursin("SignalGroup(GPSL1CA()", message)
+        end
+        @test_throws ArgumentError PositionVelocityTime.select_ionospheric_correction(
+            (gps = gps,))
+        # An empty NamedTuple is an epoch with no groups, not a malformed one.
+        @test PositionVelocityTime._normalize_signal_groups((;)) === (;)
     end
 
     @testset "collection is inferable and the solver compiles once" begin
