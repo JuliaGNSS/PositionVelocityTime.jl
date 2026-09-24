@@ -124,3 +124,23 @@ If too few healthy satellites are tracked to solve the constellation — or the 
 turns out to be degenerate — [`calc_pvt`](@ref) returns the `prev_pvt` it was given (the
 origin solution by default) rather than throwing, so a receiver can hand it whatever it
 currently tracks each epoch and carry the last solution forward.
+
+### Solving without allocating
+
+`calc_pvt` returns a new solution every epoch. A receiver solving a steady stream of
+epochs can instead hand [`calc_pvt!`](@ref) the solution to overwrite and a reusable
+[`PVTWorkspace`](@ref) for its scratch; once both have held an epoch of that size, a
+solve allocates nothing:
+
+```julia
+pvt = PVTSolution()
+workspace = PVTWorkspace()
+for groups in epochs
+    calc_pvt!(pvt, workspace, groups, pvt)   # overwrite `pvt`, seeded from itself
+end
+```
+
+The overwrite is explicit — only the first argument is written, and `prev_pvt` is only
+read, so passing a different solution there keeps it intact. An epoch that cannot be
+solved leaves `pvt` holding a copy of `prev_pvt`, the answer `calc_pvt` would have
+returned.

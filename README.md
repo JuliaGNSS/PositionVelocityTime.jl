@@ -70,6 +70,14 @@ A fix needs at least 4 healthy, fully decoded
 satellites (more for a multi-GNSS or multi-band set); when the epoch cannot be solved,
 the previous solution is returned unchanged instead of an error, so a receiver can pass
 whatever it currently tracks.
+
+To solve epoch after epoch without allocating, overwrite one solution in place with
+`calc_pvt!`, reusing a `PVTWorkspace` for the scratch buffers:
+```julia
+pvt = PVTSolution()
+workspace = PVTWorkspace()
+calc_pvt!(pvt, workspace, groups, pvt)  # writes only `pvt`; seeded from itself
+```
 The estimated time `pvt.time` is a `TAITime` — whole TAI seconds since J2000 plus a
 fraction. With AstroTime loaded, `TAIEpoch(pvt.time)` converts it exactly.
 

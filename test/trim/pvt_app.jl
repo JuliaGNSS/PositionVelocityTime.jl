@@ -38,6 +38,10 @@ function solve(io, name, groups)
     report(io, name * " warm", calc_pvt(groups, cold; approximate_year = 2021))
     report(io, name * " uncorrected", calc_pvt(groups; approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false))
+    # The in-place solve, warm-started from (and overwriting) its own solution.
+    in_place = calc_pvt!(PVTSolution(), PVTWorkspace(), groups, cold; approximate_year = 2021)
+    report(io, name * " in place", calc_pvt!(in_place, PVTWorkspace(), groups, in_place;
+        approximate_year = 2021))
 end
 
 function (@main)(ARGS)
