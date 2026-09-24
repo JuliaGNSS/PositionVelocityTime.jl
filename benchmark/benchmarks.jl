@@ -44,6 +44,24 @@ mixed_group["cold"] = @benchmarkable calc_pvt($MIXED_INPUT)
 mixed_group["warm"] = @benchmarkable calc_pvt($MIXED_INPUT, $MIXED_PREV)
 SUITE["calc_pvt"]["GPSL1+GalileoE1B"]["$(MIXED_SATS)sats"] = mixed_group
 
+# The in-place solve, absent from the base revision like the entry below: the same
+# epochs, overwriting one solution with a reused workspace, which allocates nothing.
+if isdefined(PositionVelocityTime, :calc_pvt!)
+    SUITE["calc_pvt!"] = BenchmarkGroup()
+    for (label, input, prev_pvt) in (
+        ("GPSL1", GPS_INPUT, GPS_PREV),
+        ("GPSL1+GalileoE1B", MIXED_INPUT, MIXED_PREV),
+    )
+        group = BenchmarkGroup()
+        workspace = PVTWorkspace()
+        solution = PVTSolution()
+        cold = PVTSolution()
+        group["cold"] = @benchmarkable calc_pvt!($solution, $workspace, $input, $cold)
+        group["warm"] = @benchmarkable calc_pvt!($solution, $workspace, $input, $prev_pvt)
+        SUITE["calc_pvt!"][label] = group
+    end
+end
+
 # The collection pass on its own, a 6.0-only measurement absent from the base
 # revision's run (AirspeedVelocity reports a benchmark present on only one side as new
 # rather than as a regression): the half that specialises on the group shape, and the

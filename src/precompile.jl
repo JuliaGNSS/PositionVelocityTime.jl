@@ -830,5 +830,11 @@ end
         mixed = (gps = l1ca_group, galileo = group(GalileoE1B(), e1b))
         mixed_pvt = calc_pvt(mixed; approximate_year = 2021)
         calc_pvt(mixed, mixed_pvt; approximate_year = 2021)
+        # The in-place entry point shares the solver compiled above; only its own thin
+        # wrapper and the solution copy of an unsolvable epoch are new.
+        workspace = PVTWorkspace()
+        calc_pvt!(mixed_pvt, workspace, mixed, mixed_pvt; approximate_year = 2021)
+        calc_pvt!(pvt, workspace, SignalGroup(GPSL1CA(), l1ca[1:3]), mixed_pvt;
+            approximate_year = 2021)
     end
 end

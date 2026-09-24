@@ -49,12 +49,12 @@ end
 
 function calc_relativistic_correction(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data
-    time_from_ephemeris_reference_epoch = fold_week_crossover(t - data.t_0e)
+    time_from_ephemeris_reference_epoch = fold_week_crossover(t - decoded(data.t_0e))
     # √A from the effective elements: the broadcast `sqrt_A` directly for LNAV/Galileo,
     # `√(A_REF + ΔA)` for CNAV/CNAV-2 (which carry no `sqrt_A` field).
     el = orbital_elements(data, decoder.constants.μ, time_from_ephemeris_reference_epoch)
     E = calc_eccentric_anomaly(decoder, t)
-    decoder.constants.F * data.e * el.sqrt_A * sin(E)
+    decoder.constants.F * decoded(data.e) * el.sqrt_A * sin(E)
 end
 
 function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, system, t)
@@ -64,11 +64,11 @@ function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, system, t)
     # rollover `t` and `t_0c` sit on opposite sides of the wrap, and the raw
     # difference of ±604800 s puts ~a_f1·604800 ≈ microseconds (kilometres of
     # range) into a polynomial whose real argument is seconds.
-    Δt_from_reference = fold_week_crossover(t - data.t_0c)
+    Δt_from_reference = fold_week_crossover(t - decoded(data.t_0c))
     Δt =
-        data.a_f0 +
-        data.a_f1 * Δt_from_reference +
-        data.a_f2 * Δt_from_reference^2 +
+        decoded(data.a_f0) +
+        decoded(data.a_f1) * Δt_from_reference +
+        decoded(data.a_f2) * Δt_from_reference^2 +
         Δtr
     t - correct_by_group_delay(decoder, system, Δt)
 end
@@ -89,7 +89,7 @@ The rate of the relativistic periodic term `Δt_rel = F·e·√A·sin(E)` that
 """
 function calc_satellite_clock_drift(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data
-    data.a_f1 + 2 * data.a_f2 * fold_week_crossover(t - data.t_0c)
+    decoded(data.a_f1) + 2 * decoded(data.a_f2) * fold_week_crossover(t - decoded(data.t_0c))
 end
 
 # Group-delay / inter-signal correction, selected by the *ranging* signal `system`

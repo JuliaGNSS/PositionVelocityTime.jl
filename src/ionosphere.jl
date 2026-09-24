@@ -241,16 +241,27 @@ function bdgim_params(decoder::GNSSDecoder.GNSSDecoderState{<:AbstractBeiDouCNAV
     )
 end
 
-# The four candidate coefficient sets one epoch can yield, accumulated as a tuple in
-# the order `(gps_klobuchar, beidou_klobuchar, bdgim, ntcm_g)`. Kept as a plain tuple
-# so the accumulation stays inside the per-group loop of `collect_group!`, where the
-# decoder type is concrete and every accessor below is statically dispatched.
-const NO_IONOSPHERIC_CANDIDATES = (nothing, nothing, nothing, nothing)
+# The four candidate coefficient sets one epoch can yield. A struct of `Union`-with-
+# `nothing` fields rather than a plain tuple of whatever was found: the accumulation
+# changes which sets are present as it goes, and a tuple would change its *type* with
+# them — a `Union` of tuple types that is boxed (an allocation per group, per epoch) when
+# the per-group results are collected. The struct is one concrete type whatever it holds,
+# and its `isbits` `Union` fields are stored inline. The accumulation stays inside the
+# per-group loop of `collect_group!`, where the decoder type is concrete and every
+# accessor below is statically dispatched.
+struct IonosphericCandidates
+    gps_klobuchar::Union{Nothing,KlobucharParams}
+    beidou_klobuchar::Union{Nothing,BeiDouKlobucharParams}
+    bdgim::Union{Nothing,BDGIMParams}
+    ntcm_g::Union{Nothing,NTCMGParams}
+end
+
+const NO_IONOSPHERIC_CANDIDATES = IonosphericCandidates(nothing, nothing, nothing, nothing)
 
 # Fold one decoder into the candidates. Each set is global to its constellation, so
 # the first decoder that carries one wins and later ones are not even asked.
 function update_ionospheric_candidates(candidates, decoder)
-    gps_klobuchar, beidou_klobuchar, bdgim, ntcm_g = candidates
+    (; gps_klobuchar, beidou_klobuchar, bdgim, ntcm_g) = candidates
     if decoder.data isa GNSSDecoder.AbstractBeiDouData
         # The two BeiDou message families broadcast different models: the legacy
         # D1/D2 one Klobuchar, the BDS-3 B-CNAV ones BDGIM. Both accessors are
@@ -261,18 +272,22 @@ function update_ionospheric_candidates(candidates, decoder)
         isnothing(gps_klobuchar) && (gps_klobuchar = klobuchar_params(decoder))
     end
     isnothing(ntcm_g) && (ntcm_g = ntcm_g_params(decoder))
-    (gps_klobuchar, beidou_klobuchar, bdgim, ntcm_g)
+    IonosphericCandidates(gps_klobuchar, beidou_klobuchar, bdgim, ntcm_g)
 end
 
 # Combine two groups' candidates, keeping the earlier group's set where both have one
 # — the same first-one-wins rule the within-group fold uses, extended across groups in
 # group order.
-merge_ionospheric_candidates(a, b) = map((x, y) -> isnothing(x) ? y : x, a, b)
+merge_ionospheric_candidates(a, b) = IonosphericCandidates(
+    first_available(a.gps_klobuchar, b.gps_klobuchar),
+    first_available(a.beidou_klobuchar, b.beidou_klobuchar),
+    first_available(a.bdgim, b.bdgim),
+    first_available(a.ntcm_g, b.ntcm_g),
+)
+first_available(x, y) = isnothing(x) ? y : x
 
 # Fold a tuple of per-group candidates, earliest group first. Recursive over the tuple
-# rather than `reduce`d: the groups have different candidate types (each is concrete
-# for its own navigation data), and only the recursive form unrolls and stays
-# inferable across them.
+# rather than `reduce`d, so that it unrolls over the groups.
 merge_all_ionospheric_candidates(::Tuple{}) = NO_IONOSPHERIC_CANDIDATES
 merge_all_ionospheric_candidates(candidates::Tuple) = merge_ionospheric_candidates(
     first(candidates),
@@ -281,11 +296,25 @@ merge_all_ionospheric_candidates(candidates::Tuple) = merge_ionospheric_candidat
 
 # The order of preference documented on `select_ionospheric_correction`, top rung first.
 function select_from_ionospheric_candidates(candidates)
-    gps_klobuchar, beidou_klobuchar, bdgim, ntcm_g = candidates
+    (; gps_klobuchar, beidou_klobuchar, bdgim, ntcm_g) = candidates
     !isnothing(ntcm_g) && return ntcm_g
     !isnothing(bdgim) && return bdgim
     !isnothing(gps_klobuchar) && return gps_klobuchar
     return beidou_klobuchar          # BeiDouKlobucharParams, or nothing if neither
+end
+
+"""
+    IonosphericModel(correction)
+
+The ionospheric `correction` of one solve (see [`select_ionospheric_correction`](@ref)),
+held in a single concrete type. The correction itself is a `Union` of four coefficient
+sets and `nothing`; the solver takes this wrapper instead so that it compiles once
+whichever model an epoch selected, and so that passing the model costs no allocation —
+a `Union` value handed to an unspecialised argument is boxed, whereas a field of a
+concrete struct is stored inline.
+"""
+struct IonosphericModel
+    correction::Union{Nothing,KlobucharParams,BeiDouKlobucharParams,NTCMGParams,BDGIMParams}
 end
 
 """

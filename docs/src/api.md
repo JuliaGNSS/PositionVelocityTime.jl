@@ -41,6 +41,7 @@ PositionVelocityTime.signal_groups
 PositionVelocityTime.SatelliteMeasurement
 PositionVelocityTime.BroadcastTimeOffset
 PositionVelocityTime.collect_measurements
+PositionVelocityTime.collect_measurements!
 PositionVelocityTime.CANDIDATE_HUB_SYSTEMS
 PositionVelocityTime.SupportedTimeSystem
 ```
@@ -49,6 +50,19 @@ PositionVelocityTime.SupportedTimeSystem
 
 ```@docs
 calc_pvt
+```
+
+### Allocation-free solving
+
+[`calc_pvt!`](@ref) is the same solve writing into a [`PVTSolution`](@ref) it is handed,
+with its scratch in a reusable [`PVTWorkspace`](@ref). Once both have held an epoch of a
+given size, a solve allocates nothing. The overwrite is explicit: only the `solution`
+argument is written, and passing the same object as `prev_pvt` — the receiver loop — is
+allowed.
+
+```@docs
+calc_pvt!
+PVTWorkspace
 ```
 
 ## Position and Velocity
@@ -134,12 +148,17 @@ PositionVelocityTime.get_sat_velocity
 PositionVelocityTime.fold_week_crossover
 PositionVelocityTime.BiasColumns
 PositionVelocityTime.decide_bias_layout
+PositionVelocityTime.decide_bias_layout!
+PositionVelocityTime.BiasLayoutWorkspace
+PositionVelocityTime.bias_layout
 PositionVelocityTime.BiasLayout
 PositionVelocityTime.calc_ρ_hat!
 PositionVelocityTime.calc_H
 PositionVelocityTime.calc_line_of_sight
 PositionVelocityTime.calc_DOP
+PositionVelocityTime.calc_DOP!
 PositionVelocityTime.calc_user_velocity_and_clock_drift
+PositionVelocityTime.calc_user_velocity_and_clock_drift!
 PositionVelocityTime.time_scale_offset_to_gpst
 PositionVelocityTime.calc_time_scale_offsets
 PositionVelocityTime.time_offset_available
@@ -149,6 +168,8 @@ PositionVelocityTime.get_week
 PositionVelocityTime.system_start_epoch
 PositionVelocityTime.day_of_year
 PositionVelocityTime.predict_atmospheric_delays
+PositionVelocityTime.predict_atmospheric_delays!
+PositionVelocityTime.IonosphericModel
 PositionVelocityTime.calc_course_over_ground
 ```
 
@@ -157,6 +178,7 @@ The unexported internals the surface above links to, documented for reference:
 ```@docs
 PositionVelocityTime.calc_H!
 PositionVelocityTime.user_position
+PositionVelocityTime.user_position!
 PositionVelocityTime.num_lsq_params
 PositionVelocityTime.calc_hub_range_offsets
 PositionVelocityTime.positive_definite_cholesky
@@ -183,6 +205,7 @@ The receiver inter-frequency biases and their reference bands (reported per
 
 ```@docs
 PositionVelocityTime.band_ifb_layout
+PositionVelocityTime.band_ifb_layout!
 ```
 
 ## Trimmed Executables
@@ -207,5 +230,8 @@ original's interface — to be dropped once the originals can be trimmed:
 PositionVelocityTime.TAITimes
 PositionVelocityTime.LevenbergMarquardt
 PositionVelocityTime.LevenbergMarquardt.curve_fit
+PositionVelocityTime.LevenbergMarquardt.curve_fit!
+PositionVelocityTime.LevenbergMarquardt.LMWorkspace
+PositionVelocityTime.LevenbergMarquardt.grown
 PositionVelocityTime.LevenbergMarquardt.LMResult
 ```
