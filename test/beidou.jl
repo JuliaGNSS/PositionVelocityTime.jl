@@ -662,7 +662,7 @@
             approximate_year = 2021) == 2156
         @test norm(pvt_gps.position - user) < 1e-2
         # One instant, two constellations, two epochs, two TAI offsets: one answer.
-        @test AstroTime.value(pvt_gps.time - pvt.time) ≈ 0.0 atol = 1e-3
+        @test pvt_gps.time - pvt.time ≈ 0.0 atol = 1e-3
 
         # A B3I range off the same satellites is a second band, so it gains an IFB
         # column but must not move the position: B3I needs no group-delay correction
