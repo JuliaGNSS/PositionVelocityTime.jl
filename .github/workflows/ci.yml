@@ -70,8 +70,10 @@ jobs:
           version: '1.13'
       - uses: julia-actions/cache@v3
       - name: Install JuliaC
+        # `Pkg.Apps.add` does not install the General registry on demand the way
+        # `Pkg.add` does, and a fresh runner has none yet.
         run: |
-          julia -e 'using Pkg; Pkg.Apps.add("JuliaC")'
+          julia -e 'using Pkg; Pkg.Registry.add("General"); Pkg.Apps.add("JuliaC")'
           echo "$HOME/.julia/bin" >> "$GITHUB_PATH"
       - name: Build and compare the trimmed PVT app
         run: |
