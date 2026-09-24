@@ -5,9 +5,14 @@
 ```@docs
 SatelliteState
 PVTSolution
+TAITime
 SatInfo
 InterFrequencyBias
 ```
+
+With AstroTime loaded, a package extension converts between [`TAITime`](@ref) and
+AstroTime's `TAIEpoch` both ways — `TAIEpoch(pvt.time)` and `TAITime(epoch)` — exactly,
+as the two share their layout.
 
 ## Signal Groups
 
@@ -37,6 +42,7 @@ PositionVelocityTime.SatelliteMeasurement
 PositionVelocityTime.BroadcastTimeOffset
 PositionVelocityTime.collect_measurements
 PositionVelocityTime.CANDIDATE_HUB_SYSTEMS
+PositionVelocityTime.SupportedTimeSystem
 ```
 
 ## PVT Computation
@@ -177,4 +183,29 @@ The receiver inter-frequency biases and their reference bands (reported per
 
 ```@docs
 PositionVelocityTime.band_ifb_layout
+```
+
+## Trimmed Executables
+
+The solver compiles into a `juliac --trim=safe` executable (Julia 1.12+ with
+[JuliaC](https://github.com/JuliaLang/JuliaC.jl)); `test/trim` holds an app that does
+so for every navigation-data type and a mixed GPS + Galileo + BeiDou epoch, and checks
+its output against a regular session. Signal groups are what make that possible for any
+constellation mix — each group is concretely typed, and the solver behind them sees one
+concrete row type.
+
+Two dependencies the package would otherwise have cannot be trimmed, so it carries
+trim-safe stand-ins for the part of each it uses, as self-contained submodules with the
+original's interface — to be dropped once the originals can be trimmed:
+
+- [`PositionVelocityTime.TAITimes`](@ref) replaces AstroTime's `TAIEpoch` as the type
+  of `PVTSolution.time` (AstroTime's own `__init__` cannot be trimmed), and
+- [`PositionVelocityTime.LevenbergMarquardt`](@ref) replaces LsqFit's `curve_fit`,
+  which calls the model through abstractly typed fields.
+
+```@docs
+PositionVelocityTime.TAITimes
+PositionVelocityTime.LevenbergMarquardt
+PositionVelocityTime.LevenbergMarquardt.curve_fit
+PositionVelocityTime.LevenbergMarquardt.LMResult
 ```

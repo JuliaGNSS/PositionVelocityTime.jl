@@ -102,7 +102,7 @@ calc_H(sat_positions, ξ, bias_columns::BiasColumns) =
 
 """
 Computes the directional second derivative of `calc_ρ_hat` along `v`,
-used by LsqFit's geodesic acceleration.
+used by the Levenberg-Marquardt geodesic acceleration.
 
 For each satellite j the residual is `r_j(ξ) = ‖s_j' - r_n‖ + tc - ρ_j`,
 where s_j' is the Earth-rotation-corrected satellite position. Treating
@@ -238,7 +238,8 @@ Returns `(ξ, residuals)`: the solved state vector
 `ξ = [x, y, z, tc₁, …, ifb₁, …]` and the per-satellite post-fit residual vector
 (measured minus modeled pseudorange, metres), in the same satellite order as `ρ`.
 
-`LsqFit` reports its own residual as `model - data`, so the returned vector negates it.
+`curve_fit` (LsqFit's, mirrored by [`LevenbergMarquardt`](@ref)) reports its own residual
+as `model - data`, so the returned vector negates it.
 Measured − modeled ("observed minus computed") is how GNSS software reports observation
 residuals — RTKLIB's `rescode`, and GNSS-SDR and PocketSDR through it — and the negation
 is the whole of the difference: it is applied to the converged fit, so the solve itself
@@ -290,9 +291,9 @@ function user_position(sat_positions_mat, ρ, bias_columns::BiasColumns, prev_ξ
     end
     #    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
     #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions_mat, ρ, wt, collect(prev_ξ))
-    # `-` and not an in-place negation: `resid` aliases the differentiable's own
-    # function-value cache inside `LsqFit`, so mutating it reaches into the library's
-    # internals for the sake of one small vector per epoch.
+    # `-` and not an in-place negation: in LsqFit, whose interface `curve_fit` mirrors,
+    # `resid` aliases the differentiable's own function-value cache, so mutating it
+    # would reach into the library's internals for the sake of one small vector.
     return ξ_fit_ols.param, -ξ_fit_ols.resid
 end
 

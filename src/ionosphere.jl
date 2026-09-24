@@ -323,7 +323,8 @@ standalone form, for a consumer running its own estimator over the same measurem
 model.
 """
 function select_ionospheric_correction(groups)
-    candidates = map(_normalize_signal_groups(groups)) do group
+    # Over the groups' `Tuple`, not the `NamedTuple`, as in `collect_measurements`.
+    candidates = map(values(_normalize_signal_groups(groups))) do group
         group_candidates = NO_IONOSPHERIC_CANDIDATES
         for state in group.satellites
             group_candidates =
@@ -331,8 +332,7 @@ function select_ionospheric_correction(groups)
         end
         group_candidates
     end
-    select_from_ionospheric_candidates(
-        merge_all_ionospheric_candidates(values(candidates)))
+    select_from_ionospheric_candidates(merge_all_ionospheric_candidates(candidates))
 end
 
 """
