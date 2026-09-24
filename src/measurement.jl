@@ -35,9 +35,9 @@ one vector — what `calc_pvt` used to take — is what made them dynamic.
   or as an `AbstractVector{<:SatelliteState}` (so a consumer can reuse one buffer per
   group). Iteration order is significant — see [`calc_pvt`](@ref).
 
-Every satellite's own `state.system` must be `signal`; the container's element type
-ties the two together for a group built by [`signal_groups`](@ref) or by the Tracking
-extension.
+Every satellite's own `state.system` must be `signal`. This is not checked per epoch;
+a group built by the Tracking extension ([`signal_groups`](@ref)) satisfies it by
+construction.
 """
 struct SignalGroup{S<:AbstractGNSSSignal,C}
     signal::S
@@ -58,7 +58,7 @@ const SignalGroups{N} = NamedTuple{<:Any,<:NTuple{N,SignalGroup}}
 # stays a one-liner), and a bare tuple is numbered by position — `group1`, `group2`, …
 # Numbered rather than named after the signals because group order is significant
 # (see `calc_pvt`) and because two groups may legitimately share one signal id.
-_normalize_signal_groups(groups::NamedTuple) = groups
+_normalize_signal_groups(groups::NamedTuple{<:Any,<:Tuple{Vararg{SignalGroup}}}) = groups
 _normalize_signal_groups(group::SignalGroup) = (default = group,)
 @generated function _normalize_signal_groups(groups::Tuple{Vararg{SignalGroup}})
     names = ntuple(i -> Symbol(:group, i), length(groups.parameters))
@@ -83,13 +83,23 @@ function signal_groups end
 # A flat vector of satellite states is what `calc_pvt` took before 6.0. It has no
 # meaningful normalization — the signals it pools are a runtime property, so any
 # grouping derived here would be inference-blind — and silently accepting it would hide
-# that. Say so instead, and point at what to build.
-function _normalize_signal_groups(states::AbstractVector{<:SatelliteState})
+# that. Say so instead, and point at what to build. The same directions answer anything
+# else that is not signal groups, above all the NamedTuple of bare state vectors
+# `(gps = gps_states, …)` a 5.x call site is most likely to be migrated to first, which
+# would otherwise surface as a `FieldError` deep inside the collection pass.
+_normalize_signal_groups(states::AbstractVector{<:SatelliteState}) =
+    throw_not_signal_groups("not a vector of `SatelliteState`s")
+_normalize_signal_groups(groups) = throw_not_signal_groups(
+    "every group must be a `PositionVelocityTime.SignalGroup`, got a `$(typeof(groups))`",
+)
+
+function throw_not_signal_groups(what)
     throw(
         ArgumentError(
             string(
-                "`calc_pvt` takes signal groups, not a vector of `SatelliteState`s. ",
-                "Group the satellites by their ranging signal:\n\n",
+                "`calc_pvt` takes signal groups, ",
+                what,
+                ". Group the satellites by their ranging signal:\n\n",
                 "    using PositionVelocityTime: SignalGroup\n",
                 "    calc_pvt((gps     = SignalGroup(GPSL1CA(),   gps_states),\n",
                 "              galileo = SignalGroup(GalileoE1B(), galileo_states)))\n\n",
@@ -170,9 +180,10 @@ type parameters — the row the whole PVT solver works on.
 Everything that depends on the navigation-message family, the decoder or the ranging
 signal has already been evaluated by [`collect_measurements`](@ref): the transmit
 time, the propagated orbit, the clock drift, the group-delay-corrected observables,
-the classification keys and the broadcast time offsets. What remains is `isbits`
-apart from the `time_system` singleton, so a mixed-constellation epoch is one
-`Vector{SatelliteMeasurement}` and the solver compiles once for every mix.
+the classification keys and the broadcast time offsets. What remains is plain data —
+numbers, `Symbol`s and the `time_system` singleton — stored inline in a vector, so a
+mixed-constellation epoch is one `Vector{SatelliteMeasurement}` and the solver
+compiles once for every mix.
 
 # Fields
 - `prn::Int`: the satellite's PRN, unique only within its constellation.

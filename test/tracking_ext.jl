@@ -57,8 +57,8 @@ end
     @test groups.gps.satellites[7].carrier_doppler == get_carrier_doppler(tracked)
 
     # Each group's satellites are concretely typed, which is the whole point, and the
-    # conversion is fully inferable — unlike `signal_groups` over a flat vector, whose
-    # NamedTuple type is only known at runtime.
+    # conversion is fully inferable: the group names and types come from `track_state`'s
+    # own type.
     @test isconcretetype(eltype(groups.gps.satellites))
     @test inferred_return_type(
         PositionVelocityTime.signal_groups, Tuple{typeof(track_state), typeof(decoders)}
