@@ -54,11 +54,12 @@ calc_pvt
 
 ### Allocation-free solving
 
-[`calc_pvt!`](@ref) is the same solve writing into a [`PVTSolution`](@ref) it is handed,
-with its scratch in a reusable [`PVTWorkspace`](@ref). Once both have held an epoch of a
-given size, a solve allocates nothing. The overwrite is explicit: only the `solution`
-argument is written, and passing the same object as `prev_pvt` — the receiver loop — is
-allowed.
+[`calc_pvt!`](@ref) is the same solve, returning a new (immutable) [`PVTSolution`](@ref)
+that reuses the containers of the solution it is handed, with its scratch in a reusable
+[`PVTWorkspace`](@ref). Once both have held an epoch of a given size, a solve allocates
+nothing. The overwrite is explicit: only the containers of the `solution` argument are
+reused, and passing the same solution as `prev_pvt` — the receiver loop,
+`pvt = calc_pvt!(pvt, workspace, groups, pvt)` — is allowed.
 
 ```@docs
 calc_pvt!
