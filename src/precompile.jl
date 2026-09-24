@@ -833,8 +833,10 @@ end
         # The in-place entry point shares the solver compiled above; only its own thin
         # wrapper and the solution copy of an unsolvable epoch are new.
         workspace = PVTWorkspace()
-        calc_pvt!(mixed_pvt, workspace, mixed, mixed_pvt; approximate_year = 2021)
-        calc_pvt!(pvt, workspace, SignalGroup(GPSL1CA(), l1ca[1:3]), mixed_pvt;
+        in_place = calc_pvt!(PVTSolution(), workspace, mixed, mixed_pvt;
+            approximate_year = 2021)
+        in_place = calc_pvt!(in_place, workspace, mixed, in_place; approximate_year = 2021)
+        calc_pvt!(PVTSolution(), workspace, SignalGroup(GPSL1CA(), l1ca[1:3]), in_place;
             approximate_year = 2021)
     end
 end
