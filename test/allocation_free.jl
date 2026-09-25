@@ -134,6 +134,12 @@ end
         @test_throws Dictionaries.IndexError calc_pvt(twice; kw...)
         @test_throws Dictionaries.IndexError calc_pvt!(
             PVTSolution(), PVTWorkspace(), twice, PVTSolution(); kw...)
+        # As its own output, the refused epoch leaves `prev_pvt` as it was.
+        prev_pvt = calc_pvt((gps = l1ca, galileo = e1b); kw...)
+        before = snapshot(prev_pvt)
+        @test_throws Dictionaries.IndexError calc_pvt!(
+            prev_pvt, PVTWorkspace(), twice, prev_pvt; kw...)
+        @test same_solution(prev_pvt, before)
     end
 
     @testset "one workspace serves epochs of any size" begin
