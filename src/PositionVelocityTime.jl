@@ -1536,14 +1536,19 @@ function _solve_pvt!(
     # satellite tracked on two signals of one constellation stays distinct; the
     # receiver-clock grouping is separate, by time system.
     #
-    # A duplicate key is refused, as `Dictionary(keys, values)` refused it before. Not
-    # with `insert!`, which does the same but formats the key into its message — a
-    # dynamic `show` a `juliac --trim` build rejects — so the message here is fixed.
+    # A duplicate key is refused, as `Dictionary(keys, values)` refused it before. It is
+    # checked before any container is written, so the throw leaves `solution` — possibly
+    # `prev_pvt` itself — as it was, not half-refilled. Not with `insert!`, which formats
+    # the key into its message — a dynamic `show` a `juliac --trim` build rejects — so
+    # the message here is fixed.
+    for j in 2:num_sats, k in 1:j-1
+        measurements[j].signal_id === measurements[k].signal_id &&
+            measurements[j].prn == measurements[k].prn && throw(IndexError(
+                "a (signal, PRN) pair appears twice in one epoch; each must appear once"))
+    end
     sats = empty_keeping_capacity!(solution.sats)
     for (j, measurement) in enumerate(measurements)
         key = (measurement.signal_id, measurement.prn)
-        haskey(sats, key) && throw(IndexError(
-            "a (signal, PRN) pair appears twice in one epoch; each must appear once"))
         set!(sats, key, SatInfo(measurement.position, measurement.time, residuals[j] * m,
             rate_residuals[j] * (m / s)))
     end
