@@ -4,12 +4,20 @@
 # four ephemerides — the position fix it has been waiting a minute for arrives
 # seconds late while every tracking loop sits unattended (GNSSReceiver.jl#107).
 #
-# The solver is specialised on the navigation-data type it is handed, so every
-# type this package dispatches on is solved here: GPS LNAV (`GPSL1CAData`), GPS
-# CNAV on both its signals (`GPSCNAVData` on L5I and L2CM), GPS CNAV-2
+# What is specialised on the navigation-data type is the *collection* pass
+# (`collect_measurements`): the decoder accessors, the propagator, the clock
+# polynomial and the broadcast time offsets. The solver behind the flat
+# `SatelliteMeasurement` row is one body shared by every data type and every
+# constellation mix, so it is compiled by the first solve here and reused by all
+# the others — which is what lets this workload be a list of data types rather
+# than a list of their combinations.
+#
+# So: one solve per type this package dispatches on — GPS LNAV (`GPSL1CAData`),
+# GPS CNAV on both its signals (`GPSCNAVData` on L5I and L2CM), GPS CNAV-2
 # (`GPSL1C_DData`) and Galileo I/NAV and F/NAV (`GalileoINAVData`,
-# `GalileoE5aData`) — cold, warm-started, with and without the atmospheric
-# corrections, and as one mixed GPS + Galileo constellation.
+# `GalileoE5aData`) — plus, once, the solver paths a data type does not vary:
+# warm start, corrections disabled, a `Vector`-backed group and a two-group
+# mixed constellation.
 #
 # The satellites are the test suite's own fixtures (`test/fixtures.jl`): decoder
 # states captured over Aachen on 2021-05-31 with the code phases, carrier
@@ -650,31 +658,33 @@ const _PRECOMPILE_GALILEO_E1B_STATES = [
 const _PRECOMPILE_A_REF = 26_559_710.0
 const _PRECOMPILE_Ω_DOT_REF = -2.6e-9 * π
 
-# GPS LNAV ephemeris → the quasi-Keplerian CNAV / CNAV-2 form.
+# GPS LNAV ephemeris → the quasi-Keplerian CNAV / CNAV-2 form. The LNAV fields are
+# `Union{Nothing,…}` until decoded; `something` narrows them to their value, which
+# keeps these keyword calls statically dispatched in the trim check (`test/trim`).
 _precompile_modern_nav(T, d; extra...) = T(;
-    t_0e = d.t_0e,
-    ΔA = d.sqrt_A^2 - _PRECOMPILE_A_REF,
+    t_0e = something(d.t_0e),
+    ΔA = something(d.sqrt_A)^2 - _PRECOMPILE_A_REF,
     A_dot = 0.0,
-    Δn_0 = d.Δn,
+    Δn_0 = something(d.Δn),
     Δn_0_dot = 0.0,
-    M_0 = d.M_0,
-    e = d.e,
-    ω = d.ω,
-    Ω_0 = d.Ω_0,
-    i_0 = d.i_0,
-    ΔΩ_dot = d.Ω_dot - _PRECOMPILE_Ω_DOT_REF,
-    i_dot = d.i_dot,
-    C_is = d.C_is,
-    C_ic = d.C_ic,
-    C_rs = d.C_rs,
-    C_rc = d.C_rc,
-    C_us = d.C_us,
-    C_uc = d.C_uc,
-    t_0c = d.t_0c,
-    a_f0 = d.a_f0,
-    a_f1 = d.a_f1,
-    a_f2 = d.a_f2,
-    T_GD = d.T_GD,
+    M_0 = something(d.M_0),
+    e = something(d.e),
+    ω = something(d.ω),
+    Ω_0 = something(d.Ω_0),
+    i_0 = something(d.i_0),
+    ΔΩ_dot = something(d.Ω_dot) - _PRECOMPILE_Ω_DOT_REF,
+    i_dot = something(d.i_dot),
+    C_is = something(d.C_is),
+    C_ic = something(d.C_ic),
+    C_rs = something(d.C_rs),
+    C_rc = something(d.C_rc),
+    C_us = something(d.C_us),
+    C_uc = something(d.C_uc),
+    t_0c = something(d.t_0c),
+    a_f0 = something(d.a_f0),
+    a_f1 = something(d.a_f1),
+    a_f2 = something(d.a_f2),
+    T_GD = something(d.T_GD),
     extra...,
 )
 
@@ -683,7 +693,7 @@ _precompile_modern_nav(T, d; extra...) = T(;
 _precompile_cnav(d) = _precompile_modern_nav(
     GNSSDecoder.GPSCNAVData,
     d;
-    TOW = d.TOW,
+    TOW = something(d.TOW),
     WN = 2160,
     l1_health = false,
     l2_health = false,
@@ -695,8 +705,8 @@ _precompile_cnav(d) = _precompile_modern_nav(
 _precompile_cnav2(d) = _precompile_modern_nav(
     GNSSDecoder.GPSL1C_DData,
     d;
-    ITOW = d.TOW ÷ 7200,
-    toi = (d.TOW % 7200) ÷ 18,
+    ITOW = something(d.TOW) ÷ 7200,
+    toi = (something(d.TOW) % 7200) ÷ 18,
     WN = 2160,
     l1c_health = false,
 )
@@ -788,24 +798,45 @@ end
         _precompile_states(system, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B())
     l1ca = gps(GPSL1CA())
     e1b = galileo(GalileoE1B())
+    # A `Dictionary`-backed group keyed by PRN — the shape a receiver carrying its
+    # satellites per signal hands over, and what the Tracking extension builds.
+    group(signal, states) =
+        SignalGroup(signal, Dictionary([s.decoder.prn for s in states], states))
     @compile_workload begin
-        for states in (
-            l1ca,
-            gps(GPSL5I(), _precompile_cnav),
-            gps(GPSL2CM(), _precompile_cnav),
-            gps(GPSL1C_D(), _precompile_cnav2),
-            e1b,
-            galileo(GalileoE5aI(), _precompile_fnav),
-            [l1ca; e1b],
+        for signal_group in (
+            group(GPSL1CA(), l1ca),
+            group(GPSL5I(), gps(GPSL5I(), _precompile_cnav)),
+            group(GPSL2CM(), gps(GPSL2CM(), _precompile_cnav)),
+            group(GPSL1C_D(), gps(GPSL1C_D(), _precompile_cnav2)),
+            group(GalileoE1B(), e1b),
+            group(GalileoE5aI(), galileo(GalileoE5aI(), _precompile_fnav)),
         )
-            pvt = calc_pvt(states; approximate_year = 2021)
-            calc_pvt(states, pvt; approximate_year = 2021)
-            calc_pvt(
-                states;
-                approximate_year = 2021,
-                enable_ionospheric_correction = false,
-                enable_tropospheric_correction = false,
-            )
+            calc_pvt(signal_group; approximate_year = 2021)
         end
+        # The paths that do not vary with the navigation-data type, compiled once on
+        # GPS L1 C/A and shared from there: the warm-start branch of the least-squares
+        # solve, the correction-free branch, the `Vector`-backed group, and the
+        # multi-group shape of a mixed-constellation epoch.
+        l1ca_group = group(GPSL1CA(), l1ca)
+        pvt = calc_pvt(l1ca_group; approximate_year = 2021)
+        calc_pvt(l1ca_group, pvt; approximate_year = 2021)
+        calc_pvt(
+            l1ca_group;
+            approximate_year = 2021,
+            enable_ionospheric_correction = false,
+            enable_tropospheric_correction = false,
+        )
+        calc_pvt(SignalGroup(GPSL1CA(), l1ca); approximate_year = 2021)
+        mixed = (gps = l1ca_group, galileo = group(GalileoE1B(), e1b))
+        mixed_pvt = calc_pvt(mixed; approximate_year = 2021)
+        calc_pvt(mixed, mixed_pvt; approximate_year = 2021)
+        # The in-place entry point shares the solver compiled above; only its own thin
+        # wrapper and the solution copy of an unsolvable epoch are new.
+        workspace = PVTWorkspace()
+        in_place = calc_pvt!(PVTSolution(), workspace, mixed, mixed_pvt;
+            approximate_year = 2021)
+        in_place = calc_pvt!(in_place, workspace, mixed, in_place; approximate_year = 2021)
+        calc_pvt!(PVTSolution(), workspace, SignalGroup(GPSL1CA(), l1ca[1:3]), in_place;
+            approximate_year = 2021)
     end
 end

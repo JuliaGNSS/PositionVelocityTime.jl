@@ -62,20 +62,87 @@ using Tracking
 sat_state = SatelliteState(decoder, gpsl1, tracked_sat)
 ```
 
-Compute the PVT solution:
+Group the satellites by their ranging signal and compute the PVT solution:
 
 ```julia
-pvt = calc_pvt(sat_states)
+using PositionVelocityTime: SignalGroup
+
+pvt = calc_pvt((
+    gps = SignalGroup(GPSL1CA(), gps_sat_states),
+    galileo = SignalGroup(GalileoE1B(), galileo_sat_states),
+))
 lla = get_LLA(pvt)  # latitude, longitude, altitude
 ```
 
-Satellites from different constellations may be passed together. Because each GNSS
+Each group holds the satellites tracked on one signal, as a `Dictionary` keyed by PRN or
+as a plain vector. A single group needs no NamedTuple around it —
+`calc_pvt(SignalGroup(GPSL1CA(), gps_sat_states))` is a complete one-constellation solve.
+With `Tracking` loaded, a whole `TrackState` and its decoders become groups in one call:
+
+```julia
+using Tracking
+pvt = calc_pvt(PositionVelocityTime.signal_groups(track_state, decoders))
+```
+
+Satellites from different constellations may be combined this way. Because each GNSS
 references its broadcasts to its own system time, [`calc_pvt`](@ref) estimates one
 receiver clock bias per GNSS time system, so a combined fix needs at least `3 + M`
 satellites for `M` distinct systems. The per-system clock offsets are reported as
 `pvt.inter_system_biases` relative to `pvt.reference_system`.
 
+!!! note "Migrating from 5.x"
+
+    `calc_pvt` used to take a flat `AbstractVector{<:SatelliteState}`. Pooling several
+    constellations into one vector made its element type abstract, which turned every
+    per-satellite call inside the solve into a dynamic dispatch — a mixed 14-satellite
+    epoch cost about five times a single-constellation one. Groups fix that at the
+    source, and behind them the solver now works on one flat, parameter-free
+    measurement row and compiles once for every constellation mix.
+
+    There is deliberately no conversion function from the old input: `calc_pvt` refuses
+    a pooled vector with an error saying what to build. A converter would have had to
+    infer the grouping from whatever signals the vector happened to hold, which is a
+    runtime property — so the conversion itself would be inference-blind, reintroducing
+    in one place the dispatch the grouping removes everywhere else. Build the groups
+    where the satellites are tracked, which is the shape `Tracking.jl` and
+    `GNSSReceiver.jl` already carry, and hand the same groups to `calc_pvt`.
+
+    The measurement-model surface moved with it: its per-satellite functions now take
+    the [`PositionVelocityTime.SatelliteMeasurement`](@ref) rows that
+    [`PositionVelocityTime.collect_measurements`](@ref) produces, rather than
+    `SatelliteState`s plus parallel classification vectors. See
+    [The Measurement-Model Surface](@ref).
+
+    `pvt.time` is a [`TAITime`](@ref) rather than an AstroTime `TAIEpoch`, and AstroTime
+    is no longer loaded with this package: `using AstroTime` and `TAIEpoch(pvt.time)`
+    converts it exactly. `position` and `velocity` are `ECEF{Float64}`, and the keys of
+    `inter_system_biases` (and `reference_system`) are
+    [`PositionVelocityTime.SupportedTimeSystem`](@ref)s. These are what let the solver
+    compile into a trimmed executable — see [Trimmed Executables](@ref).
+
 If too few healthy satellites are tracked to solve the constellation — or the geometry
 turns out to be degenerate — [`calc_pvt`](@ref) returns the `prev_pvt` it was given (the
 origin solution by default) rather than throwing, so a receiver can hand it whatever it
 currently tracks each epoch and carry the last solution forward.
+
+### Solving without allocating
+
+`calc_pvt` builds a new solution, containers and all, every epoch. A receiver solving a
+steady stream of epochs can instead hand [`calc_pvt!`](@ref) the previous solution as
+the one to reuse, and a [`PVTWorkspace`](@ref) for its scratch; once both have held an
+epoch of that size, a solve allocates nothing:
+
+```julia
+pvt = PVTSolution()
+workspace = PVTWorkspace()
+for groups in epochs
+    pvt = calc_pvt!(pvt, workspace, groups, pvt)   # reuse `pvt`, seeded from itself
+end
+```
+
+A [`PVTSolution`](@ref) is immutable, so `calc_pvt!` returns the new fix; what it reuses
+are the `sats` and bias containers of its first argument, which the returned solution
+takes over. That argument is the only thing overwritten — `prev_pvt` is only read, so
+passing a different solution there keeps it intact — and it is spent by the call: keep
+the returned solution. An epoch that cannot be solved returns `prev_pvt`, the answer
+`calc_pvt` would have returned.

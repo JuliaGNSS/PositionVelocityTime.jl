@@ -237,9 +237,11 @@ end
     @testset "day of year from system week and time of week" begin
         # GPS week 0 starts 1980-01-06 → doy 6; half a year of weeks later lands
         # mid-year. The ≤ 18 s GPS−UTC offset is irrelevant at day resolution.
-        @test PositionVelocityTime.day_of_year(GPST(), 0, 0.0) == 6
-        @test PositionVelocityTime.day_of_year(GPST(), 0, 86400.0 * 10) == 16
+        doy(system, week, tow) =
+            PositionVelocityTime.day_of_year(get_system_start_time(system), week, tow)
+        @test doy(GPST(), 0, 0.0) == 6
+        @test doy(GPST(), 0, 86400.0 * 10) == 16
         # GST week 0 starts 1999-08-21 23:59:47 UTC (doy 233)
-        @test PositionVelocityTime.day_of_year(GST(), 0, 14.0) == 234
+        @test doy(GST(), 0, 14.0) == 234
     end
 end

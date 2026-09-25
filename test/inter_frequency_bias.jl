@@ -168,11 +168,14 @@
 
     @testset "layout gate counts both measurements and distinct satellites" begin
         # GPS-only (no GGTO collapse possible): 3 position + 1 clock + num_ifb unknowns.
-        # Beyond the PRN of each state, the decoder is touched only on the GGTO path,
-        # never reached for a GPS-only constellation, so PRN-carrying stand-ins suffice.
+        # Only the classification fields of a measurement row are read here — the
+        # broadcast time offsets are touched on the collapse path only, never reached
+        # for a GPS-only constellation — so stand-in rows carrying those suffice.
         decide = PositionVelocityTime.decide_bias_layout
-        gate(prns, bands) = decide([(; decoder = (; prn = prn)) for prn in prns],
-            fill(GPST(), length(prns)), bands)
+        gate(prns, bands) = decide([
+            (; time_system = GPST(), band_id = band, prn = prn, time_offsets = ())
+            for (prn, band) in zip(prns, bands)
+        ])
 
         # Dual-band GPS ⇒ 1 IFB ⇒ needs 5 measurements; 4 is too few.
         @test gate(1:5, [:L1, :L5, :L1, :L5, :L1]) !== nothing
@@ -196,7 +199,9 @@
 
     @testset "single-band fix reports no inter-frequency bias" begin
         # The L1-only GPS+Galileo fixtures share one band ⇒ no IFB unknown.
-        pvt = calc_pvt([gps_l1_states(0.0Hz); galileo_e1b_states(0.0Hz)]; kw...)
+        pvt = calc_pvt(
+            (signal_group(gps_l1_states(0.0Hz)), signal_group(galileo_e1b_states(0.0Hz)));
+            kw...)
         @test isempty(pvt.inter_frequency_biases)
         @test length(pvt.sats) >= 4
     end
@@ -208,14 +213,14 @@
     # inter-frequency bias rather than corrupting the position.
     @testset "calc_pvt estimates the IFB across the L1 and L5 bands" begin
         e1b = galileo_e1b_states(0.0Hz)
-        ref = calc_pvt(e1b; kw...)                          # L1-only Galileo fix
+        ref = calc_pvt(signal_group(e1b); kw...)                          # L1-only Galileo fix
         @test length(ref.sats) >= 4
 
         # Consistent L5 copies ⇒ band grouping triggers, IFB ≈ 0, fix unchanged. The
         # copies reproduce each E1B transmit time exactly, so the residuals are the
         # L1-only fixtures' own ~m-level noise (the baseline), not zero.
         base = maximum(abs, [info.residual for info in values(ref.sats)])
-        pvt0 = calc_pvt([e1b; map(as_e5a, e1b)]; kw...)
+        pvt0 = calc_pvt((signal_group(e1b), signal_group(map(as_e5a, e1b))); kw...)
         @test pvt0.reference_system == GST()
         @test haskey(pvt0.inter_frequency_biases, :L5)
         @test pvt0.inter_frequency_biases[:L5].reference == :L1
@@ -229,7 +234,9 @@
         # baseline — without the IFB unknown the L5 satellites would carry ~12 m
         # residuals instead.
         δ = 12.0
-        pvtδ = calc_pvt([e1b; map(s -> as_e5a(s; ifb_shift_s = -δ / C), e1b)]; kw...)
+        pvtδ = calc_pvt(
+            (signal_group(e1b), signal_group(map(s -> as_e5a(s; ifb_shift_s = -δ / C), e1b)));
+            kw...)
         @test pvtδ.inter_frequency_biases[:L5].value ≈ δ * m atol = 0.05m
         @test norm(pvtδ.position - ref.position) < 1e-2
         @test maximum(abs, [info.residual for info in values(pvtδ.sats)]) ≈ base atol = 0.05m
@@ -241,12 +248,12 @@
     # rather than corrupting the position. Exercises the new L2 band through calc_pvt.
     @testset "calc_pvt estimates the IFB across the GPS L1 and L2 bands" begin
         gps = gps_l1_states(0.0Hz)
-        ref = calc_pvt(gps; kw...)                          # L1-only GPS fix
+        ref = calc_pvt(signal_group(gps); kw...)                          # L1-only GPS fix
         @test length(ref.sats) >= 4
         base = maximum(abs, [info.residual for info in values(ref.sats)])
 
         # Consistent L2C copies ⇒ band grouping triggers, IFB ≈ 0, fix unchanged.
-        pvt0 = calc_pvt([gps; map(as_l2c, gps)]; kw...)
+        pvt0 = calc_pvt((signal_group(gps), signal_group(map(as_l2c, gps))); kw...)
         @test pvt0.reference_system == GPST()
         @test haskey(pvt0.inter_frequency_biases, :L2)
         @test pvt0.inter_frequency_biases[:L2].reference == :L1
@@ -258,7 +265,9 @@
         # A uniform 12 m receiver L2 delay is absorbed by the IFB, leaving the position
         # and residuals at the baseline.
         δ = 12.0
-        pvtδ = calc_pvt([gps; map(s -> as_l2c(s; ifb_shift_s = -δ / C), gps)]; kw...)
+        pvtδ = calc_pvt(
+            (signal_group(gps), signal_group(map(s -> as_l2c(s; ifb_shift_s = -δ / C), gps)));
+            kw...)
         @test pvtδ.inter_frequency_biases[:L2].value ≈ δ * m atol = 0.05m
         @test norm(pvtδ.position - ref.position) < 1e-2
         @test maximum(abs, [info.residual for info in values(pvtδ.sats)]) ≈ base atol = 0.05m
@@ -270,7 +279,8 @@
     @testset "disjoint-band coverage is observable, not degenerate" begin
         gps_l1 = gps_l1_states(0.0Hz)                       # GPS on L1 only
         # Connected all-L1 reference fix, for the true position and inter-system offset.
-        connected = calc_pvt([gps_l1; galileo_e1b_states(0.0Hz)]; kw...)
+        connected = calc_pvt(
+            (signal_group(gps_l1), signal_group(galileo_e1b_states(0.0Hz))); kw...)
 
         # No GGTO to reconnect the split ⇒ fold: no IFB column. The L5 copies reproduce
         # the Galileo transmit times exactly, so the fix is the *same* as the connected
@@ -280,7 +290,7 @@
         # solution the bug produced instead had a ~1e7 GDOP and a huge IFB that does not
         # match the reference at all.)
         gal_l5 = map(as_e5a, galileo_e1b_states(0.0Hz))     # Galileo on L5 only
-        pvt = calc_pvt([gps_l1; gal_l5]; kw...)
+        pvt = calc_pvt((signal_group(gps_l1), signal_group(gal_l5)); kw...)
         @test isempty(pvt.inter_frequency_biases)            # L5 IFB folded into the Galileo clock
         @test length(pvt.sats) == length(gps_l1) + length(gal_l5)
         @test pvt.inter_system_biases[GST()] ≈ connected.inter_system_biases[GST()] rtol = 1e-6
@@ -294,7 +304,7 @@
         true_isb = connected.inter_system_biases[GST()]
         gal_l5_ggto =
             map(s -> as_e5a(s; ggto = -ustrip(m, true_isb) / C), galileo_e1b_states(0.0Hz))
-        pvt_ggto = calc_pvt([gps_l1; gal_l5_ggto]; kw...)
+        pvt_ggto = calc_pvt((signal_group(gps_l1), signal_group(gal_l5_ggto)); kw...)
         @test pvt_ggto.reference_system == GPST()              # Galileo collapsed onto GPS
         @test haskey(pvt_ggto.inter_frequency_biases, :L5)   # reconnected ⇒ IFB observable
         @test pvt_ggto.inter_frequency_biases[:L5].reference == :L1
@@ -313,20 +323,20 @@
     @testset "unsolvable triple-band geometry is skipped, not thrown" begin
         gps = gps_l1_states(0.0Hz)
         two = gps[1:2]
-        states = [two; map(as_l2c, two); map(as_l5i, two)]
-        systems = map(state -> GNSSSignals.get_time_system(state.system), states)
-        bands = map(state -> GNSSSignals.get_band_id(state.system), states)
+        groups = (signal_group(two), signal_group(map(as_l2c, two)),
+            signal_group(map(as_l5i, two)))
+        rows = measurement_rows(groups)
         # All six measurements are usable and clear the measurement count, and it is the
         # distinct-satellite condition — two satellites for 3 + 1 unknowns — that rejects
         # the constellation as unsolvable.
-        @test all(PositionVelocityTime.is_sat_healthy(state.decoder) for state in states)
-        @test bands == [:L1, :L1, :L2, :L2, :L5, :L5]
-        @test length(states) >= 3 + 1 + 2
-        @test PositionVelocityTime.decide_bias_layout(states, systems, bands) === nothing
+        @test all(PositionVelocityTime.is_sat_healthy(state.decoder) for state in two)
+        @test map(row -> row.band_id, rows) == [:L1, :L1, :L2, :L2, :L5, :L5]
+        @test length(rows) >= 3 + 1 + 2
+        @test PositionVelocityTime.decide_bias_layout(rows) === nothing
 
-        ref = calc_pvt(gps; kw...)                      # L1-only GPS fix, as previous PVT
-        @test calc_pvt(states, ref; kw...) === ref      # warm start: previous fix kept
-        cold = calc_pvt(states; kw...)                  # cold start: nothing to fall back on
+        ref = calc_pvt(signal_group(gps); kw...)               # L1-only GPS fix, as previous PVT
+        @test calc_pvt(groups, ref; kw...) === ref             # warm start: previous fix kept
+        cold = calc_pvt(groups; kw...)                         # cold start: nothing to fall back on
         @test isempty(cold.sats)
         @test iszero(cold.position)
     end

@@ -59,3 +59,23 @@ jobs:
         env:
           PVT_RUN_INTEGRATION_TEST: 'true'
           PVT_TESTDATA_DIR: ${{ runner.temp }}/flexiband-l125
+
+  trim:
+    name: Trimmed executable (juliac --trim=safe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.13'
+      - uses: julia-actions/cache@v3
+      - name: Install JuliaC
+        # `Pkg.Apps.add` does not install the General registry on demand the way
+        # `Pkg.add` does, and a fresh runner has none yet.
+        run: |
+          julia -e 'using Pkg; Pkg.Registry.add("General"); Pkg.Apps.add("JuliaC")'
+          echo "$HOME/.julia/bin" >> "$GITHUB_PATH"
+      - name: Build and compare the trimmed PVT app
+        run: |
+          julia --project=test/trim -e 'using Pkg; Pkg.instantiate()'
+          julia --project=test/trim test/trim/check.jl

@@ -470,7 +470,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         ]
         # Constellation-wide model selection picks Klobuchar: the GPS decoders
         # carry the broadcast α/β, no Galileo coefficients are present.
-        @test PositionVelocityTime.select_ionospheric_correction(states) isa
+        @test PositionVelocityTime.select_ionospheric_correction(signal_group(states)) isa
               PositionVelocityTime.KlobucharParams
 
         # Corrections are on by default — the fix lands within a metre of the ground truth.
@@ -482,13 +482,13 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         # consistency floor — the tighter 0.5 m held only while the carrier-phase term was
         # being scaled 2π too large (it read radians as cycles), which happened to pull
         # this particular constellation towards truth.
-        pvt = calc_pvt(states; approximate_year = 2020)
+        pvt = calc_pvt(signal_group(states); approximate_year = 2020)
         @test norm(pvt.position - IONO_TROPO_GROUND_TRUTH) < 1.0
 
         # Disabling the corrections moves the fix several metres off truth, so
         # the corrections demonstrably improve the solution.
         uncorrected = calc_pvt(
-            states;
+            signal_group(states);
             approximate_year = 2020,
             enable_ionospheric_correction = false,
             enable_tropospheric_correction = false,
@@ -904,18 +904,18 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         ]
         # NTCM-G is selected from the Effective Ionisation Level coefficients
         # decoded from the E1B navigation message.
-        @test PositionVelocityTime.select_ionospheric_correction(states) isa
+        @test PositionVelocityTime.select_ionospheric_correction(signal_group(states)) isa
               PositionVelocityTime.NTCMGParams
 
         # The fixture observables were generated with the flat-slab 1/sin(el)
         # tropospheric mapping baked in, so a solve using the Niell mapping (#62)
         # reproduces the fixture's truth only up to the mapping difference at these
         # elevations (~0.5 m here) — a fixture-consistency floor, not solver error.
-        pvt = calc_pvt(states; approximate_year = 2020)
+        pvt = calc_pvt(signal_group(states); approximate_year = 2020)
         @test norm(pvt.position - IONO_TROPO_GROUND_TRUTH) < 0.7
 
         uncorrected = calc_pvt(
-            states;
+            signal_group(states);
             approximate_year = 2020,
             enable_ionospheric_correction = false,
             enable_tropospheric_correction = false,

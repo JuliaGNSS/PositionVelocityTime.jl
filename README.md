@@ -50,11 +50,40 @@ sat_state = SatelliteState(decoder, gpsl1, tracked_sat)
 ## Usage
 
 ### User position calculation
-The function 
+Satellite states are handed over grouped by their ranging signal, one
+`PositionVelocityTime.SignalGroup` per signal:
 ```julia
-calc_pvt(sat_states)
-``` 
-provides a complete position calculation. A fix needs at least 4 healthy, fully decoded
+using PositionVelocityTime: SignalGroup
+
+calc_pvt((
+    gps = SignalGroup(GPSL1CA(), gps_sat_states),
+    galileo = SignalGroup(GalileoE1B(), galileo_sat_states),
+))
+```
+provides a complete position calculation. A single group can be passed on its own, and
+with `Tracking` loaded `PositionVelocityTime.signal_groups(track_state, decoders)` builds
+a whole epoch's groups from a `TrackState`. Grouping is what keeps the solve type-stable
+across constellations — see the migration note in the documentation if you are coming
+from 5.x, where `calc_pvt` took a flat vector of satellite states directly.
+
+A fix needs at least 4 healthy, fully decoded
 satellites (more for a multi-GNSS or multi-band set); when the epoch cannot be solved,
 the previous solution is returned unchanged instead of an error, so a receiver can pass
 whatever it currently tracks.
+
+To solve epoch after epoch without allocating, use `calc_pvt!`, which reuses the
+containers of the solution passed as its first argument and a `PVTWorkspace` for the
+scratch buffers. `PVTSolution` is immutable, so keep the returned solution:
+```julia
+pvt = PVTSolution()
+workspace = PVTWorkspace()
+pvt = calc_pvt!(pvt, workspace, groups, pvt)  # reuses only `pvt`; seeded from itself
+```
+The estimated time `pvt.time` is a `TAITime` — whole TAI seconds since J2000 plus a
+fraction. With AstroTime loaded, `TAIEpoch(pvt.time)` converts it exactly.
+
+### Trimmed executables
+The solver compiles into a standalone executable with
+[JuliaC](https://github.com/JuliaLang/JuliaC.jl)'s `juliac --trim=safe` (Julia 1.12+);
+`test/trim` holds such an app and a check that builds it and compares its output with a
+regular Julia session.
