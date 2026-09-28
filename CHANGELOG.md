@@ -1,5 +1,55 @@
 # Changelog
 
+# [6.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.4.0...v6.0.0) (2026-09-28)
+
+
+* feat!: compile the PVT solve into a trimmed juliac executable ([6b820d6](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/6b820d669dfd053e080f65e0af3756cee199e0eb))
+* feat!: solve the PVT without allocating, into an explicit output ([f1dd2ab](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/f1dd2ab9b7b21bcda0f6d3ae5576b1da8a2ea80d))
+* feat!: take signal groups, and solve behind a flat-row barrier ([c06b5d7](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/c06b5d77957acdb111c1841fd715e75fa9b08b2e))
+
+
+### Bug Fixes
+
+* refuse a duplicate (signal, PRN) pair before writing the solution ([506857d](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/506857deab1041116864f12cf3031eb33cd2971d))
+* refuse groups of bare state vectors with the migration directions ([7cc0811](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/7cc0811c9a35e0c81284b29edaacad90db3bb0f5))
+
+
+### Performance Improvements
+
+* count distinct satellites without boxing a key per satellite ([49fb434](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/49fb4347ad1eac2fcee00902fbe61b654e4a919a))
+
+
+### BREAKING CHANGES
+
+* `PVTSolution` is a mutable struct.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+* `PVTSolution.time` is a `TAITime` rather than an AstroTime
+`TAIEpoch`, and AstroTime is no longer loaded with the package —
+`using AstroTime` and `TAIEpoch(pvt.time)` converts it. `PVTSolution`'s
+`position` and `velocity` and `SatInfo.position` are `ECEF{Float64}`, and
+`inter_system_biases` is keyed (and `reference_system` typed) by
+`SupportedTimeSystem` rather than `GNSSSignals.TimeSystem`.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+* `calc_pvt` takes signal groups, not a vector of
+`SatelliteState`s. `calc_pvt(PositionVelocityTime.signal_groups(states))` is
+the mechanical translation and the documented bridge, though it is
+inference-blind by construction; a receiver that already keeps its satellites
+per signal should name its groups instead. With Tracking loaded,
+`signal_groups(track_state, decoders)` converts a whole `TrackState`.
+
+The documented Measurement-Model Surface is re-specified on the flat row:
+`decide_bias_layout`, `predict_atmospheric_delays`, `calc_hub_range_offsets`,
+`calc_user_velocity_and_clock_drift`, `calc_time_scale_offsets` and
+`select_ionospheric_correction` take measurements (or groups) rather than
+satellite states plus parallel classification vectors; `ionospheric_delay`
+takes a carrier frequency rather than a signal; `day_of_year` takes a system
+start date; and `calc_steering_offset` takes a `BroadcastTimeOffset`
+(`broadcast_time_offset(decoder, target)` builds one).
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
 # [5.4.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.3.0...v5.4.0) (2026-09-05)
 
 
