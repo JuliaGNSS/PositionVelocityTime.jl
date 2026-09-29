@@ -162,7 +162,8 @@ satellite's own transmit time**; an evaluated scalar per satellite would change 
 # Fields
 - `available::Bool`: whether this satellite's message carries a usable offset toward
   the target at all — the flattened [`time_offset_available`](@ref). Every other field
-  is meaningless when `false`.
+  is meaningless when `false`, and the coefficients are then `NaN`, so that
+  [`calc_steering_offset`](@ref) of an unavailable offset is `NaN`.
 - `A_0`, `A_1`, `A_2::Float64`: the broadcast polynomial's constant, rate and
   acceleration terms.
 - `t_0::Float64`: the offset's reference time of week, or `NaN` where the message
@@ -185,9 +186,11 @@ struct BroadcastTimeOffset
     count_anchor::Float64
 end
 
-# The "this satellite broadcasts nothing toward that system" row. `t_0` is NaN so that
-# a misuse of the coefficients propagates a NaN rather than a plausible zero.
-const NO_TIME_OFFSET = BroadcastTimeOffset(false, 0.0, 0.0, 0.0, NaN, 0.0, 0.0)
+# The "this satellite broadcasts nothing toward that system" row. The coefficients and
+# the count anchor are NaN so that a misuse propagates a NaN rather than a plausible
+# zero. A NaN `t_0` alone would not: `calc_steering_offset` reads it as the BeiDou
+# D1/D2 "no reference epoch" marker and evaluates the polynomial on `t` instead.
+const NO_TIME_OFFSET = BroadcastTimeOffset(false, NaN, NaN, NaN, NaN, 0.0, NaN)
 
 """
     SatelliteMeasurement

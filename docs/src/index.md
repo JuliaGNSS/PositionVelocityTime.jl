@@ -16,9 +16,11 @@ Calculates position, velocity, and time from GNSS satellite measurements.
   selected by the signal the range was generated on (which may be a pilot such as
   GPS L1C-P, Galileo E1C or BeiDou B2a-Q), while the ephemeris and clock come from
   the band's data-component decoder.
-- One receiver clock bias per GNSS time system (GPST, GST, BDT), collapsed onto GPS
-  Time using the broadcast offset — Galileo's GGTO or BeiDou's BGTO — when the
-  geometry is too weak to estimate it
+- One receiver clock bias per GNSS time system (GPST, GST, BDT), collapsed onto a hub
+  system using the broadcast offset — Galileo's GGTO or BeiDou's BGTO — when the
+  geometry is too weak to estimate it. Every time system is a candidate hub, tried in
+  the order GPST, GST, BDT; today's messages broadcast offsets toward GPS Time and
+  Galileo System Time only, so no collapse onto BDT occurs in practice
 
 Galileo E6-B is decoded by `GNSSDecoder` but carries no ephemeris of its own: its
 C/NAV message is the Galileo High Accuracy Service correction channel. An E6-B

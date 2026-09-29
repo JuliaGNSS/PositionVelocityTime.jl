@@ -244,23 +244,23 @@ end
     end
 
     @testset "the allocating forms delegate to the in-place ones" begin
-        # `curve_fit` is `curve_fit!` on a fresh workspace: a small straight-line fit.
+        # `curve_fit!` on a small straight-line fit; its result is the workspace's own
+        # buffers.
         LM = PositionVelocityTime.LevenbergMarquardt
         xs = collect(0.0:4.0)
         ys = 2.0 .* xs .+ 1.0
         line!(out, x, p) = (out .= p[1] .* x .+ p[2]; out)
         line_jacobian!(J, x, p) = (J[:, 1] .= x; J[:, 2] .= 1.0; J)
-        fit = LM.curve_fit(line!, line_jacobian!, xs, ys, [0.0, 0.0])
+        workspace = LM.LMWorkspace()
+        fit = LM.curve_fit!(workspace, line!, line_jacobian!, xs, ys, [0.0, 0.0])
         @test fit.converged
         @test fit.param ≈ [2.0, 1.0]
-        workspace = LM.LMWorkspace()
-        in_place = LM.curve_fit!(workspace, line!, line_jacobian!, xs, ys, [0.0, 0.0])
-        @test in_place.param == fit.param
-        @test in_place.param === workspace.x
+        @test fit.param === workspace.x
         # A normal matrix Cholesky cannot factor (here: NaN) is a rejected step — the
         # damping grows and the parameters stay put — rather than a thrown error.
         nan_jacobian!(J, x, p) = fill!(J, NaN)
-        stuck = LM.curve_fit(line!, nan_jacobian!, xs, ys, [0.5, 0.5]; maxIter = 3)
+        stuck = LM.curve_fit!(
+            LM.LMWorkspace(), line!, nan_jacobian!, xs, ys, [0.5, 0.5]; maxIter = 3)
         @test !stuck.converged
         @test stuck.param == [0.5, 0.5]
 

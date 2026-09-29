@@ -132,10 +132,11 @@ mixes.
 
 Only [`calc_corrected_time`](@ref PositionVelocityTime.calc_corrected_time),
 [`calc_satellite_clock_drift`](@ref PositionVelocityTime.calc_satellite_clock_drift),
-[`get_week`](@ref PositionVelocityTime.get_week) and
-[`broadcast_time_offset`](@ref PositionVelocityTime.broadcast_time_offset) still read a
-decoder — they are what the collection pass is built from, and are listed so a consumer
-can build or amend a row itself.
+[`get_week`](@ref PositionVelocityTime.get_week),
+[`broadcast_time_offset`](@ref PositionVelocityTime.broadcast_time_offset) and the
+decoder form of [`time_offset_available`](@ref PositionVelocityTime.time_offset_available)
+still read a decoder — they are what the collection pass is built from, and are listed
+so a consumer can build or amend a row itself.
 
 Times returned or taken here are seconds-of-week counts on each satellite's own system
 scale unless a function says otherwise.
@@ -182,7 +183,6 @@ PositionVelocityTime.user_position
 PositionVelocityTime.user_position!
 PositionVelocityTime.num_lsq_params
 PositionVelocityTime.calc_hub_range_offsets
-PositionVelocityTime.positive_definite_cholesky
 PositionVelocityTime.unique_time_systems
 PositionVelocityTime.time_system_index
 ```
@@ -230,7 +230,6 @@ original's interface — to be dropped once the originals can be trimmed:
 ```@docs
 PositionVelocityTime.TAITimes
 PositionVelocityTime.LevenbergMarquardt
-PositionVelocityTime.LevenbergMarquardt.curve_fit
 PositionVelocityTime.LevenbergMarquardt.curve_fit!
 PositionVelocityTime.LevenbergMarquardt.LMWorkspace
 PositionVelocityTime.LevenbergMarquardt.grown

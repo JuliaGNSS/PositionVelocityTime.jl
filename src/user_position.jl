@@ -137,47 +137,32 @@ function calc_Avv!(dir_deriv, sat_positions, ξ, v)
     return dir_deriv
 end
 
-"""
-    positive_definite_cholesky(A::Symmetric) -> Union{Cholesky,Nothing}
-
-Cholesky factorization of `A`, or `nothing` when `A` is not positive definite to within
-the rank tolerance below. Used to solve and invert the normal-equations matrices of this
-package (`HᵀH` for a design matrix `H`), which are positive definite exactly when `H`
-has full column rank — so `nothing` means the geometry left some parameter
-unobservable, and the epoch cannot be solved.
-
-Cholesky is the right factorization for a symmetric positive definite matrix (≈2×
-cheaper than a general or symmetric-indefinite one, and numerically faithful), and
-`check = false` reports the non-positive-definite case instead of throwing. `issuccess`
-alone is not a sufficient test, for two reasons:
-
-  - StaticArrays accepts a pivot of exactly zero (its check is `pivot ≥ 0`) and returns
-    a "successful" factor whose diagonal contains that zero — the triangular solve that
-    follows then throws the very `SingularException` this is meant to avoid.
-  - A rank-deficient design usually does not produce an exactly zero pivot at all:
-    rounding leaves a tiny positive one instead, and the factorization "succeeds" with a
-    solution made of rounding noise (velocities of 1e8 m/s and the like).
-
-Both are caught by a relative rank tolerance on the Cholesky diagonal, which for a
-normal-equations matrix is on the scale of `H`'s singular values — so its
-smallest-to-largest ratio is ~`1/cond(H)`. A rank-deficient design leaves the ratio at
-rounding level (~1e-8 for `Float64`, or exactly 0), whereas even a barely usable GNSS
-geometry stays above ~1e-3; `cbrt(eps)` ≈ 6e-6 sits between the two with orders of
-magnitude of margin either way. The test costs a few comparisons and does not allocate.
-
-$SIGNATURES
-"""
-function positive_definite_cholesky(A::Symmetric)
-    F = cholesky(A; check = false)
-    issuccess(F) || return nothing
-    pivots = diag(F.U)
-    passes_rank_tolerance(minimum(pivots), maximum(pivots)) ? F : nothing
-end
-
-# The rank test of `positive_definite_cholesky` on the extreme pivots of a factor, shared
-# with the in-place factorisation of `calc_DOP!`.
+# The rank test of `factorize_normal_matrix!` on the extreme pivots of the Cholesky factor of a
+# normal-equations matrix `HᵀH`, which is positive definite exactly when `H` has full
+# column rank — so a failure means the geometry left some parameter unobservable, and
+# the epoch cannot be solved.
+#
+# A successful factorisation alone is not a sufficient test: a rank-deficient design
+# usually does not produce an exactly zero pivot at all. Rounding leaves a tiny positive
+# one instead, and the factorisation "succeeds" with a solution made of rounding noise
+# (velocities of 1e8 m/s and the like). For a normal-equations matrix the Cholesky
+# diagonal is on the scale of `H`'s singular values, so its smallest-to-largest ratio is
+# ~`1/cond(H)`. A rank-deficient design leaves the ratio at rounding level (~1e-8 for
+# `Float64`, or exactly 0), whereas even a barely usable GNSS geometry stays above
+# ~1e-3; `cbrt(eps)` ≈ 6e-6 sits between the two with orders of magnitude of margin
+# either way.
 passes_rank_tolerance(min_pivot, max_pivot) =
     min_pivot > cbrt(eps(typeof(max_pivot))) * max_pivot
+
+# `HᵀH` for the design `H`, Cholesky-factorised in place into the upper triangle of
+# `normal_matrix` (`n × n` for the `n` columns of `H`). `false` when `H` does not have
+# full column rank to within `passes_rank_tolerance`, and the factor is then garbage.
+function factorize_normal_matrix!(normal_matrix, H)
+    mul!(normal_matrix, transpose(H), H)
+    _, info = LAPACK.potrf!('U', normal_matrix)
+    info == 0 || return false
+    passes_rank_tolerance(extrema(i -> normal_matrix[i, i], 1:size(H, 2))...)
+end
 
 """
 Calculates the dilution of precision for a given geometry matrix H
@@ -193,8 +178,8 @@ by the rotation). `GDOP` spans all parameters; `TDOP` reports the clock variance
 primary (reference) system — see [`PVTSolution`](@ref) — while the other systems' clock
 (inter-system-bias) and the inter-frequency-bias variances enter `GDOP` only.
 
-A rank-deficient geometry makes `HᵀH` singular (not positive definite);
-[`positive_definite_cholesky`](@ref) detects this and the function returns the sentinel
+A rank-deficient geometry makes `HᵀH` singular (not positive definite, or only to
+within rounding); the factorisation detects this and the function returns the sentinel
 `DOP(-1, …)` instead of erroring.
 
 $SIGNATURES
@@ -211,21 +196,17 @@ calc_DOP(H_GEO, user_pos::ECEF, primary_clock_index = 1) = calc_DOP!(
 
 [`calc_DOP`](@ref) with the normal-equations matrix `HᵀH` formed, factorised and
 inverted in `normal_matrix` (`n × n` for the `n` columns of `H_GEO`, overwritten), so
-that it allocates nothing. The factorisation and the rank test are those of
-[`positive_definite_cholesky`](@ref), and the inverse is LAPACK's `potri` on that factor
-— what `inv` of a `Cholesky` computes — so the DOP is the same.
+that it allocates nothing. The factorisation is LAPACK's Cholesky `potrf`, followed by
+a relative rank test on its pivots, and the inverse is `potri` on that factor — what
+`inv` of a `Cholesky` computes.
 """
 function calc_DOP!(normal_matrix, H_GEO, user_pos::ECEF, primary_clock_index = 1)
     # HᵀH is symmetric positive definite iff H has full column rank, so a
     # rank-deficient (singular) geometry fails gracefully here instead of throwing —
-    # see `positive_definite_cholesky`. The inverse of an SPD matrix is itself SPD, so
+    # see `factorize_normal_matrix!`. The inverse of an SPD matrix is itself SPD, so
     # the DOP variances on the diagonal are then guaranteed non-negative.
     n = size(H_GEO, 2)
-    mul!(normal_matrix, transpose(H_GEO), H_GEO)
-    _, info = LAPACK.potrf!('U', normal_matrix)
-    info == 0 || return DOP(-1, -1, -1, -1, -1)
-    min_pivot, max_pivot = extrema(i -> normal_matrix[i, i], 1:n)
-    passes_rank_tolerance(min_pivot, max_pivot) || return DOP(-1, -1, -1, -1, -1)
+    factorize_normal_matrix!(normal_matrix, H_GEO) || return DOP(-1, -1, -1, -1, -1)
     # The inverse, in the upper triangle only; `D(i, j)` reads it symmetrically.
     LAPACK.potri!('U', normal_matrix)
     D(i, j) = i <= j ? normal_matrix[i, j] : normal_matrix[j, i]
