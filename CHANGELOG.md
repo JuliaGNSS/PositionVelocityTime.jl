@@ -1,5 +1,12 @@
 # Changelog
 
+## [7.0.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v7.0.0...v7.0.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* share the solver's time-scale offsets and NaN the missing broadcast offset ([3a0dc50](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/3a0dc5054225aeeabe266957e11d70a81f8ebb05))
+
 # [7.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.0.1...v7.0.0) (2026-09-29)
 
 ## [6.0.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.0.0...v6.0.1) (2026-09-29)
