@@ -1,5 +1,7 @@
 # Changelog
 
+# [7.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.0.1...v7.0.0) (2026-09-29)
+
 ## [6.0.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.0.0...v6.0.1) (2026-09-29)
 
 
