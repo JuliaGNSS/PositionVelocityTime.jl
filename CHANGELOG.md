@@ -1,5 +1,12 @@
 # Changelog
 
+## [6.0.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.0.0...v6.0.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* accept GNSSDecoder 5 ([a0f37f9](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/a0f37f9247e1edf8a50eb0940cc09c49e1c66416))
+
 # [6.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v5.4.0...v6.0.0) (2026-09-28)
 
 
