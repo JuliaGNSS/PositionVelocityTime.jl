@@ -3,6 +3,10 @@
     @test TAITime(DateTime(2000, 1, 1, 12)) == TAITime(0, 0.0)
     @test TAITime(10, 1.25) == TAITime(11, 0.25)
     @test TAITime(10, -0.25) == TAITime(9, 0.75)
+    # A fraction just below zero rounds to exactly `1.0` after the floor is taken out;
+    # the invariant `fraction ∈ [0, 1)` still holds.
+    @test TAITime(10, -1e-17) == TAITime(10, 0.0)
+    @test TAITime(10, prevfloat(1.0)).fraction < 1.0
 
     # A calendar label round-trips at millisecond resolution, before J2000 as well.
     for datetime in (DateTime(2021, 5, 31, 12, 53, 14, 118), DateTime(1980, 1, 6, 0, 0, 19))

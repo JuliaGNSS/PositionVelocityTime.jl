@@ -137,7 +137,7 @@ include("measurement.jl")
 # The trim-safe least-squares fit behind `user_position`, included this early because the
 # solver's workspace below holds its buffers.
 include("levenberg_marquardt.jl")
-using .LevenbergMarquardt: curve_fit, curve_fit!, LMWorkspace, grown
+using .LevenbergMarquardt: curve_fit!, LMWorkspace, grown
 
 """
     DOP
@@ -836,12 +836,20 @@ shifting the time itself would move the offset into the ephemeris — about 55 k
 of along-track error at BeiDou MEO velocities. `SatInfo.time` and
 [`calc_steering_offset`](@ref) likewise keep the unconverted value.
 """
-function calc_time_scale_offsets(measurements, primary_system)
+calc_time_scale_offsets(measurements, primary_system) = calc_time_scale_offsets!(
+    Vector{Float64}(undef, length(measurements)), measurements, primary_system)
+
+# `calc_time_scale_offsets` into `offsets`, resized to the satellite count.
+function calc_time_scale_offsets!(offsets, measurements, primary_system)
+    offsets = resize!(offsets, length(measurements))
     primary = time_scale_offset_to_gpst(primary_system)
     # Each row already carries its own anchor (`count_offset_to_gpst`), precomputed by
     # `collect_measurements`, so this reads a number rather than branching on the
     # `time_system` field per satellite.
-    map(measurement -> primary - measurement.count_offset_to_gpst, measurements)
+    for (j, measurement) in enumerate(measurements)
+        offsets[j] = primary - measurement.count_offset_to_gpst
+    end
+    offsets
 end
 
 """
@@ -1397,17 +1405,18 @@ function _solve_pvt!(
 
     # The common reference cancels out of the reported time (the primary clock
     # bias absorbs it), so any latest-transmit-time reference works — but the times
-    # must first be put on one count (`calc_time_scale_offsets`, added here row by row).
+    # must first be put on one count (`calc_time_scale_offsets!`).
     # A BeiDou second-of-week reads 14 s below a GPS time of week for the same instant,
     # so differencing them raw hands every BeiDou measurement 4.2e9 m of structural
     # offset: not merely a biased BeiDou clock column, but a parameter nine orders of
     # magnitude above the others in the normal equations. Zero for GPS and Galileo, and
     # for any single-constellation epoch.
-    pseudo_ranges = resize!(workspace.pseudo_ranges, num_sats)
-    primary_count_offset = time_scale_offset_to_gpst(primary_system)
+    # The offsets are written straight into the pseudorange buffer, and the transmit
+    # times added onto them, so no separate offset buffer is needed.
+    pseudo_ranges =
+        calc_time_scale_offsets!(workspace.pseudo_ranges, measurements, primary_system)
     for (j, measurement) in enumerate(measurements)
-        pseudo_ranges[j] =
-            measurement.time + (primary_count_offset - measurement.count_offset_to_gpst)
+        pseudo_ranges[j] += measurement.time
     end
     _, reference_time = calc_pseudo_ranges!(pseudo_ranges)
     # The known per-satellite broadcast steering offset (zero unless that system was

@@ -47,7 +47,12 @@ struct TAITime
     fraction::Float64
     function TAITime(second::Integer, fraction::Real)
         whole = floor(Int64, fraction)
-        new(Int64(second) + whole, Float64(fraction) - whole)
+        rest = Float64(fraction) - whole
+        # A fraction just below a whole number rounds up to exactly `1.0` in the
+        # subtraction (`-1e-17 - (-1)` is `1.0` in `Float64`), which would escape the
+        # `[0, 1)` invariant; carry it into the whole seconds instead.
+        rest == 1.0 && (whole += 1; rest = 0.0)
+        new(Int64(second) + whole, rest)
     end
 end
 

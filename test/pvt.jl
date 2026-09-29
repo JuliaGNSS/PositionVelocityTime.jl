@@ -257,6 +257,12 @@ end
     # A target no message broadcasts an offset toward is reported unavailable rather
     # than looked up and missed.
     @test !PositionVelocityTime.broadcast_time_offset(g.decoder, BDT()).available
+    # An unavailable offset evaluates to NaN rather than a plausible zero — including
+    # through the NaN-`t_0` branch `calc_steering_offset` takes for BeiDou D1/D2, which
+    # a NaN `t_0` alone would silently turn into an all-zero polynomial.
+    no_offset = PositionVelocityTime.broadcast_time_offset(gal[1].decoder, GPST())
+    @test !no_offset.available
+    @test isnan(PositionVelocityTime.calc_steering_offset(no_offset, 132000.0))
 
     # calc_hub_range_offsets turns the rows `decide_bias_layout` selected into the
     # per-satellite range corrections: −c·GGTO for the collapsed (Galileo) satellites at
@@ -409,23 +415,25 @@ end
 # epoch's geometry left the velocity normal equations singular and the 4×4 solve threw
 # before the epoch could be rejected.
 @testset "degenerate geometry is rejected without throwing" begin
-    @testset "positive_definite_cholesky rejects what is not positive definite" begin
-        pdc = PositionVelocityTime.positive_definite_cholesky
-        @test !isnothing(pdc(Symmetric([2.0 0.0; 0.0 3.0])))     # positive definite
-        @test isnothing(pdc(Symmetric([1.0 1.0; 1.0 1.0])))      # semidefinite: zero pivot
-        @test isnothing(pdc(Symmetric([1.0 0.0; 0.0 -1.0])))     # indefinite
-        # Ill-conditioned to the point of being rank deficient in Float64: the pivot is
-        # positive, so `issuccess` alone would accept it and return rounding noise.
-        @test isnothing(pdc(Symmetric([1.0 0.0; 0.0 1e-14])))
+    # The rank test `calc_DOP` decides the geometry by: the normal-equations matrix `HᵀH`
+    # of the design, Cholesky-factorised with a relative tolerance on its pivots.
+    full_rank(H) = PositionVelocityTime.factorize_normal_matrix!(
+        Matrix{Float64}(undef, size(H, 2), size(H, 2)), H)
+
+    @testset "the normal-matrix factorisation rejects what is not positive definite" begin
+        @test full_rank([sqrt(2.0) 0.0; 0.0 sqrt(3.0)])          # HᵀH positive definite
+        @test !full_rank([1.0 1.0])                              # semidefinite: zero pivot
+        # Ill-conditioned to the point of being rank deficient in Float64 (cond(HᵀH) =
+        # 1e14): the pivot is positive, so a successful factorisation alone would accept
+        # it and return rounding noise.
+        @test !full_rank([1.0 0.0; 0.0 1e-7])
         # A poor but genuinely solvable geometry is still accepted (cond(HᵀH) = 1e6).
-        @test !isnothing(pdc(Symmetric([1.0 0.0; 0.0 1e-6])))
+        @test full_rank([1.0 0.0; 0.0 1e-3])
     end
 
     @testset "the geometry checks follow the design matrix rank" begin
         # `calc_DOP` and the velocity solve both decide rank through the normal-equations
         # matrix, so that is what these cases exercise.
-        full_rank(H) = !isnothing(
-            PositionVelocityTime.positive_definite_cholesky(Symmetric(H' * H)))
         @test full_rank([1.0 0.0 1.0; 0.0 1.0 1.0; 1.0 1.0 0.0])
         @test !full_rank(repeat([1.0 0.0 1.0], 3))               # identical rows
         # A single-band, single-system position design over three satellites: four
@@ -479,8 +487,7 @@ end
         # The degenerate cases are stated on the design matrix, since the solve itself no
         # longer tests rank. Two distinct directions (a satellite tracked on a second band
         # repeats its line of sight) leave the position columns rank deficient.
-        solvable(dirs) = !isnothing(PositionVelocityTime.positive_definite_cholesky(
-            Symmetric(design(dirs)' * design(dirs))))
+        solvable(dirs) = full_rank(design(dirs))
         @test !solvable([[1.0, 0.2, 0.9], [1.0, 0.2, 0.9], [0.3, -1.0, 0.5], [0.3, -1.0, 0.5]])
 
         # Three independent directions on a common cone (equal projection onto z) put the

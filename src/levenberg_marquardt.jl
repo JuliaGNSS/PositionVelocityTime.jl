@@ -2,8 +2,9 @@
     LevenbergMarquardt
 
 A trim-safe stand-in for the part of LsqFit.jl that `PositionVelocityTime.user_position` uses:
-[`curve_fit`](@ref) with an in-place model and Jacobian,
-with the same call signature and the `param` / `resid` fields of its result.
+LsqFit's `curve_fit` with an in-place model and Jacobian, as [`curve_fit!`](@ref) on a
+reusable [`LMWorkspace`](@ref), with the same arguments after the workspace and the
+`param` / `resid` fields of its result.
 
 LsqFit keeps the model and Jacobian in abstractly typed fields of NLSolversBase's
 `OnceDifferentiable`, so every call through them is a dynamic dispatch, and
@@ -18,11 +19,11 @@ the same step-quality ratio deciding acceptance and trust-region updates, and th
 same gradient and relative step-size stopping rules, with the Jacobian evaluated
 lazily just as LsqFit's cache does — so it lands on the same iterates, to rounding (the
 damped normal equations are solved by Cholesky rather than LU; see [`curve_fit!`](@ref)).
-[`curve_fit!`](@ref) runs the same iteration on a reusable [`LMWorkspace`](@ref), so a
-fit allocates nothing.
+Running it on a reusable workspace means a fit allocates nothing.
 
 Kept as a self-contained module, with LsqFit's interface, so that once LsqFit can be
-trimmed it can be dropped in favour of `using LsqFit: curve_fit`.
+trimmed it can be dropped in favour of `using LsqFit: curve_fit` (on a fresh workspace,
+`curve_fit!(LMWorkspace(), args...)` is exactly that call).
 """
 module LevenbergMarquardt
 
@@ -86,29 +87,23 @@ grown(matrix::Matrix{Float64}, rows, cols) =
     Matrix{Float64}(undef, max(rows, size(matrix, 1)), max(cols, size(matrix, 2)))
 
 """
-    curve_fit(model!, jacobian!, xdata, ydata, p0; inplace = true, avv! = nothing,
-              lambda = 10.0, x_tol = 1e-8, g_tol = 1e-12, maxIter = 1000,
-              min_step_quality = 1e-3, good_step_quality = 0.75) -> LMResult
-
-Fit `model!(out, xdata, p)` to `ydata` by least squares, starting from `p0`, with
-`jacobian!(J, xdata, p)` its Jacobian in `p` — LsqFit's in-place `curve_fit`
-(`inplace = true` is the only form provided). `avv!(dir_deriv, p, v)` enables
-geodesic acceleration. Like LsqFit, throws an `ArgumentError` if `ydata` holds
-non-finite values.
-
-The allocating form of [`curve_fit!`](@ref), on a fresh [`LMWorkspace`](@ref).
-"""
-curve_fit(model!, jacobian!, xdata, ydata, p0; kwargs...) =
-    curve_fit!(LMWorkspace(), model!, jacobian!, xdata, ydata, p0; kwargs...)
-
-"""
     curve_fit!(workspace::LMWorkspace, model!, jacobian!, xdata, ydata, p0; kwargs...)
         -> LMResult
 
-[`curve_fit`](@ref) on the buffers of `workspace`, allocating nothing once they have
-grown to the problem's size. The result's `param` and `resid` **are** the workspace's
-`x` and `f` buffers: they are overwritten by the next fit on the same workspace, so copy
-them to keep them. `p0` may itself be `workspace.x` (a fit restarted from the previous
+Fit `model!(out, xdata, p)` to `ydata` by least squares, starting from `p0`, with
+`jacobian!(J, xdata, p)` its Jacobian in `p` — LsqFit's in-place `curve_fit`
+(`inplace = true` is the only form provided), on the buffers of `workspace`,
+allocating nothing once they have grown to the problem's size. `avv!(dir_deriv, p, v)`
+enables geodesic acceleration. Like LsqFit, throws an `ArgumentError` if `ydata` holds
+non-finite values.
+
+The keyword arguments are LsqFit's, with its defaults: `inplace = true`,
+`avv! = nothing`, `lambda = 10.0`, `x_tol = 1e-8`, `g_tol = 1e-12`, `maxIter = 1000`,
+`min_step_quality = 1e-3`, `good_step_quality = 0.75`, `lambda_increase = 10.0` and
+`lambda_decrease = 0.1`.
+
+The result's `param` and `resid` **are** the workspace's `x` and `f` buffers: they are
+overwritten by the next fit on the same workspace, so copy them to keep them. `p0` may itself be `workspace.x` (a fit restarted from the previous
 one's solution).
 
 `jacobian!` is handed a view of the workspace's Jacobian matrix, not a `Matrix`.
