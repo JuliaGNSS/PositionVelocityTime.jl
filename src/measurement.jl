@@ -437,19 +437,38 @@ end
         -> (measurements, ionospheric_correction)
 
 [`collect_measurements`](@ref) into an existing vector: `measurements` is emptied and
-refilled with this epoch's rows, which allocates nothing once it has held as many rows
-before. What it held is overwritten.
+refilled with this epoch's rows. What it held is overwritten.
+
+The returned tuple pairs the (non-`isbits`) vector with a `Union` of coefficient sets,
+which Julia returns boxed: one small allocation per call. A consumer that must not
+allocate calls [`collect_measurement_rows!`](@ref), which returns the ionospheric
+correction alone.
 """
 collect_measurements!(
     measurements::Vector{SatelliteMeasurement},
     groups;
     approximate_year::Integer = year(now(UTC)),
-) = measurements, _collect_measurements!(measurements, groups, approximate_year)
+) = measurements, collect_measurement_rows!(measurements, groups; approximate_year)
 
-# The collection pass proper, returning only the ionospheric correction. That is a
-# `Union` of `isbits` coefficient sets, which Julia returns unboxed; a tuple pairing it
-# with the (non-`isbits`) row vector would be a `Union` of non-`isbits` tuples, which it
-# returns boxed — an allocation per epoch in `calc_pvt!`.
+"""
+    collect_measurement_rows!(measurements::Vector{SatelliteMeasurement}, groups;
+                              approximate_year = year(now(UTC)))
+        -> ionospheric_correction
+
+[`collect_measurements!`](@ref) without the vector in the result: `measurements` is
+emptied and refilled with this epoch's rows, and only the ionospheric correction is
+returned. That is a `Union` of `isbits` coefficient sets, which Julia returns unboxed, so
+once `measurements` has held as many rows before, this allocates nothing. It is the
+collection pass [`calc_pvt!`](@ref) runs, for a consumer that runs its own estimator over
+the same rows in a loop that must not allocate.
+"""
+collect_measurement_rows!(
+    measurements::Vector{SatelliteMeasurement},
+    groups;
+    approximate_year::Integer = year(now(UTC)),
+) = _collect_measurements!(measurements, groups, approximate_year)
+
+# The collection pass proper. Positional, for the solver's own call.
 function _collect_measurements!(measurements, groups, approximate_year::Integer)
     normalized = _normalize_signal_groups(groups)
     empty!(measurements)

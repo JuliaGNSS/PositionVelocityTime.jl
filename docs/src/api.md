@@ -42,6 +42,7 @@ PositionVelocityTime.SatelliteMeasurement
 PositionVelocityTime.BroadcastTimeOffset
 PositionVelocityTime.collect_measurements
 PositionVelocityTime.collect_measurements!
+PositionVelocityTime.collect_measurement_rows!
 PositionVelocityTime.CANDIDATE_HUB_SYSTEMS
 PositionVelocityTime.SupportedTimeSystem
 ```
@@ -64,6 +65,7 @@ reused, and passing the same solution as `prev_pvt` — the receiver loop,
 ```@docs
 calc_pvt!
 PVTWorkspace
+PositionVelocityTime.empty_keeping_capacity!
 ```
 
 ## Position and Velocity

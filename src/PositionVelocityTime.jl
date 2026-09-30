@@ -1303,12 +1303,25 @@ function copy_container!(destination::Dict, source::Dict)
     destination
 end
 
-# `empty!(::Dictionary)` hands the dictionary a fresh, minimal hash table, so refilling
-# it reallocates that table (and regrows it) on every epoch. This empties it in place
-# instead, keeping every buffer's capacity: an all-zero slot table with no hashes,
-# keys, values or holes is exactly the empty state Dictionaries' own `empty!` builds,
-# only with the slot table at its current size — which is a power of two, as the
-# hashing requires, because only Dictionaries itself ever sized it.
+"""
+    empty_keeping_capacity!(dict::Dictionary) -> dict
+    empty_keeping_capacity!(solution::PVTSolution) -> solution
+
+Empty a `Dictionary` without giving up its storage, so refilling it with as many entries
+as before allocates nothing. `empty!(::Dictionary)` hands the dictionary a fresh, minimal
+hash table instead, which a refill then reallocates and regrows.
+
+The [`PVTSolution`](@ref) form empties all three of a solution's containers that way —
+`sats`, `inter_system_biases` and `inter_frequency_biases` (the last two Base `Dict`s,
+whose own `empty!` already keeps their capacity) — for a consumer that builds its own
+solutions into the containers of one it keeps, as [`calc_pvt!`](@ref) does.
+"""
+function empty_keeping_capacity! end
+
+# An all-zero slot table with no hashes, keys, values or holes is exactly the empty state
+# Dictionaries' own `empty!` builds, only with the slot table at its current size — which
+# is a power of two, as the hashing requires, because only Dictionaries itself ever sized
+# it.
 #
 # This reaches into the fields of `Dictionaries.Indices` (0.4), which is why it is
 # pinned by a test of its own in `test/allocation_free.jl`.
@@ -1320,6 +1333,13 @@ function empty_keeping_capacity!(dict::Dictionary)
     setfield!(indices, :holes, 0)
     empty!(getfield(dict, :values))
     dict
+end
+
+function empty_keeping_capacity!(solution::PVTSolution)
+    empty_keeping_capacity!(solution.sats)
+    empty!(solution.inter_system_biases)
+    empty!(solution.inter_frequency_biases)
+    solution
 end
 
 # The solver: ~200 lines that must compile exactly once, so every argument is of a
