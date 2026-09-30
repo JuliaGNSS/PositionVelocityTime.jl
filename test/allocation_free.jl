@@ -243,6 +243,36 @@ end
         @test collect(keys(dict)) == [(:GPSL1CA, i) for i in 1:5]
     end
 
+    @testset "a solution's containers are emptied in place" begin
+        solution = calc_pvt!(PVTSolution(), PVTWorkspace(),
+            (l1 = l1ca, l5 = precompile_gps(GPSL5I(), _precompile_cnav),
+                galileo = e1b), PVTSolution(); kw...)
+        @test !isempty(solution.sats)
+        @test !isempty(solution.inter_system_biases)
+        @test !isempty(solution.inter_frequency_biases)
+        sats = solution.sats
+        @test PositionVelocityTime.empty_keeping_capacity!(solution) === solution
+        @test solution.sats === sats
+        @test isempty(solution.sats)
+        @test isempty(solution.inter_system_biases)
+        @test isempty(solution.inter_frequency_biases)
+    end
+
+    @testset "the rows are collected without allocating" begin
+        groups = (gps = l1ca, galileo = e1b)
+        rows = PositionVelocityTime.SatelliteMeasurement[]
+        correction = PositionVelocityTime.collect_measurement_rows!(
+            rows, groups; approximate_year = 2021)
+        expected_rows, expected_correction =
+            PositionVelocityTime.collect_measurements(groups; approximate_year = 2021)
+        @test rows == expected_rows
+        @test correction == expected_correction
+        collect_rows!(rows, groups) = @allocated PositionVelocityTime.collect_measurement_rows!(
+            rows, groups; approximate_year = 2021)
+        collect_rows!(rows, groups)
+        @test collect_rows!(rows, groups) == 0
+    end
+
     @testset "the allocating forms delegate to the in-place ones" begin
         # `curve_fit!` on a small straight-line fit; its result is the workspace's own
         # buffers.
