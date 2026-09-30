@@ -1,5 +1,12 @@
 # Changelog
 
+# [6.1.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.0.2...v6.1.0) (2026-09-30)
+
+
+### Features
+
+* collect the rows and empty a solution without allocating ([60ee59b](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/60ee59b40d363fbee57ae36eb4c1d6c66a4de78a))
+
 ## [6.0.2](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.0.1...v6.0.2) (2026-09-30)
 
 
