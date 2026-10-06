@@ -19,7 +19,7 @@ exported**: `using Tracking, PositionVelocityTime` does not clash, call sites re
 qualified so an error message distinguishes the two by itself. The correspondence is
 exact — Tracking's group holds the *loop state* of a set of satellites, this one holds
 one epoch's *measurements* of the same satellites, with the same group keys and, when
-built through the Tracking extension, the same dictionary keys.
+built through Tracking.jl, the same dictionary keys.
 
 Groups are the unit of type stability: within a group every satellite shares one
 concrete `SatelliteState` type, so the per-satellite calls of
@@ -36,7 +36,7 @@ one vector — what `calc_pvt` used to take — is what made them dynamic.
   group). Iteration order is significant — see [`calc_pvt`](@ref).
 
 Every satellite's own `state.system` must be `signal`. This is not checked per epoch;
-a group built by the Tracking extension ([`signal_groups`](@ref)) satisfies it by
+a group built by Tracking.jl ([`signal_groups`](@ref)) satisfies it by
 construction.
 """
 struct SignalGroup{S<:AbstractGNSSSignal,C}
@@ -69,8 +69,8 @@ end
     PositionVelocityTime.signal_groups(track_state, decoders) -> NamedTuple of SignalGroup
 
 Build one epoch's [`SignalGroups`](@ref) from a receiver's own per-signal state. The
-method that does this lives in the `Tracking` extension and takes a `Tracking.TrackState`
-together with that receiver's decoders; see it for the details.
+method that does this is defined by Tracking.jl (from Tracking 9.1 on) and takes a
+`Tracking.TrackState` together with that receiver's decoders; see it for the details.
 
 There is deliberately **no** method taking a flat `Vector{SatelliteState}`. Groups are
 not a wrapper around the old input — they are the shape a receiver already has, and
@@ -105,7 +105,7 @@ function throw_not_signal_groups(what)
                 "              galileo = SignalGroup(GalileoE1B(), galileo_states)))\n\n",
                 "A single group needs no NamedTuple around it, and each group's ",
                 "satellites may be a `Dictionary` keyed by PRN or a plain vector. ",
-                "With `Tracking` loaded, `PositionVelocityTime.signal_groups(",
+                "With Tracking.jl 9.1 or later loaded, `PositionVelocityTime.signal_groups(",
                 "track_state, decoders)` builds them from a whole `TrackState`.",
             ),
         ),
