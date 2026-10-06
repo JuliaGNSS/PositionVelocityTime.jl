@@ -55,7 +55,7 @@ sat_state = SatelliteState(
 `code_phase` is in chips and `carrier_phase` in radians, matching `Tracking`'s
 `get_code_phase` and `get_carrier_phase`.
 
-Alternatively, pass a `Tracking.TrackedSat` directly — `tracked_sat` is what
+With Tracking.jl 9.1 or later loaded, you can pass a `Tracking.TrackedSat` directly — `tracked_sat` is what
 `Tracking.get_sat_state` returns for a tracked satellite, and the code phase, carrier
 Doppler, and carrier phase are read off it:
 
@@ -79,7 +79,7 @@ lla = get_LLA(pvt)  # latitude, longitude, altitude
 Each group holds the satellites tracked on one signal, as a `Dictionary` keyed by PRN or
 as a plain vector. A single group needs no NamedTuple around it —
 `calc_pvt(SignalGroup(GPSL1CA(), gps_sat_states))` is a complete one-constellation solve.
-With `Tracking` loaded, a whole `TrackState` and its decoders become groups in one call:
+With Tracking.jl 9.1 or later loaded, a whole `TrackState` and its decoders become groups in one call:
 
 ```julia
 using Tracking

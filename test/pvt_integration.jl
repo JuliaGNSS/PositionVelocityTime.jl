@@ -58,6 +58,7 @@ else
     using GNSSDecoder: GNSSDecoder, GPSL1CADecoderState, is_sat_healthy
     using Acquisition: acquire, is_detected
     using Tracking: TrackState, add_satellite!, track!, get_soft_bits, get_sat_state
+    using Tracking: get_code_phase, get_carrier_doppler, get_carrier_phase
     using Geodesy: LLA, ECEF, ECEFfromLLA, wgs84, euclidean_distance
 
     # GNSSDecoder 5 replaced `decode` with the in-place `decode!`. Both return the
@@ -230,16 +231,22 @@ else
         close(stream)
         @test processed >= round(Int, fs * (L125_SECONDS - 5))   # streamed the prefix
 
-        # Pin the solve (via the Tracking extension) to the satellites that
+        # Pin the solve to the satellites that
         # reliably decode a complete, healthy ephemeris in this capture, so the
         # geometry — and the fix — is reproducible and can be checked tightly.
         healthy = [p for p in prns if is_sat_healthy(decoders[p])]
         @info "Satellites with a decoded healthy ephemeris" healthy
         @test issubset(L125_PRNS, healthy)
-        states = [
-            SatelliteState(decoders[p], GPSL1CA(), get_sat_state(ts, :gps, p)) for
-            p in L125_PRNS
-        ]
+        states = map(L125_PRNS) do p
+            tracked = get_sat_state(ts, :gps, p)
+            SatelliteState(;
+                decoder = decoders[p],
+                system = GPSL1CA(),
+                code_phase = get_code_phase(tracked),
+                carrier_doppler = get_carrier_doppler(tracked),
+                carrier_phase = get_carrier_phase(tracked),
+            )
+        end
 
         # Solve PVT. `approximate_year` resolves the GPS 1024-week rollover; the
         # recording is from 2014, not "now".

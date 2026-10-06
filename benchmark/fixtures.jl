@@ -35,7 +35,7 @@ signal_group(signal, satellites) =
 
 The satellites of one ranging signal, in whatever shape this revision's `calc_pvt`
 takes. On 6.0 that is a `SignalGroup` whose satellites are a `Dictionary` keyed by PRN —
-the shape a receiver carries, and what the Tracking extension builds.
+the shape a receiver carries, and what Tracking.jl builds.
 """
 pvt_input(signal, states) =
     HAS_SIGNAL_GROUPS ?

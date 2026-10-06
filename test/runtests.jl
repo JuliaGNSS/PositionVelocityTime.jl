@@ -11,8 +11,8 @@ using Dictionaries: Dictionaries, Dictionary
 # carry meaning, a bare tuple (numbered `group1`, `group2`, …) where they do not.
 #
 # `SignalGroup` stays fully qualified here and everywhere below: `Tracking` exports a
-# type of the same name, and `test/tracking_ext.jl` does `using Tracking`, so the
-# deliberate collision is live in this very session.
+# type of the same name, and `test/pvt_integration.jl` loads Tracking, so the
+# deliberate collision can be live in this very session.
 function signal_group(signal, states)
     ids = unique(get_signal_id(state.system) for state in states)
     all(id -> id === get_signal_id(signal), ids) || error(
@@ -65,7 +65,6 @@ include("beidou.jl")
 include("inter_frequency_bias.jl")
 include("pvt_iono_tropo.jl")
 include("get_week.jl")
-include("tracking_ext.jl")
 include("ionosphere.jl")
 include("troposphere.jl")
 include("pvt_integration.jl")

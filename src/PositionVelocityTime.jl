@@ -117,9 +117,9 @@ Combines the GNSS decoder state with code and carrier phase measurements for a s
     SatelliteState(decoder, system, sat_state)
 
 The second constructor extracts code phase, carrier Doppler, and carrier phase from a
-`Tracking` satellite state (`Tracking.TrackedSat`). It is provided by a package extension
-that is loaded automatically once `Tracking` is available, so `Tracking` is only a weak
-dependency of this package.
+`Tracking` satellite state (`Tracking.TrackedSat`). Tracking.jl defines it (from
+Tracking 9.1 on), so it is available once `Tracking` is loaded; this package does not
+depend on Tracking.
 """
 @kwdef struct SatelliteState{CP<:Real,D<:GNSSDecoder.GNSSDecoderState,S<:AbstractGNSSSignal}
     decoder::D
@@ -1114,7 +1114,7 @@ See [`tropospheric_delay`](@ref).
   Grouping is what makes the solve type-stable: within a group every satellite shares
   one concrete state type, so [`collect_measurements`](@ref) dispatches statically, and
   the solver behind it compiles once for every constellation mix. Build the groups where
-  the satellites are tracked — with `Tracking` loaded,
+  the satellites are tracked — with Tracking.jl 9.1 or later loaded,
   [`signal_groups`](@ref)`(track_state, decoders)` builds them from a whole `TrackState`.
   A pooled `Vector{SatelliteState}`, which is what this function took before 6.0, is
   refused with an error saying what to build instead.

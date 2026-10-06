@@ -40,7 +40,7 @@ function calc_uncorrected_time(state::SatelliteState)
         ustrip(Hz, get_code_frequency(system)) / ustrip(Hz, get_data_frequency(state.decoder))
     t_code_phase = mod(state.code_phase, chips_per_symbol) / get_code_frequency(system) * Hz
     # `carrier_phase` is in radians (that is what `Tracking.get_carrier_phase` reports and
-    # what the Tracking extension passes on), so convert to cycles before dividing by the
+    # what Tracking.jl passes on), so convert to cycles before dividing by the
     # centre frequency — unlike the code phase above, which is already in chips.
     t_carrier_phase = state.carrier_phase / 2π / get_center_frequency(system) * Hz
 

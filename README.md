@@ -38,7 +38,7 @@ The declaration of `carrier_phase` is optional due to its small effect on the us
 `code_phase` is in chips and `carrier_phase` in radians, matching `Tracking`'s
 `get_code_phase` and `get_carrier_phase`.
 
-Alternatively, a `Tracking.TrackedSat` can be passed to `SatelliteState` instead of
+With Tracking.jl 9.1 or later loaded, a `Tracking.TrackedSat` can be passed to `SatelliteState` instead of
 `code_phase`, `carrier_doppler` and `carrier_phase` — `tracked_sat` below is what
 `Tracking.get_sat_state` returns for a tracked satellite:
 ```julia
@@ -61,7 +61,7 @@ calc_pvt((
 ))
 ```
 provides a complete position calculation. A single group can be passed on its own, and
-with `Tracking` loaded `PositionVelocityTime.signal_groups(track_state, decoders)` builds
+with Tracking.jl 9.1 or later loaded `PositionVelocityTime.signal_groups(track_state, decoders)` builds
 a whole epoch's groups from a `TrackState`. Grouping is what keeps the solve type-stable
 across constellations — see the migration note in the documentation if you are coming
 from 5.x, where `calc_pvt` took a flat vector of satellite states directly.
