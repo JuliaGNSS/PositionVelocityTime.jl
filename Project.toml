@@ -41,7 +41,7 @@ LinearAlgebra = "1"
 PrecompileTools = "1.2"
 StaticArrays = "1"
 Test = "1"
-Tracking = "8.1"
+Tracking = "8.1, 9"
 Unitful = "1"
 julia = "1.10"
 
