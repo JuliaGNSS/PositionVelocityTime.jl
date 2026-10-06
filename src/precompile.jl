@@ -799,7 +799,7 @@ end
     l1ca = gps(GPSL1CA())
     e1b = galileo(GalileoE1B())
     # A `Dictionary`-backed group keyed by PRN — the shape a receiver carrying its
-    # satellites per signal hands over, and what the Tracking extension builds.
+    # satellites per signal hands over, and what Tracking.jl builds.
     group(signal, states) =
         SignalGroup(signal, Dictionary([s.decoder.prn for s in states], states))
     @compile_workload begin
