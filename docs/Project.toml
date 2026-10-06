@@ -5,3 +5,5 @@ PositionVelocityTime = "52ec0b5e-ee36-11ea-211c-3d844fc5682d"
 
 [compat]
 Documenter = "1"
+Geodesy = "1.2.0"
+PositionVelocityTime = "6.1.0"
