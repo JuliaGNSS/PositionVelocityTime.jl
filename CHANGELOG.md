@@ -5,6 +5,7 @@
 
 ### Bug Fixes
 
+* hand the Tracking glue to Tracking.jl, ending the dependency cycle ([f910173](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/f9101731e86cbd815c0beb03e06406a690937995))
 * support Tracking 9 ([6825698](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/68256987c42b5c473b81b6b2ffe7d647095afa5f))
 
 # [6.1.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.0.2...v6.1.0) (2026-09-30)
