@@ -1200,10 +1200,11 @@ solution takes over its `sats`, `inter_system_biases` and `inter_frequency_biase
 containers, which are emptied and refilled with this epoch's values. `solution` itself
 is therefore spent — its own fields still describe the epoch it was computed for, but
 its containers now hold the new one — so use the returned solution from here on, and
-copy anything of `solution` you want to keep before the call (a `Dictionary` made by
-`map` over `solution.sats` shares its keys, and sees the change too). `prev_pvt` is only
-read. Passing the same solution as both is allowed and is the usual receiver loop above:
-every value the seed needs is read before anything is written.
+keep a [`copy`](@ref Base.copy(::PVTSolution)) of `solution` if you need it after the
+call (a `Dictionary` made by `map` over `solution.sats` shares its keys, and sees the
+change too). `prev_pvt` is only read. Passing the same solution as both is allowed and
+is the usual receiver loop above: every value the seed needs is read before anything is
+written.
 
 Where [`calc_pvt`](@ref) returns `prev_pvt` — an epoch that cannot be solved — so does
 this: `prev_pvt` itself when it is `solution` (or shares its containers), and otherwise a
@@ -1258,6 +1259,29 @@ function _calc_pvt!(
         enable_tropospheric_correction,
     )
 end
+
+"""
+    copy(pvt::PVTSolution) -> PVTSolution
+
+A copy of `pvt` that shares no container with it: `sats`, `inter_system_biases` and
+`inter_frequency_biases` are copied, every other field is an immutable value. Their
+entries are immutable too, so the copy is independent of `pvt` — a later
+[`calc_pvt!`](@ref) into `pvt`'s containers leaves it untouched. This is how to keep a
+solution that a `calc_pvt!` loop will reuse.
+"""
+Base.copy(pvt::PVTSolution) = PVTSolution(
+    pvt.position,
+    pvt.velocity,
+    pvt.course_over_ground,
+    pvt.time_correction,
+    pvt.time,
+    pvt.relative_clock_drift,
+    pvt.dop,
+    copy(pvt.sats),
+    pvt.reference_system,
+    copy(pvt.inter_system_biases),
+    copy(pvt.inter_frequency_biases),
+)
 
 # A copy of `source` in the containers of `solution`. `source` itself where the two
 # share their containers (above all, where they are the same solution): there is

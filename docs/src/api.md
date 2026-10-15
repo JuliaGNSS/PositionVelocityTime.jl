@@ -64,6 +64,7 @@ reused, and passing the same solution as `prev_pvt` — the receiver loop,
 
 ```@docs
 calc_pvt!
+Base.copy(::PVTSolution)
 PVTWorkspace
 PositionVelocityTime.empty_keeping_capacity!
 ```
