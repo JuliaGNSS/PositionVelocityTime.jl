@@ -146,5 +146,6 @@ A [`PVTSolution`](@ref) is immutable, so `calc_pvt!` returns the new fix; what i
 are the `sats` and bias containers of its first argument, which the returned solution
 takes over. That argument is the only thing overwritten — `prev_pvt` is only read, so
 passing a different solution there keeps it intact — and it is spent by the call: keep
-the returned solution. An epoch that cannot be solved returns `prev_pvt`, the answer
-`calc_pvt` would have returned.
+the returned solution, and `copy(pvt)` any solution you want to keep beyond the next
+call. An epoch that cannot be solved returns `prev_pvt`, the answer `calc_pvt` would
+have returned.

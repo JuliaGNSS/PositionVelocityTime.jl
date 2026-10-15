@@ -29,6 +29,16 @@ function same_solution(a::PVTSolution, b::PVTSolution)
         a.inter_frequency_biases == b.inter_frequency_biases
 end
 
+# `copy` copies a solution's containers and shares everything else, which keeps the
+# copy independent only while every other field is immutable, and every container
+# holds immutable entries. `Symbol` is a mutable type to Julia, but interned and never
+# changed.
+immutable_value(T::Union) = immutable_value(T.a) && immutable_value(T.b)
+immutable_value(T::DataType) =
+    T === Symbol || !ismutabletype(T) && all(immutable_value, fieldtypes(T))
+container_of_immutables(T) = T <: Union{Dictionary,Dict} &&
+                             immutable_value(keytype(T)) && immutable_value(valtype(T))
+
 snapshot(pvt::PVTSolution) = deepcopy(pvt)
 
 # Measured inside a function, where the keyword call is compiled like any other call —
@@ -125,6 +135,29 @@ end
                   prev_pvt
             @test same_solution(prev_pvt, before)
         end
+    end
+
+    @testset "copy keeps a solution the loop reuses" begin
+        # With inter-system and inter-frequency biases, so every container is filled.
+        for pvt in (calc_pvt((gps = l1ca, galileo = e1b); kw...),
+            calc_pvt(epochs[8][2]; kw...))
+            kept = copy(pvt)
+            @test same_solution(kept, pvt)
+            # No container shared — including any added to `PVTSolution` later.
+            for name in fieldnames(PVTSolution)
+                value = getfield(pvt, name)
+                value isa Union{Dictionary,Dict} && @test getfield(kept, name) !== value
+            end
+            before = snapshot(pvt)
+            calc_pvt!(pvt, PVTWorkspace(), e1b, pvt; kw...)   # refills `pvt`'s containers
+            @test same_solution(kept, before)
+        end
+        @test same_solution(copy(PVTSolution()), PVTSolution())
+    end
+
+    @testset "every PVTSolution field is copied or immutable: $name" for (name, T) in
+        zip(fieldnames(PVTSolution), fieldtypes(PVTSolution))
+        @test container_of_immutables(T) || immutable_value(T)
     end
 
     @testset "a (signal, PRN) pair twice in one epoch is refused" begin
