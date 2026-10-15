@@ -8,6 +8,11 @@ permissions:
 jobs:
   bench:
     runs-on: ubuntu-latest
+    env:
+      # Julia 1.13.2's `Pkg.add` auto-precompiles changed indirect dependencies by name,
+      # which fails with "Unknown package: Parsers" in the benchmark environment.
+      # AirspeedVelocity precompiles the whole environment itself right after.
+      JULIA_PKG_PRECOMPILE_AUTO: 0
     steps:
       - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
         with:
