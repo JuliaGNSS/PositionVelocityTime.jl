@@ -146,6 +146,7 @@ scale unless a function says otherwise.
 
 ```@docs
 PositionVelocityTime.SPEED_OF_LIGHT
+PositionVelocityTime.EARTH_ROTATION_RATE
 PositionVelocityTime.calc_corrected_time
 PositionVelocityTime.calc_satellite_clock_drift
 PositionVelocityTime.get_sat_position
