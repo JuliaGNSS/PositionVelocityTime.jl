@@ -52,6 +52,15 @@ package and its consumers.
 """
 const SPEED_OF_LIGHT = 299792458.0
 
+"""
+    EARTH_ROTATION_RATE
+
+The Earth's rotation rate ω_e (rad/s), the WGS-84 value GPS and Galileo (GTRF) both
+use. It sets the Earth's turn over a signal's travel time, which carries the satellite
+from the ECEF frame of transmission into the one of reception.
+"""
+const EARTH_ROTATION_RATE = 7.2921151467e-5
+
 # PDOP above which a previous solution is distrusted as a warm-start seed and
 # discarded (see the gate at the top of `calc_pvt`). Genuine geometries this
 # side of useless stay well under it — a PDOP of 20 is already an unusable fix —
@@ -1571,7 +1580,8 @@ function _solve_pvt!(
     dop.GDOP < 0 && return (false, prev_pvt)
 
     user_velocity_and_clock_drift, rate_residuals =
-        calc_user_velocity_and_clock_drift!(workspace.rate_residuals, measurements, H)
+        calc_user_velocity_and_clock_drift!(
+            workspace.rate_residuals, measurements, H, position)
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
         user_velocity_and_clock_drift[2],

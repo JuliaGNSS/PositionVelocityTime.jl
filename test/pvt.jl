@@ -16,7 +16,11 @@
     @test pvt.position ≈ ECEFfromLLA(wgs84)(expected_lla) rtol = 1e-8
     @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 9
-    @test pvt.relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.63Hz + freq_offset) atol = 0.01Hz
+    # The modelled range rate carries the light-time factor `1 − ρ̇/c` and the rate of
+    # the Earth-rotation angle (see `calc_user_velocity_and_clock_drift`), which moved this by ~3 mm/s
+    # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
+    # with the Doppler, so the frequency offsets now differ by a few mHz.
+    @test pvt.relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.64Hz + freq_offset) atol = 0.01Hz
 
     warm_pvt = calc_pvt(
         signal_group(states),
@@ -45,7 +49,11 @@ end
     @test pvt.position ≈ ECEFfromLLA(wgs84)(expected_lla) rtol = 1e-8
     @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 2.5
-    @test pvt.relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.59Hz + freq_offset) atol = 0.01Hz
+    # The modelled range rate carries the light-time factor `1 − ρ̇/c` and the rate of
+    # the Earth-rotation angle (see `calc_user_velocity_and_clock_drift`), which moved this by ~3 mm/s
+    # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
+    # with the Doppler, so the frequency offsets now differ by a few mHz.
+    @test pvt.relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.61Hz + freq_offset) atol = 0.01Hz
 
     warm_pvt = calc_pvt(
         signal_group(states),
@@ -129,7 +137,10 @@ end
     pvt = calc_pvt(groups; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     expected_pos = ECEF(4.0186793226897363e6, 427033.09443239716, 4.918251247796992e6)
     @test pvt.position ≈ expected_pos rtol = 1e-8
-    @test pvt.velocity ≈ ECEF(-1.4405743822415678, 0.5393693783528187, -2.135825176671574) atol = 1e-3
+    # Pinned since the range rate is modelled as the derivative of the
+    # Earth-rotation-corrected pseudorange, which moved it by ~9 mm/s;
+    # its light-time factor scales with the Doppler, so the offsets differ by < 0.6 mm/s.
+    @test pvt.velocity ≈ ECEF(-1.4427421149590258, 0.5397343562431747, -2.127408455072271) atol = 1e-3
     @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.285)
 
     # One clock bias per GNSS; the reference (GPS, most satellites) bias is
@@ -463,10 +474,12 @@ end
             signal_group(states); approximate_year = 2021)
         # Only H's first three columns — the line-of-sight unit vectors — are read; the
         # per-system clock columns are collapsed into a single drift column internally,
-        # so one trailing column of ones stands in for them here.
+        # so one trailing column of ones stands in for them here. The user position only
+        # feeds the satellites' share of the modelled rate, so any nearby one will do.
         design(dirs) = reduce(vcat, [[normalize(d)' 1.0] for d in dirs])
+        user = [3.9074e6, 3.0684e5, 5.0150e6]
         velocity_and_drift(dirs) = PositionVelocityTime.calc_user_velocity_and_clock_drift(
-            measurements, design(dirs))
+            measurements, design(dirs), user)
 
         # Four well-spread directions ⇒ solvable: a finite [vx, vy, vz, ċ], plus one
         # finite post-fit range-rate residual per satellite.
@@ -479,8 +492,15 @@ end
         # A post-fit least-squares residual is orthogonal to every column of its design
         # — the line-of-sight columns and the common clock-drift column of ones. That is
         # what makes it a residual rather than an arbitrary measured-minus-modeled
-        # difference, so it is pinned directly instead of only by magnitude.
-        let A = design([[1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0]])
+        # difference, so it is pinned directly instead of only by magnitude. The velocity
+        # design is H's rows plus the travel-time rate's ~2e-6 relative share, so it is
+        # rebuilt here the way the solve builds it.
+        let H = design([[1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0]])
+            A = reduce(vcat, [PositionVelocityTime.velocity_design_row(H, j, user,
+                measurements[j].position,
+                last(PositionVelocityTime.measured_range_rate(measurements[j])))'
+                              for j in eachindex(measurements)])
+            @test norm(A - H) < 1e-5
             @test norm(A' * rate_residuals) < 1e-6
         end
 
@@ -632,11 +652,11 @@ end
 
     rows(v) = first(PositionVelocityTime.collect_measurements(
         signal_group(v); approximate_year = 2021))
-    _, base = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(states), H)
+    _, base = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(states), H, user)
     Δdoppler = 50.0Hz
     faster = copy(states)
     faster[3] = with_doppler(states[3], states[3].carrier_doppler + Δdoppler)
-    _, closing = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(faster), H)
+    _, closing = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(faster), H, user)
     λ = PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(states[3].system))
     @test -λ * ustrip(Hz, Δdoppler) < closing[3] - base[3] < 0.0
 end
