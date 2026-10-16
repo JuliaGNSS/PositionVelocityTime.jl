@@ -1,5 +1,25 @@
 # Changelog
 
+# [7.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.2.0...v7.0.0) (2026-10-16)
+
+
+* feat(velocity)!: share the pseudorange-rate model as calc_pseudorange_rate and fit it in one step ([f88accd](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/f88accdb237dffe170ca42163b2f1b4937da83cc))
+* fix(velocity)!: model the range rate as the derivative of the Earth-rotation-corrected pseudorange ([72524e9](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/72524e9aebd01c2cb1128093062a1cef28228eab))
+* refactor!: share the Earth-rotation correction, rank-check the velocity solve, spell pseudoranges ([8fee0a4](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/8fee0a4e6bfbf6f9113ea7590210f99a62d7008f))
+
+
+### BREAKING CHANGES
+
+* `calc_line_of_sight` is no longer part of the documented API; use `calc_range_rate` for the range-rate model, or the negated position columns of `calc_H`/`calc_H!` for the line of sight. The undocumented `rotate_by_earth_rotation` is removed. `calc_user_velocity_and_clock_drift[!]` return `NaN` for the state and every residual, instead of throwing, when the velocity design is not of full rank to within the tolerance `calc_DOP` applies.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+* `calc_user_velocity_and_clock_drift!` takes a design-row scratch vector (`Vector{SVector{4,Float64}}`) and the solved user position in place of the position design `H`, and an optional start state, `calc_user_velocity_and_clock_drift!(rate_residuals, design, measurements, user_pos, start = zero(SVector{4,Float64}))`. `calc_user_velocity_and_clock_drift(measurements, user_pos, start = zero(SVector{4,Float64}))` likewise takes the user position in place of `H`. The design comes from the pseudorange-rate model, `calc_pseudorange_rate`, which the solve fits in one Gauss-Newton step.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+* `calc_user_velocity_and_clock_drift[!]` take the solved user position (ECEF, m) as a last argument, after `H`: `calc_user_velocity_and_clock_drift!(rate_residuals, measurements, H, user_pos)`. The range-rate model needs it for the travel time, its rate and the Earth-rotation-corrected satellite.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
 # [6.2.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.1.1...v6.2.0) (2026-10-16)
 
 
