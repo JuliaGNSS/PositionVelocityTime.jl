@@ -29,7 +29,11 @@
         enable_ionospheric_correction = false,
         enable_tropospheric_correction = false,
     )
-    @test get_LLA(warm_pvt) ≈ get_LLA(pvt)
+    # Warm and cold starts agree to the position solve's precision, not bit for bit: it
+    # stops once its step is below `x_tol` relative to `‖ξ‖`, ~2 µm with the ~2e7 m of
+    # clock bias in `ξ`, so which side of that the two land on depends on last-bit
+    # rounding — 2 µm apart on one GitHub runner. Geodesy's `≈` on `LLA` defaults to 1 µm.
+    @test get_LLA(warm_pvt) ≈ get_LLA(pvt) atol = 1e-5
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
@@ -62,7 +66,7 @@ end
         enable_ionospheric_correction = false,
         enable_tropospheric_correction = false,
     )
-    @test get_LLA(warm_pvt) ≈ get_LLA(pvt)
+    @test get_LLA(warm_pvt) ≈ get_LLA(pvt) atol = 1e-5  # see the first testset
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
@@ -190,7 +194,7 @@ end
     @test maximum(abs, rate_resids) < 10.0m/s
 
     warm_pvt = calc_pvt(groups, pvt; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    @test get_LLA(warm_pvt) ≈ get_LLA(pvt)
+    @test get_LLA(warm_pvt) ≈ get_LLA(pvt) atol = 1e-5  # see the first testset
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
