@@ -163,6 +163,7 @@ PositionVelocityTime.calc_H
 PositionVelocityTime.calc_line_of_sight
 PositionVelocityTime.calc_DOP
 PositionVelocityTime.calc_DOP!
+PositionVelocityTime.calc_pseudorange_rate
 PositionVelocityTime.calc_user_velocity_and_clock_drift
 PositionVelocityTime.calc_user_velocity_and_clock_drift!
 PositionVelocityTime.time_scale_offset_to_gpst

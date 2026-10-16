@@ -5,6 +5,7 @@ using Unitful: Hz, m, s, °, ustrip
 # per-GNSS BGTO sets, the almanacs); the BeiDou tests build one directly, and it also
 # backs the satellites of a `PositionVelocityTime.SignalGroup`.
 using Dictionaries: Dictionaries, Dictionary
+using PositionVelocityTime: SVector
 # The fixtures build one flat vector of `SatelliteState`s per ranging signal. This is
 # how the suite turns one of them into the `SignalGroup` that `calc_pvt` takes; an epoch
 # spanning several signals is written as several groups — a NamedTuple where the names
@@ -56,7 +57,7 @@ include("sat_position.jl")
 include("signal_groups.jl")
 include("allocation_free.jl")
 include("pvt.jl")
-include("range_rate.jl")
+include("pseudorange_rate.jl")
 include("dop.jl")
 include("cnav.jl")
 include("gps_l2c.jl")
