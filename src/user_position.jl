@@ -36,35 +36,125 @@ function calc_ρ_hat!(ρ, sat_positions, ξ, bias_columns::BiasColumns)
 end
 
 # The ECEF frame turns by `EARTH_ROTATION_RATE · Δt` while a signal is in flight for
-# `Δt`; this carries a vector given in the ECEF frame of transmission into the one of
-# reception.
-function rotate_by_earth_rotation(sat_pos, Δt)
+# `Δt`; this rotation carries a vector given in the ECEF frame of transmission into the
+# one of reception.
+@inline function earth_rotation(Δt)
     α = EARTH_ROTATION_RATE * Δt
-    Rz = @SMatrix [
+    @SMatrix [
         cos(α) sin(α) 0
         -sin(α) cos(α) 0
         0 0 1
     ]
-    Rz * sat_pos
 end
+
+rotate_by_earth_rotation(sat_pos, Δt) = earth_rotation(Δt) * sat_pos
+
+# The range-rate model: the exact time derivative of the pseudorange `calc_ρ_hat!` models,
+# which the velocity solve fits (`calc_user_velocity_and_clock_drift`) and an estimator of
+# its own predicts with (`calc_pseudorange_rate`).
 
 # The satellite's position and velocity in the ECEF frame of reception, as `calc_ρ_hat!`
 # models the position: `s' = R(τ)·s`, rotated by the Earth's turn over the travel time.
 # The rotation angle `ω_e·τ` changes with the travel time, so `s'` moves at
 # `R(τ)·ṡ + ω_e·τ̇·(s'_y, −s'_x, 0)` — the rotated velocity plus the rate of the rotation
 # itself (`dR/dα = R·J` with `J` the quarter turn about z, which commutes with `R`). `τ̇`
-# is taken for a resting receiver, `û·v_sat/c`; its user-velocity share is linear and goes
-# into the velocity design row instead (`velocity_partial_correction`).
+# is taken for a resting receiver, `û·v_sat/c`; its user-velocity share is linear and is
+# carried separately (`travel_time_velocity_partial`).
 @inline function satellite_state_at_reception(user_pos, sat_pos, sat_vel)
     to_sat = sat_pos - user_pos
     distance = norm(to_sat)
     travel_time = distance / SPEED_OF_LIGHT
     travel_time_rate = dot(to_sat, sat_vel) / (distance * SPEED_OF_LIGHT)
-    position = rotate_by_earth_rotation(sat_pos, travel_time)
+    # One rotation for both, as `rotate_by_earth_rotation` builds it.
+    rotation = earth_rotation(travel_time)
+    position = rotation * sat_pos
     velocity =
-        rotate_by_earth_rotation(sat_vel, travel_time) +
+        rotation * sat_vel +
         EARTH_ROTATION_RATE * travel_time_rate * SVector(position[2], -position[1], 0.0)
     return position, velocity
+end
+
+# The user-velocity partial of the travel-time rate's share of the range rate: the
+# Earth-rotation-rate term `ω_e·τ̇·(e · J·s')` (with `J·s' = (s'_y, −s'_x, 0)`) takes
+# `−ω_e·(e · J·s')·û/c` from the `−û·v_user/c` in `τ̇ = û·(v_sat − v_user)/c`. It is ~2e-6
+# relative to the line of sight, so it is evaluated on the unrotated geometry: with
+# `e ≈ û` and `s' ≈ s`, and `s·J·s = 0`, `e · J·s' ≈ −u·J·s/d`. The neglected rotation is
+# ~5e-6 relative of this term, ~1e-11 of the partial.
+@inline function travel_time_velocity_partial(user_pos, sat_pos)
+    to_sat = sat_pos - user_pos
+    # `−u·J·s`; the `1/d` of `e · J·s'` and of `û` combine with `to_sat` into `1/d²`.
+    sagnac = user_pos[2] * sat_pos[1] - user_pos[1] * sat_pos[2]
+    scale = -EARTH_ROTATION_RATE * sagnac / (SPEED_OF_LIGHT * dot(to_sat, to_sat))
+    return scale * to_sat
+end
+
+"""
+    calc_pseudorange_rate(user_pos, user_vel, user_clock_drift, sat_pos, sat_vel,
+        sat_clock_drift) -> Float64
+
+The modelled pseudorange rate (m/s) of one satellite: the exact time derivative, per
+second of receiver clock, of the pseudorange [`calc_ρ_hat!`](@ref) models — the satellite
+rotated by the Earth's turn over the travel time into the ECEF frame of reception, plus
+the receiver clock bias, minus the satellite clock offset. It is the model the velocity
+solve ([`calc_user_velocity_and_clock_drift`](@ref)) fits, and its rate residuals are the
+measured rate minus this at the solved state; an estimator that predicts the rate from
+its own state — a vector-tracking navigation filter, say — calls it to predict exactly
+what the solve fits.
+
+Positive while the range grows (the satellite recedes), the sense of the velocity solve
+and of RTKLIB's `resdop`; the Doppler-signed rate a tracking loop works in,
+`λ · carrier_doppler`, is its negative.
+
+`user_pos`, `user_vel`, `sat_pos` and `sat_vel` are ECEF `SVector{3}`s in m and m/s, the
+satellite's taken at transmission. `user_clock_drift` is the receiver clock drift in m/s,
+but `sat_clock_drift` the satellite clock drift as a rate in s/s, as
+[`calc_satellite_clock_drift`](@ref) returns it.
+
+Beyond the line-of-sight projection of the relative velocity it carries two terms of
+order `v/c`, each up to about a millimetre per second:
+
+- the rate of the Earth-rotation angle, `ω_e·τ̇` with `τ̇ = û·(v_sat − v_user)/c`
+  ([`EARTH_ROTATION_RATE`](@ref)), and
+- the light-time factor `k = 1 − ρ̇/c`: one second of receiver clock spans that many
+  seconds of the satellite's motion and clock, `ρ̇` being the rate of the range including
+  the receiver clock drift.
+
+Allocation-free and `@inline`.
+"""
+@inline calc_pseudorange_rate(user_pos, user_vel, user_clock_drift, sat_pos, sat_vel,
+    sat_clock_drift) = first(pseudorange_rate_and_gradient(user_pos, user_vel,
+    user_clock_drift, sat_pos, sat_vel, sat_clock_drift))
+
+# `calc_pseudorange_rate` and its gradient in `[v; ċ]`, the velocity solve's design row.
+# With the receiver velocity `v` and clock drift `ċ` (m/s) the pseudorange rate is
+#
+#     ρ̇ = k·s + r,   s = rate + q · v,   r = ċ − e · v,   k = 1 − (s + r)/c,
+#
+# where
+# - `e` is the unit receiver→satellite vector to the Earth-rotation-corrected satellite,
+#   as `calc_line_of_sight` gives it;
+# - `rate` is the satellite's share of the range rate for a resting receiver (m/s),
+#   `e · d(s')/dt − c·ḃ_sat` — its rotated velocity, the rate of the rotation itself, and
+#   its clock drift;
+# - `q` is how that share changes with the receiver velocity, through the travel-time
+#   rate the rotation rate is scaled by (~2e-6 against the line of sight);
+# - `k` is the light-time factor.
+#
+# `s` and `r` are affine in `[v; ċ]`, so `ρ̇` is quadratic, with the gradient
+#
+#     ∂ρ̇/∂v = k·q − e − s·(q − e)/c,   ∂ρ̇/∂ċ = 1 − s/c.
+@inline function pseudorange_rate_and_gradient(user_pos, user_vel, user_clock_drift,
+    sat_pos, sat_vel, sat_clock_drift)
+    rotated_sat_pos, rotated_sat_vel =
+        satellite_state_at_reception(user_pos, sat_pos, sat_vel)
+    to_rotated_sat = rotated_sat_pos - user_pos
+    e = to_rotated_sat / norm(to_rotated_sat)
+    q = travel_time_velocity_partial(user_pos, sat_pos)
+    s = dot(e, rotated_sat_vel) - sat_clock_drift * SPEED_OF_LIGHT + dot(q, user_vel)
+    r = user_clock_drift - dot(e, user_vel)
+    k = 1 - (s + r) / SPEED_OF_LIGHT
+    ∂v = k * q - e - (s / SPEED_OF_LIGHT) * (q - e)
+    return k * s + r, SVector(∂v[1], ∂v[2], ∂v[3], 1 - s / SPEED_OF_LIGHT)
 end
 
 """
@@ -373,158 +463,118 @@ drift of the inter-system time offset (e.g. the GGTO rate `A_1G`), which is
 every satellite constrain the four unknowns instead of spending a column per
 system.
 
-The measured range rate is matched against the exact time derivative, per second of
-receiver clock, of the pseudorange [`calc_ρ_hat!`](@ref) models: the satellite rotated by
-the Earth's turn over the travel time into the ECEF frame of reception, plus the receiver
-clock bias, minus the satellite clock offset. Beyond the line-of-sight projection of the
-relative velocity, that rate carries two terms of order `v/c`, each up to about a
-millimetre per second:
-
-- the rate of the Earth-rotation angle, `ω_e·τ̇` with `τ̇ = û·(v_sat − v_user)/c`
-  ([`EARTH_ROTATION_RATE`](@ref)), and
-- the light-time factor `1 − ρ̇/c`: one second of receiver clock spans that many seconds
-  of the satellite's motion and clock, `ρ̇` being the rate of the range including the
-  receiver clock drift.
-
+The measured range rate is fitted to [`calc_pseudorange_rate`](@ref), the exact time
+derivative of the pseudorange [`calc_ρ_hat!`](@ref) models (see `calc_pseudorange_rate`
+for its two terms of order `v/c`), by one Gauss–Newton step from `start`
+(`[vx, vy, vz, ċ]`, m/s; the resting receiver by default). The model is so nearly linear
+that one step is the least-squares fit: within ~1e-11 m/s from a start a few m/s off,
+such as the previous epoch's solution, and within ~1e-7 m/s from rest even for an
+aircraft's speed and 30 km/s of clock drift — far below any Doppler's noise either way.
 That model needs the satellite's travel time, its rate and its Earth-rotation-corrected
 position, hence the solved `user_pos` (ECEF, m — the position block of the converged
-`ξ`). `H` is the position design at that state, as [`calc_H!`](@ref) builds it; its first
-three columns, the negated rotated lines of sight, are the velocity partials but for the
-travel-time rate's ~2e-6 relative share, which the solve adds to each row so that a
-single linear solve is exact.
+`ξ`).
 
-The residuals are `measured − modeled` range rate (m/s), the same orientation as the
-pseudorange residuals of [`user_position`](@ref) and in the same satellite order as
-`measurements`. They are the range-rate analogue of the post-fit pseudorange residual: a
-per-satellite Doppler-consistency / outlier indicator. Measured and modeled are both
-taken in that model's sense, in which a *receding* satellite reads positive — the
-same quantity and sign as RTKLIB's `resdop` residual, and hence the negative of the
-Doppler-signed range rate a tracking loop works in (see the note at the residual loop).
+The residuals are `measured − modeled` range rate (m/s): the measured rate minus
+[`calc_pseudorange_rate`](@ref) at the solved state, to the same precision, the same
+orientation as the pseudorange residuals of [`user_position`](@ref) and in the same
+satellite order as `measurements`. They are the range-rate analogue of the post-fit
+pseudorange residual: a per-satellite Doppler-consistency / outlier indicator. Measured
+and modeled are both taken in that model's sense, in which a *receding* satellite reads
+positive — the same quantity and sign as RTKLIB's `resdop` residual, and hence the
+negative of the Doppler-signed range rate a tracking loop works in (see the note at the
+residual loop).
 
-Requires a geometry whose position design `H` has full column rank — the caller
-establishes that with [`calc_DOP`](@ref) before calling this; see the comment at the solve.
+Requires a geometry whose position design at `user_pos` ([`calc_H!`](@ref)) has full
+column rank — the caller establishes that with [`calc_DOP`](@ref) before calling this; see
+the comment at the solve.
 
 The allocating form of [`calc_user_velocity_and_clock_drift!`](@ref).
 """
-calc_user_velocity_and_clock_drift(measurements, H, user_pos) =
-    calc_user_velocity_and_clock_drift!(
-        Vector{Float64}(undef, length(measurements)), measurements, H, user_pos)
+calc_user_velocity_and_clock_drift(measurements, user_pos,
+    start = zero(SVector{4,Float64})) = calc_user_velocity_and_clock_drift!(
+    Vector{Float64}(undef, length(measurements)), SVector{4,Float64}[], measurements,
+    user_pos, start)
 
 """
-    calc_user_velocity_and_clock_drift!(rate_residuals, measurements, H, user_pos)
-        -> (velocity_and_drift::SVector{4}, rate_residuals)
+    calc_user_velocity_and_clock_drift!(rate_residuals, design, measurements, user_pos,
+        start = zero(SVector{4,Float64})) -> (velocity_and_drift::SVector{4}, rate_residuals)
 
 [`calc_user_velocity_and_clock_drift`](@ref) writing the range-rate residuals into
-`rate_residuals` (resized to the satellite count). The solve itself is a fixed `4 × 4`
+`rate_residuals`, with `design` — a `Vector{SVector{4,Float64}}` — as scratch for the
+design rows; both are resized to the satellite count. The solve itself is a fixed `4 × 4`
 static one and allocates nothing.
 """
-function calc_user_velocity_and_clock_drift!(rate_residuals, measurements, H, user_pos)
+function calc_user_velocity_and_clock_drift!(rate_residuals, design, measurements,
+    user_pos, start = zero(SVector{4,Float64}))
     user_position = SVector{3,Float64}(user_pos[1], user_pos[2], user_pos[3])
+    start_vel = SVector{3,Float64}(start[1], start[2], start[3])
     rate_residuals = resize!(rate_residuals, length(measurements))
-    # Normal-equations form of the 4-unknown velocity + clock-drift least squares.
-    # Accumulating AᵀA (4×4) and Aᵀy (length 4) row by row keeps the (num_sats × 4)
-    # design matrix unmaterialised and the solve a fixed 4×4 regardless of satellite
-    # count — no per-count recompilation and no per-epoch heap allocation. The Doppler
-    # wavelength is evaluated per satellite from its own carrier frequency. Every
-    # quantity the loop needs — the Doppler, the carrier, the satellite clock drift,
-    # position and velocity — is a field of the flat [`SatelliteMeasurement`](@ref) row,
-    # so no decoder is touched and this compiles once for every constellation mix.
+    design = resize!(design, length(measurements))
+    # One Gauss–Newton step on `measured − calc_pseudorange_rate` from `start`, in
+    # normal-equations form: accumulating AᵀA (4×4) and Aᵀr (length 4) row by row keeps
+    # the solve a fixed 4×4 regardless of satellite count — no per-count recompilation and
+    # no per-epoch heap allocation. Every quantity the loop needs — the Doppler, the
+    # carrier, the satellite clock drift, position and velocity — is a field of the flat
+    # [`SatelliteMeasurement`](@ref) row, so no decoder is touched and this compiles once
+    # for every constellation mix.
     #
-    # The modelled rate is linear in `[v_user; ċ]` but for two terms of relative size
-    # ~3e-6. The light-time factor `k` is read off the measured Doppler, which is exact
-    # for exact observables. The travel-time rate `τ̇` the Earth-rotation rate is scaled
-    # by is itself linear in `v_user`, so its share goes into the design row exactly
-    # (`velocity_partial_correction`). That leaves
-    #
-    #     yⱼ = ρ̇ⱼ − k·satellite_rate(v_user = 0) = [H[j, 1:3] + pⱼ  1] · [v_user; ċ]
-    #
-    # with `H[j, 1:3]` the pseudorange's position partial — the negated rotated
-    # receiver→satellite line of sight, already computed for the position solve — and
-    # the single common clock-drift column (H's per-system clock columns, unit
-    # indicators, collapsed to a 1).
+    # The design row is the gradient of `calc_pseudorange_rate` at `start`: the negated
+    # rotated line of sight plus a ~3e-6 relative share from the travel-time rate and the
+    # light-time factor, and a clock-drift entry of `1 − s/c` (the single common drift
+    # column; H's per-system clock columns, unit indicators, collapsed). The model is
+    # linear in `ċ` and quadratic in `v` only through the light-time factor times the
+    # travel-time rate's share: curvatures of `~2|q|/c ≈ 1e-14` per (m/s)² in `v` and
+    # `|q|/c` in `v·ċ`. One step from a start `Δ` away therefore leaves an error of order
+    # `1e-14·Δ²`, amplified by the geometry: on the fixtures ≤ 1e-11 m/s for a start a few
+    # m/s off, ≤ 4e-9 m/s from rest for up to 780 m/s and 3 km/s of clock drift, and
+    # ≤ 6e-8 m/s for 780 m/s and 30 km/s. A second step would take that up and nothing
+    # more, so the solve takes one.
     AtA = zero(SMatrix{4,4,Float64})
-    Aty = zero(SVector{4,Float64})
-    # The normal-equations form does not keep the design rows, so the measurements are
-    # kept here instead and turned into post-fit residuals in place after the solve.
+    Atr = zero(SVector{4,Float64})
     for j in eachindex(measurements)
         measurement = measurements[j]
-        measured_rate, light_time_factor = measured_range_rate(measurement)
-        rotated_sat_pos, rotated_sat_vel = satellite_state_at_reception(user_position,
-            measurement.position, measurement.velocity)
-        satellite_rate =
-            dot(normalize(rotated_sat_pos - user_position), rotated_sat_vel) -
-            measurement.clock_drift * SPEED_OF_LIGHT
-        a = velocity_design_row(H, j, user_position, measurement.position,
-            light_time_factor)
-        yⱼ = measured_rate - light_time_factor * satellite_rate
-        rate_residuals[j] = yⱼ
+        modelled, a = pseudorange_rate_and_gradient(user_position, start_vel, start[4],
+            measurement.position, measurement.velocity, measurement.clock_drift)
+        rⱼ = measured_pseudorange_rate(measurement) - modelled
+        rate_residuals[j] = rⱼ
+        design[j] = a
         AtA += a * a'
-        Aty += a * yⱼ
+        Atr += a * rⱼ
     end
-    # `AtA` is positive definite whenever the position design `H` has full column rank,
-    # which `calc_pvt` has established via `calc_DOP` before calling this. Write the
-    # velocity design without its `pⱼ` as `H·T` — `T` keeps H's three position columns,
-    # sums its clock columns into the drift column and drops the IFB columns. `T` has
-    # orthogonal columns of norms 1, 1, 1, √M, so `null(T) = {0}` and a full-rank `H`
-    # gives a full-rank `H·T` (with `cond(H·T) ≤ √M·cond(H)`). The `pⱼ` perturb that by
-    # ~2e-6 relative, well inside the rank margin `calc_DOP!` demands
+    # `AtA` is positive definite whenever the position design `H` at `user_pos` has full
+    # column rank, which `calc_pvt` has established via `calc_DOP` before calling this.
+    # The design row without its ~3e-6 relative share is H's row times `T` — `T` keeps H's
+    # three position columns, sums its clock columns into the drift column and drops the
+    # IFB columns. `T` has orthogonal columns of norms 1, 1, 1, √M, so `null(T) = {0}` and
+    # a full-rank `H` gives a full-rank `H·T` (with `cond(H·T) ≤ √M·cond(H)`). The ~3e-6
+    # perturbs that well inside the rank margin `calc_DOP!` demands
     # (`passes_rank_tolerance`). Hence a plain Cholesky solve, no rank test of its own.
     #
     # This is why `calc_pvt` must keep the DOP check *ahead* of this call: with the order
     # reversed, a rank-deficient geometry reaches the solve below and throws
     # `SingularException` — the failure this arrangement exists to prevent.
-    velocity_and_drift = cholesky(Symmetric(AtA)) \ Aty
+    step = cholesky(Symmetric(AtA)) \ Atr
 
-    # Post-fit residual, measured minus modeled: the measurement `yⱼ` stored above, minus
-    # the design row (rebuilt the same way, so the residual is exactly orthogonal to the
-    # design) applied to the solved state. Rebuilding a row costs a few flops, no
-    # rotation.
+    # Post-fit residual, measured minus modeled: the residual at `start` moved on by the
+    # step along its design row — `calc_pseudorange_rate` at the solved state to the step's
+    # precision above, without a second rotation per satellite. It is orthogonal to the
+    # design, as a least-squares residual is.
     #
-    # `yⱼ` carries `-doppler * λ`, so it — and this residual with it — runs in the
-    # geometric range-rate sense (positive while the satellite recedes), not the
+    # The measured rate carries `-doppler * λ`, so it — and this residual with it — runs
+    # in the geometric range-rate sense (positive while the satellite recedes), not the
     # Doppler-signed sense of a tracking loop's `λ · carrier_doppler`. A consumer that
-    # forms its own rate residual from a loop's Doppler and compares it with this one
-    # has to negate one of the two; magnitudes agree either way. This matches RTKLIB's
+    # forms its own rate residual from a loop's Doppler and compares it with this one has
+    # to negate one of the two; magnitudes agree either way. This matches RTKLIB's
     # `resdop`, which likewise residuates `-lam * D` against a receding-positive model.
     for j in eachindex(measurements)
-        measurement = measurements[j]
-        _, light_time_factor = measured_range_rate(measurement)
-        a = velocity_design_row(H, j, user_position, measurement.position,
-            light_time_factor)
-        rate_residuals[j] -= dot(a, velocity_and_drift)
+        rate_residuals[j] -= dot(design[j], step)
     end
-    return velocity_and_drift, rate_residuals
+    return start + step, rate_residuals
 end
 
-# The measured range rate, receding-positive as the model runs, and the
-# light-time factor `k = 1 − ρ̇/c` read off it.
-@inline function measured_range_rate(measurement)
-    measured_rate =
-        -measurement.carrier_doppler * SPEED_OF_LIGHT / measurement.center_frequency
-    return measured_rate, 1 - measured_rate / SPEED_OF_LIGHT
-end
-
-# Row `j` of the velocity design: `[H[j, 1:3] + pⱼ  1]`.
-@inline function velocity_design_row(H, j, user_position, sat_pos, light_time_factor)
-    p = velocity_partial_correction(user_position, sat_pos, light_time_factor)
-    return SVector(H[j, 1] + p[1], H[j, 2] + p[2], H[j, 3] + p[3], 1.0)
-end
-
-# The user-velocity partial of the modelled rate beyond the line of sight: the share of
-# the Earth-rotation-rate term `k·ω_e·τ̇·(e · J·s')` (with `J·s' = (s'_y, −s'_x, 0)`) that
-# comes from `τ̇ = û·(v_sat − v_user)/c`, i.e. `−k·ω_e·(e · J·s')·û/c`. It is ~2e-6
-# relative to the line of sight, so it is evaluated on the unrotated geometry: with
-# `e ≈ û` and `s' ≈ s`, and `s·J·s = 0`, `e · J·s' ≈ −u·J·s/d`. The neglected rotation is
-# ~5e-6 relative of this term, ~1e-11 of the partial.
-@inline function velocity_partial_correction(user_position, sat_pos, light_time_factor)
-    to_sat = sat_pos - user_position
-    u = user_position
-    # `−u·J·s`; the `1/d` of `e · J·s'` and of `û` combine with `to_sat` into `1/d²`.
-    sagnac = u[2] * sat_pos[1] - u[1] * sat_pos[2]
-    scale = -light_time_factor * EARTH_ROTATION_RATE * sagnac /
-            (SPEED_OF_LIGHT * dot(to_sat, to_sat))
-    return scale * to_sat
-end
+# The measured range rate, receding-positive as the model runs.
+@inline measured_pseudorange_rate(measurement) =
+    -measurement.carrier_doppler * SPEED_OF_LIGHT / measurement.center_frequency
 
 """
     get_sat_position(sat_pv) -> SVector{3,Float64}

@@ -472,35 +472,41 @@ end
         states = gps_l1_states(0.0Hz)[1:4]
         measurements, _ = PositionVelocityTime.collect_measurements(
             signal_group(states); approximate_year = 2021)
-        # Only H's first three columns — the line-of-sight unit vectors — are read; the
-        # per-system clock columns are collapsed into a single drift column internally,
-        # so one trailing column of ones stands in for them here. The user position only
-        # feeds the satellites' share of the modelled rate, so any nearby one will do.
-        design(dirs) = reduce(vcat, [[normalize(d)' 1.0] for d in dirs])
-        user = [3.9074e6, 3.0684e5, 5.0150e6]
-        velocity_and_drift(dirs) = PositionVelocityTime.calc_user_velocity_and_clock_drift(
-            measurements, design(dirs), user)
+        # The solve takes its lines of sight from the satellite positions, so the rows'
+        # satellites are moved onto synthetic directions from a nearby user position.
+        user = SVector(3.9074e6, 3.0684e5, 5.0150e6)
+        with_position(m, position) = PositionVelocityTime.SatelliteMeasurement(
+            (name === :position ? position : getfield(m, name)
+             for name in fieldnames(PositionVelocityTime.SatelliteMeasurement))...)
+        placed(dirs) = [with_position(m, user + 2.0e7 * normalize(SVector{3}(d)))
+                        for (m, d) in zip(measurements, dirs)]
+        # The position design's columns — the negated lines of sight, as `calc_H!` builds
+        # them — and one column of ones for the per-system clock columns, which the
+        # velocity solve collapses into one drift.
+        design(dirs) = reduce(vcat, [[-normalize(d)' 1.0] for d in dirs])
 
         # Four well-spread directions ⇒ solvable: a finite [vx, vy, vz, ċ], plus one
         # finite post-fit range-rate residual per satellite.
-        solution, rate_residuals = velocity_and_drift(
-            [[1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0]])
+        spread = [[1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0]]
+        rows = placed(spread)
+        solution, rate_residuals =
+            PositionVelocityTime.calc_user_velocity_and_clock_drift(rows, user)
         @test length(solution) == 4
         @test all(isfinite, solution)
         @test length(rate_residuals) == length(measurements)
         @test all(isfinite, rate_residuals)
         # A post-fit least-squares residual is orthogonal to every column of its design
-        # — the line-of-sight columns and the common clock-drift column of ones. That is
-        # what makes it a residual rather than an arbitrary measured-minus-modeled
-        # difference, so it is pinned directly instead of only by magnitude. The velocity
-        # design is H's rows plus the travel-time rate's ~2e-6 relative share, so it is
-        # rebuilt here the way the solve builds it.
-        let H = design([[1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0]])
-            A = reduce(vcat, [PositionVelocityTime.velocity_design_row(H, j, user,
-                measurements[j].position,
-                last(PositionVelocityTime.measured_range_rate(measurements[j])))'
-                              for j in eachindex(measurements)])
-            @test norm(A - H) < 1e-5
+        # — the gradient of the modelled rate at the solved state. That is the position
+        # design's columns and a clock-drift column of ones but for the Earth's rotation
+        # of the line of sight and the light-time factor's `s/c`, ~1e-5 here, where the
+        # satellites' real velocities meet synthetic directions. That is what makes it a
+        # residual rather than an arbitrary measured-minus-modeled difference, so it is
+        # pinned directly instead of only by magnitude.
+        let user_vel = SVector(solution[1], solution[2], solution[3])
+            A = reduce(vcat, [last(PositionVelocityTime.pseudorange_rate_and_gradient(user,
+                user_vel, solution[4], m.position, m.velocity, m.clock_drift))'
+                              for m in rows])
+            @test norm(A - design(spread)) < 1e-4
             @test norm(A' * rate_residuals) < 1e-6
         end
 
@@ -636,12 +642,8 @@ end
     # *higher* measured Doppler — closing faster — reads NEGATIVE. This is the pairing
     # a receiver forming the same residual from its loops' `λ · carrier_doppler` has to
     # respect; getting it wrong inverts the field without changing any magnitude.
+    # The fixture's own satellites, seen from `user` (near the fixture's fix).
     states = gps_l1_states(0.0Hz)[1:5]
-    # Only H's line-of-sight columns and one column of ones are read, and the sign
-    # result holds for any full-rank design, so a spread-out synthetic one is enough.
-    H = reduce(vcat, [[normalize(d)' 1.0] for d in
-        ([1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0],
-            [0.8, -0.3, 0.6])])
     with_doppler(state, doppler) = PositionVelocityTime.SatelliteState(;
         decoder = state.decoder,
         system = state.system,
@@ -652,11 +654,11 @@ end
 
     rows(v) = first(PositionVelocityTime.collect_measurements(
         signal_group(v); approximate_year = 2021))
-    _, base = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(states), H, user)
+    _, base = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(states), user)
     Δdoppler = 50.0Hz
     faster = copy(states)
     faster[3] = with_doppler(states[3], states[3].carrier_doppler + Δdoppler)
-    _, closing = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(faster), H, user)
+    _, closing = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(faster), user)
     λ = PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(states[3].system))
     @test -λ * ustrip(Hz, Δdoppler) < closing[3] - base[3] < 0.0
 end

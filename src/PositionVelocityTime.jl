@@ -192,7 +192,7 @@ software reports observation residuals in — RTKLIB's `rescode` / `resdop`, and
 and PocketSDR through it. Note that `rate_residual` follows `resdop` in the geometric
 range-rate sense, positive while the satellite recedes; a receiver forming the same
 residual from its tracking loops' `λ · carrier_doppler` works in the opposite sign (see
-`calc_user_velocity_and_clock_drift`, whose `yⱼ` sets that sign).
+`calc_user_velocity_and_clock_drift` and `calc_pseudorange_rate`, which set that sign).
 """
 struct SatInfo
     position::ECEF{Float64}
@@ -1016,7 +1016,7 @@ end
 
 The reusable scratch storage of [`calc_pvt!`](@ref): the flat measurement rows, the bias
 layout, the pseudoranges and their corrections, the least-squares buffers, the design
-and normal-equations matrices and the residuals. Every buffer grows to the largest epoch
+and normal-equations matrices, the velocity solve's design rows and the residuals. Every buffer grows to the largest epoch
 it has seen and is reused from then on; its contents after a solve are not part of any
 interface.
 
@@ -1038,6 +1038,7 @@ mutable struct PVTWorkspace
     prev_ξ::Vector{Float64}
     residuals::Vector{Float64}
     rate_residuals::Vector{Float64}
+    velocity_design::Vector{SVector{4,Float64}}
     design_matrix::Matrix{Float64}
     normal_matrix::Matrix{Float64}
     least_squares::LMWorkspace
@@ -1055,6 +1056,7 @@ PVTWorkspace() = PVTWorkspace(
     Float64[],
     Float64[],
     Float64[],
+    SVector{4,Float64}[],
     Matrix{Float64}(undef, 0, 0),
     Matrix{Float64}(undef, 0, 0),
     LMWorkspace(),
@@ -1579,9 +1581,20 @@ function _solve_pvt!(
 
     dop.GDOP < 0 && return (false, prev_pvt)
 
+    # The velocity solve takes one Gauss–Newton step, which is the least-squares fit to
+    # rounding from the previous epoch's velocity and clock drift, and to ~1e-8 m/s from
+    # rest (see `calc_user_velocity_and_clock_drift`). So it starts from the previous
+    # solution whenever the position solve trusts that as its seed, and from rest
+    # otherwise: on a cold start (the default `prev_pvt` is at rest anyway), after a
+    # distrusted solution, or should the previous one carry a non-finite value.
+    previous_velocity_and_drift = SVector(prev_pvt.velocity[1], prev_pvt.velocity[2],
+        prev_pvt.velocity[3], prev_pvt.relative_clock_drift * SPEED_OF_LIGHT)
+    velocity_start =
+        !distrusted && all(isfinite, previous_velocity_and_drift) ?
+        previous_velocity_and_drift : zero(SVector{4,Float64})
     user_velocity_and_clock_drift, rate_residuals =
-        calc_user_velocity_and_clock_drift!(
-            workspace.rate_residuals, measurements, H, position)
+        calc_user_velocity_and_clock_drift!(workspace.rate_residuals,
+            workspace.velocity_design, measurements, position, velocity_start)
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
         user_velocity_and_clock_drift[2],
