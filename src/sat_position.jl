@@ -349,11 +349,11 @@ function calc_satellite_position_and_velocity(state::SatelliteState)
     calc_satellite_position_and_velocity(state.decoder, t)
 end
 
-calc_pseudo_ranges(times) = calc_pseudo_ranges!(collect(Float64, times))
+calc_pseudoranges(times) = calc_pseudoranges!(collect(Float64, times))
 
-# `calc_pseudo_ranges` in place: `times` is overwritten with the pseudoranges, and the
+# `calc_pseudoranges` in place: `times` is overwritten with the pseudoranges, and the
 # reference time is returned alongside them.
-function calc_pseudo_ranges!(times)
+function calc_pseudoranges!(times)
     t_ref = maximum(times)
     # Folded modulo the week, like the vector loop's `pseudorange_from_tows` and
     # every other time difference in this package: the inputs are seconds-of-week

@@ -25,12 +25,11 @@ function calc_ρ_hat!(ρ, sat_positions, ξ, bias_columns::BiasColumns)
     rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
     for j in 1:satellite_count(sat_positions)
         sat_pos = satellite_position(sat_positions, j)
-        travel_time = norm(sat_pos - rₙ) / SPEED_OF_LIGHT
-        rotated_sat_pos = rotate_by_earth_rotation(sat_pos, travel_time)
         ifb =
             bias_columns.ifb_indices[j] == 0 ? 0.0 :
             ξ[3+bias_columns.num_clock_biases+bias_columns.ifb_indices[j]]
-        ρ[j] = norm(rotated_sat_pos - rₙ) + ξ[3+bias_columns.clock_bias_indices[j]] + ifb
+        ρ[j] = norm(satellite_position_at_reception(rₙ, sat_pos) - rₙ) +
+               ξ[3+bias_columns.clock_bias_indices[j]] + ifb
     end
     return ρ
 end
@@ -47,7 +46,18 @@ end
     ]
 end
 
-rotate_by_earth_rotation(sat_pos, Δt) = earth_rotation(Δt) * sat_pos
+# The rotation that carries the satellite at `sat_pos`, in the ECEF frame of its
+# transmission, into the ECEF frame of reception at `user_pos`: the Earth's turn over the
+# signal's travel time `|s − u|/c`. The pseudorange model (`calc_ρ_hat!`), its position
+# partials (`calc_line_of_sight` for `calc_H!`, `calc_Avv!`) and its rate
+# (`pseudorange_rate_and_gradient`) all take the Earth-rotation correction from here, so
+# they describe one and the same satellite.
+@inline reception_frame_rotation(user_pos, sat_pos) =
+    earth_rotation(norm(sat_pos - user_pos) / SPEED_OF_LIGHT)
+
+# The satellite at `sat_pos` in the ECEF frame of reception at `user_pos`.
+@inline satellite_position_at_reception(user_pos, sat_pos) =
+    reception_frame_rotation(user_pos, sat_pos) * sat_pos
 
 # The range-rate model: the exact time derivative of the pseudorange `calc_ρ_hat!` models,
 # which the velocity solve fits (`calc_user_velocity_and_clock_drift`) and an estimator of
@@ -62,11 +72,9 @@ rotate_by_earth_rotation(sat_pos, Δt) = earth_rotation(Δt) * sat_pos
 # carried separately (`travel_time_velocity_partial`).
 @inline function satellite_state_at_reception(user_pos, sat_pos, sat_vel)
     to_sat = sat_pos - user_pos
-    distance = norm(to_sat)
-    travel_time = distance / SPEED_OF_LIGHT
-    travel_time_rate = dot(to_sat, sat_vel) / (distance * SPEED_OF_LIGHT)
-    # One rotation for both, as `rotate_by_earth_rotation` builds it.
-    rotation = earth_rotation(travel_time)
+    travel_time_rate = dot(to_sat, sat_vel) / (norm(to_sat) * SPEED_OF_LIGHT)
+    # One rotation for both, the one `calc_ρ_hat!` turns the satellite by.
+    rotation = reception_frame_rotation(user_pos, sat_pos)
     position = rotation * sat_pos
     velocity =
         rotation * sat_vel +
@@ -157,21 +165,15 @@ Allocation-free and `@inline`.
     return k * s + r, SVector(∂v[1], ∂v[2], ∂v[3], 1 - s / SPEED_OF_LIGHT)
 end
 
-"""
-Computes the unit line-of-sight vector from the user to the
-(Earth-rotation-corrected) satellite position — the textbook receiver→satellite
-direction. The pseudorange's position partial is its *negative*, which is what
-the design-matrix rows of [`calc_H!`](@ref) carry.
 
-$SIGNATURES
-`ξ`: Combination of estimated user position and time correction
-`sat_pos`: Single satellite positions
-"""
+# The unit line of sight from the user to the Earth-rotation-corrected satellite — the
+# textbook receiver→satellite direction. The pseudorange's position partial is its
+# *negative*, which is what the design-matrix rows of `calc_H!` carry. `ξ` holds the user
+# position in its first three entries.
 function calc_line_of_sight(sat_pos, ξ)
     rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
-    travel_time = norm(sat_pos - rₙ) / SPEED_OF_LIGHT
-    rotated_sat_pos = rotate_by_earth_rotation(sat_pos, travel_time)
-    (rotated_sat_pos - rₙ) / norm(rotated_sat_pos - rₙ)
+    to_sat = satellite_position_at_reception(rₙ, sat_pos) - rₙ
+    return to_sat / norm(to_sat)
 end
 
 """
@@ -238,9 +240,7 @@ function calc_Avv!(dir_deriv, sat_positions, ξ, v)
     v_r_sq = dot(v_r, v_r)
     for j in 1:satellite_count(sat_positions)
         sat_pos = satellite_position(sat_positions, j)
-        travel_time = norm(sat_pos - rₙ) / SPEED_OF_LIGHT
-        rotated_sat_pos = rotate_by_earth_rotation(sat_pos, travel_time)
-        u = rotated_sat_pos - rₙ
+        u = satellite_position_at_reception(rₙ, sat_pos) - rₙ
         d = norm(u)
         û = u / d
         dir_deriv[j] = (v_r_sq - dot(û, v_r)^2) / d
@@ -354,7 +354,7 @@ Computes user position
 $SIGNATURES
 `sat_positions_mat`: Satellite positions, as a `(3, N)` matrix (xyz per satellite) or a
 vector of `SVector{3}`s.
-`ρ`: Array of pseudo ranges
+`ρ`: Array of pseudoranges
 
 Calculates the user position by least squares method. The algorithm is based on the common reception method.
 
@@ -484,9 +484,10 @@ positive — the same quantity and sign as RTKLIB's `resdop` residual, and hence
 negative of the Doppler-signed range rate a tracking loop works in (see the note at the
 residual loop).
 
-Requires a geometry whose position design at `user_pos` ([`calc_H!`](@ref)) has full
-column rank — the caller establishes that with [`calc_DOP`](@ref) before calling this; see
-the comment at the solve.
+Needs a geometry whose position design at `user_pos` ([`calc_H!`](@ref)) has full
+column rank, as [`calc_DOP`](@ref) establishes. Where the velocity design itself is not of
+full rank to within the tolerance `calc_DOP` applies, the solve does not throw but returns
+`NaN` for the state and every residual.
 
 The allocating form of [`calc_user_velocity_and_clock_drift!`](@ref).
 """
@@ -541,19 +542,26 @@ function calc_user_velocity_and_clock_drift!(rate_residuals, design, measurement
         AtA += a * a'
         Atr += a * rⱼ
     end
-    # `AtA` is positive definite whenever the position design `H` at `user_pos` has full
-    # column rank, which `calc_pvt` has established via `calc_DOP` before calling this.
-    # The design row without its ~3e-6 relative share is H's row times `T` — `T` keeps H's
-    # three position columns, sums its clock columns into the drift column and drops the
-    # IFB columns. `T` has orthogonal columns of norms 1, 1, 1, √M, so `null(T) = {0}` and
-    # a full-rank `H` gives a full-rank `H·T` (with `cond(H·T) ≤ √M·cond(H)`). The ~3e-6
-    # perturbs that well inside the rank margin `calc_DOP!` demands
-    # (`passes_rank_tolerance`). Hence a plain Cholesky solve, no rank test of its own.
-    #
-    # This is why `calc_pvt` must keep the DOP check *ahead* of this call: with the order
-    # reversed, a rank-deficient geometry reaches the solve below and throws
-    # `SingularException` — the failure this arrangement exists to prevent.
-    step = cholesky(Symmetric(AtA)) \ Atr
+    # The design row is H's row times `T` — `T` keeps H's three position columns, sums its
+    # clock columns into the drift column and drops the IFB columns — plus a perturbation:
+    # `k·q − s·(q − e)/c` in the position entries and `−s/c` in the drift entry, with
+    # `|q| ≲ 2e-6` and `|s|/c ≲ 3e-6` for a satellite's range rate of up to ~900 m/s, so a
+    # few 1e-6 relative. `T` has orthogonal columns of norms 1, 1, 1, √M, so a full-rank `H`
+    # gives a full-rank `H·T`, with `σ_min(H·T)/σ_max(H·T) ≥ σ_min(H)/(√M·σ_max(H))`. The
+    # DOP check `calc_pvt` runs first (`passes_rank_tolerance`) only asks the Cholesky
+    # pivots of `HᵀH` for a ratio above `cbrt(eps)` ≈ 6e-6, and the pivots bound the
+    # singular values from one side only (the smallest pivot is at least `σ_min`). At that
+    # margin the perturbation is of the same order, so a geometry the DOP check just passes
+    # is not guaranteed a positive definite `AtA`. Any usable geometry is far from it — a
+    # pivot ratio of 1e-3 already means a GDOP of ~1e3 — but rather than throw from inside
+    # `calc_pvt` for one that is not, the solve applies the same rank test to its own
+    # factor and returns `NaN`, which `calc_pvt` treats as an unsolvable epoch.
+    factor = cholesky(Symmetric(AtA); check = false)
+    if !(issuccess(factor) && passes_rank_tolerance(extrema(diag(factor.U))...))
+        fill!(rate_residuals, NaN)
+        return SVector{4,Float64}(NaN, NaN, NaN, NaN), rate_residuals
+    end
+    step = factor \ Atr
 
     # Post-fit residual, measured minus modeled: the residual at `start` moved on by the
     # step along its design row — `calc_pseudorange_rate` at the solved state to the step's

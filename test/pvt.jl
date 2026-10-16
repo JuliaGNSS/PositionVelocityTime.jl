@@ -510,19 +510,31 @@ end
             @test norm(A' * rate_residuals) < 1e-6
         end
 
-        # The degenerate cases are stated on the design matrix, since the solve itself no
-        # longer tests rank. Two distinct directions (a satellite tracked on a second band
-        # repeats its line of sight) leave the position columns rank deficient.
+        # The degenerate cases are stated on the design matrix, which `calc_DOP` tests
+        # before the velocity solve. Two distinct directions (a satellite tracked on a
+        # second band repeats its line of sight) leave the position columns rank deficient.
         solvable(dirs) = full_rank(design(dirs))
-        @test !solvable([[1.0, 0.2, 0.9], [1.0, 0.2, 0.9], [0.3, -1.0, 0.5], [0.3, -1.0, 0.5]])
+        repeated = [[1.0, 0.2, 0.9], [1.0, 0.2, 0.9], [0.3, -1.0, 0.5], [0.3, -1.0, 0.5]]
+        @test !solvable(repeated)
 
         # Three independent directions on a common cone (equal projection onto z) put the
         # drift column in their span, leaving the fourth pivot exactly zero — the shape
         # that produced SingularException(4) from the 4×4 solve.
         cosθ = 0.5
         sinθ = sqrt(1 - cosθ^2)
-        @test !solvable([
-            [sinθ, 0.0, cosθ], [0.0, sinθ, cosθ], [-sinθ, 0.0, cosθ], [0.0, -sinθ, cosθ]])
+        cone = [
+            [sinθ, 0.0, cosθ], [0.0, sinθ, cosθ], [-sinθ, 0.0, cosθ], [0.0, -sinθ, cosθ]]
+        @test !solvable(cone)
+
+        # Should such a geometry reach the velocity solve all the same, it tests its own
+        # design — which differs from the position design by a few 1e-6 relative, too
+        # little to restore its rank — and reports `NaN` instead of throwing.
+        for dirs in (repeated, cone)
+            solution, rate_residuals =
+                PositionVelocityTime.calc_user_velocity_and_clock_drift(placed(dirs), user)
+            @test all(isnan, solution)
+            @test all(isnan, rate_residuals)
+        end
     end
 end
 

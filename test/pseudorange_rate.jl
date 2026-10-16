@@ -62,7 +62,7 @@ allocated_rate(args) = @allocated PositionVelocityTime.calc_pseudorange_rate(arg
         e = PositionVelocityTime.calc_line_of_sight(sat_pos, [user_pos₀; 0.0])
         τ = norm(sat_pos - user_pos₀) / c
         released = dot(e, sat_vel - user_vel) - c * sat_clock_drift + clock_drift
-        rotated_sat_vel = PositionVelocityTime.rotate_by_earth_rotation(sat_vel, τ)
+        rotated_sat_vel = PositionVelocityTime.earth_rotation(τ) * sat_vel
         rotated = dot(e, rotated_sat_vel - user_vel) - c * sat_clock_drift + clock_drift
         @test abs(released - reference) > 5e-3
         @test abs(rotated - reference) > 3e-4

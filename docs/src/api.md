@@ -160,7 +160,6 @@ PositionVelocityTime.bias_layout
 PositionVelocityTime.BiasLayout
 PositionVelocityTime.calc_ρ_hat!
 PositionVelocityTime.calc_H
-PositionVelocityTime.calc_line_of_sight
 PositionVelocityTime.calc_DOP
 PositionVelocityTime.calc_DOP!
 PositionVelocityTime.calc_pseudorange_rate
