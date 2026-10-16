@@ -595,8 +595,7 @@
         t_tx = t_rx - 0.075                      # ~one light-time as a seed
         for _ = 1:6
             position = PositionVelocityTime.calc_satellite_position(decoder, t_tx)
-            travel_time = norm(position - user) / C
-            rotated = PositionVelocityTime.rotate_by_earth_rotation(position, travel_time)
+            rotated = PositionVelocityTime.satellite_position_at_reception(user, position)
             t_tx = t_rx - norm(rotated - user) / C
         end
         num_bits, code_phase = observables_for(decoder, system, t_tx)

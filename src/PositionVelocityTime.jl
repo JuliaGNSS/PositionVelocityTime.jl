@@ -827,7 +827,7 @@ time_scale_offset_to_gpst(time_system::GNSSSignals.TimeSystem) =
     calc_time_scale_offsets(measurements, primary_system) -> Vector{Float64}
 
 Seconds to add to each satellite's transmit time to express it in
-`primary_system`'s count, so that `calc_pseudo_ranges` may difference them.
+`primary_system`'s count, so that `calc_pseudoranges` may difference them.
 `0.0` for every satellite of a system that counts alike — which is every GPS and
 Galileo satellite, and all of them in a single-constellation epoch.
 
@@ -1031,7 +1031,7 @@ mutable struct PVTWorkspace
     layout::BiasLayoutWorkspace
     unique_systems::Vector{SupportedTimeSystem}
     sat_positions::Vector{SVector{3,Float64}}
-    pseudo_ranges::Vector{Float64}
+    pseudoranges::Vector{Float64}
     hub_offsets::Vector{Float64}
     atmospheric_delays::Vector{Float64}
     corrected_ranges::Vector{Float64}
@@ -1468,12 +1468,12 @@ function _solve_pvt!(
     # for any single-constellation epoch.
     # The offsets are written straight into the pseudorange buffer, and the transmit
     # times added onto them, so no separate offset buffer is needed.
-    pseudo_ranges =
-        calc_time_scale_offsets!(workspace.pseudo_ranges, measurements, primary_system)
+    pseudoranges =
+        calc_time_scale_offsets!(workspace.pseudoranges, measurements, primary_system)
     for (j, measurement) in enumerate(measurements)
-        pseudo_ranges[j] += measurement.time
+        pseudoranges[j] += measurement.time
     end
-    _, reference_time = calc_pseudo_ranges!(pseudo_ranges)
+    _, reference_time = calc_pseudoranges!(pseudoranges)
     # The known per-satellite broadcast steering offset (zero unless that system was
     # collapsed onto the hub), as a measurement correction like the atmospheric delays
     # below. Kept for the inter-system-bias readout at the end, which reports this
@@ -1481,7 +1481,7 @@ function _solve_pvt!(
     # a bias, and belongs in neither the readout nor the solve.
     hub_offsets =
         calc_hub_range_offsets!(workspace.hub_offsets, measurements, hub_rows, hub_system)
-    pseudo_ranges .-= hub_offsets
+    pseudoranges .-= hub_offsets
 
     # The primary system's week and start epoch date the epoch absolutely: the day of
     # year feeds the tropospheric mapping's seasonal term here, and week/start epoch
@@ -1535,7 +1535,7 @@ function _solve_pvt!(
         delays = predict_atmospheric_delays!(
             workspace.atmospheric_delays, ξ_prediction, measurements, ionospheric_model,
             reference_time, doy, enable_tropospheric_correction)
-        resize!(workspace.corrected_ranges, num_sats) .= pseudo_ranges .- delays
+        resize!(workspace.corrected_ranges, num_sats) .= pseudoranges .- delays
     end
     least_squares = workspace.least_squares
 
@@ -1547,7 +1547,7 @@ function _solve_pvt!(
         # solve, then re-solve once with the delay-corrected pseudoranges (only if
         # there is anything to correct, so the uncorrected case stays a single solve).
         ξ_uncorrected, residuals_uncorrected = user_position!(least_squares,
-            workspace.residuals, sat_positions, pseudo_ranges, bias_columns, prev_ξ)
+            workspace.residuals, sat_positions, pseudoranges, bias_columns, prev_ξ)
         if correct_atmosphere
             user_position!(least_squares, workspace.residuals, sat_positions,
                 corrected_ranges(ξ_uncorrected), bias_columns, ξ_uncorrected)
@@ -1559,7 +1559,7 @@ function _solve_pvt!(
         # position before solving, so ξ never needs a post-solve correction. With no
         # active correction, solve directly on the raw pseudoranges.
         user_position!(least_squares, workspace.residuals, sat_positions,
-            correct_atmosphere ? corrected_ranges(prev_ξ) : pseudo_ranges, bias_columns,
+            correct_atmosphere ? corrected_ranges(prev_ξ) : pseudoranges, bias_columns,
             prev_ξ)
     end
     workspace.design_matrix = grown(workspace.design_matrix, num_sats, num_params)
@@ -1572,9 +1572,10 @@ function _solve_pvt!(
     # derived from it. The satellite conditions in `decide_bias_layout!` already reject the
     # count-shaped degeneracies before the solve; this catches what a count cannot see.
     #
-    # This check must stay ahead of the velocity solve: it is what makes that solve's
-    # normal-equations matrix positive definite (see `calc_user_velocity_and_clock_drift`),
-    # and with the order reversed a degenerate geometry throws `SingularException` there.
+    # It also stands ahead of the velocity solve, whose design is this one's but for a few
+    # 1e-6 relative; that solve tests its own design against the same tolerance as a
+    # backstop and returns `NaN` should it fail, an unsolvable epoch as well (see
+    # `calc_user_velocity_and_clock_drift`).
     workspace.normal_matrix = grown(workspace.normal_matrix, num_params, num_params)
     dop = calc_DOP!(view(workspace.normal_matrix, 1:num_params, 1:num_params), H, position,
         primary_clock_index)
@@ -1595,6 +1596,7 @@ function _solve_pvt!(
     user_velocity_and_clock_drift, rate_residuals =
         calc_user_velocity_and_clock_drift!(workspace.rate_residuals,
             workspace.velocity_design, measurements, position, velocity_start)
+    all(isfinite, user_velocity_and_clock_drift) || return (false, prev_pvt)
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
         user_velocity_and_clock_drift[2],

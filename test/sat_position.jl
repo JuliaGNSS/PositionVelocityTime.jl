@@ -51,14 +51,14 @@ end
 # level of the folded ranges is irrelevant — the receiver clock column absorbs a
 # common constant, exactly as it does the unmodelled travel time — so what the
 # tests pin is the *differences*.
-@testset "calc_pseudo_ranges folds the week wrap" begin
+@testset "calc_pseudoranges folds the week wrap" begin
     c = PositionVelocityTime.SPEED_OF_LIGHT
 
     # No wrap in sight: plain differences against the latest transmit time.
     # Metre-level tolerances throughout: differencing ~6e5-magnitude counts in
     # Float64 leaves ~1e-10 s ≈ 0.03 m of representation noise, and the failure
     # being pinned is fourteen orders of magnitude above it.
-    pr, t_ref = PositionVelocityTime.calc_pseudo_ranges([410000.001, 410000.005])
+    pr, t_ref = PositionVelocityTime.calc_pseudoranges([410000.001, 410000.005])
     @test t_ref == 410000.005
     @test pr[2] == 0.0
     @test pr[1] ≈ 0.004 * c atol = 1.0
@@ -66,13 +66,13 @@ end
     # One constellation, wrap inside the transmit-time spread: the wrapped
     # satellite transmitted 2 ms *later*, so its pseudorange must come out
     # 2 ms · c below the unwrapped one — not a week above it.
-    pr, t_ref = PositionVelocityTime.calc_pseudo_ranges([604799.999, 0.001])
+    pr, t_ref = PositionVelocityTime.calc_pseudoranges([604799.999, 0.001])
     @test t_ref == 604799.999
     @test pr[1] - pr[2] ≈ 0.002 * c atol = 1.0
 
     # The mixed-constellation straddle: a BeiDou time on the GPS count
     # (SOW + 14) just past 604800 against a GPS time just past 0 — the same
     # instant, so the same pseudorange.
-    pr, _ = PositionVelocityTime.calc_pseudo_ranges([604803.0, 3.0])
+    pr, _ = PositionVelocityTime.calc_pseudoranges([604803.0, 3.0])
     @test pr[1] ≈ pr[2] atol = 1.0
 end
