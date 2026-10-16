@@ -1,5 +1,12 @@
 # Changelog
 
+# [6.2.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.1.1...v6.2.0) (2026-10-16)
+
+
+### Features
+
+* copy a PVTSolution with Base.copy ([3147386](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/3147386e3048ebd1f3e766cb8d88cf4be5c68659))
+
 ## [6.1.1](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.1.0...v6.1.1) (2026-10-06)
 
 
