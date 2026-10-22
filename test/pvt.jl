@@ -323,7 +323,30 @@ end
     # rather than indexing something that is not there.
     @test !any(row -> available(row, BDT()), offset_rows)
 
-    hub_rows = [offset_rows[3]]
+    # `select_hub_rows` picks them by the rule `decide_bias_layout` collapses with: per
+    # other system, the first row carrying an offset toward the hub — the GGTO-carrying
+    # Galileo row, wherever it stands among its system's rows — and none for the hub's
+    # own system, a system without one, or a hub no message broadcasts toward.
+    select_hub_rows = PositionVelocityTime.select_hub_rows
+    @test select_hub_rows(offset_rows, GPST()) == [offset_rows[3]]
+    @test select_hub_rows(offset_rows[[1, 2, 4, 3]], GPST()) == [offset_rows[3]]
+    @test isempty(select_hub_rows(offset_rows[[1, 2, 4]], GPST()))
+    @test isempty(select_hub_rows(offset_rows, GST()))
+    @test isempty(select_hub_rows(offset_rows, BDT()))
+    # The hub itself need not be measured: the offset is the row's, not the hub's.
+    @test select_hub_rows(offset_rows[3:4], GPST()) == [offset_rows[3]]
+    # The in-place form empties what it is handed.
+    @test PositionVelocityTime.select_hub_rows!(
+        [offset_rows[1], offset_rows[4]], offset_rows, GPST()) == [offset_rows[3]]
+    # `select_collapse!` chooses the hub too: the first measured candidate any other
+    # system collapses onto, its rows left in the buffer it is handed. Galileo alone,
+    # though it carries an offset toward GPS Time, has no measured hub to collapse onto.
+    select_collapse!(rows) = (buffer = [offset_rows[1]];
+    (PositionVelocityTime.select_collapse!(buffer, rows), buffer))
+    @test select_collapse!(offset_rows) == (GPST(), [offset_rows[3]])
+    @test select_collapse!(offset_rows[[1, 2, 4]]) == (nothing, [])
+    @test select_collapse!(offset_rows[3:4]) == (nothing, [])
+    hub_rows = select_hub_rows(offset_rows, GPST())
     offsets = PositionVelocityTime.calc_hub_range_offsets(offset_rows, hub_rows, GPST())
     @test offsets[[1, 2]] == [0.0, 0.0]
     @test offsets[[3, 4]] ≈ [

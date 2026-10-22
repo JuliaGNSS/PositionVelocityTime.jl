@@ -341,6 +341,15 @@ end
             rows, nothing)
         select_primary(mixed_rows)
         @test select_primary(mixed_rows) == 0
+        hub_rows = PositionVelocityTime.SatelliteMeasurement[]
+        select_hub(rows) =
+            @allocated PositionVelocityTime.select_hub_rows!(hub_rows, rows, GPST())
+        select_hub(mixed_rows)
+        @test select_hub(mixed_rows) == 0
+        select_collapse(rows) =
+            @allocated PositionVelocityTime.select_collapse!(hub_rows, rows)
+        select_collapse(mixed_rows)
+        @test select_collapse(mixed_rows) == 0
         user = ECEF(4.0186e6, 427035.0, 4.918e6)
         sat = ECEF(1.5e7, 1.0e7, 1.8e7)
         @test get_sat_enu(user, sat) == get_sat_enu(ENUfromECEF(user, wgs84), sat)

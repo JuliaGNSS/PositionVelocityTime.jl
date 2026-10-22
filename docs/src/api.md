@@ -158,6 +158,9 @@ PositionVelocityTime.decide_bias_layout!
 PositionVelocityTime.BiasLayoutWorkspace
 PositionVelocityTime.bias_layout
 PositionVelocityTime.BiasLayout
+PositionVelocityTime.select_hub_rows
+PositionVelocityTime.select_hub_rows!
+PositionVelocityTime.select_collapse!
 PositionVelocityTime.select_primary_system
 PositionVelocityTime.calc_ρ_hat!
 PositionVelocityTime.calc_H

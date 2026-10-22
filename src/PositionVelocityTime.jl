@@ -544,8 +544,9 @@ field of the row:
   independently, which is the common case.
 - `hub_rows::Vector{SatelliteMeasurement}`: one row per collapsed time system — the
   satellite whose broadcast offset to `hub_system` converts that whole system's
-  measurements. Each row carries its own `time_system`, so it is its own key. The same
-  vocabulary as [`time_offset_available`](@ref), which decides membership, and
+  measurements, as [`select_hub_rows`](@ref) selects them. Each row carries its own
+  `time_system`, so it is its own key. The same vocabulary as
+  [`time_offset_available`](@ref), which decides membership, and
   [`calc_steering_offset`](@ref), which evaluates one entry (see
   [`calc_hub_range_offsets`](@ref)). Empty exactly when `hub_system` is `nothing`.
 
@@ -678,22 +679,13 @@ function decide_bias_layout!(workspace::BiasLayoutWorkspace, measurements)
     num_components == 1 && enough_satellites() && return true
 
     # Connected-but-scarce or disconnected: try collapsing every other system that
-    # broadcasts an offset to a hub system onto that hub. The offset is one
-    # constellation-wide value whichever of its satellites reports it, so the first
-    # decoded copy per system converts all of that system's measurements. Hubs are
-    # tried in a fixed order, so the choice is deterministic and GPS wins whenever it
-    # can; BDT closes the list only for completeness — no signal broadcasts an offset
-    # toward BDT today, so its loop finds nothing.
-    for (hub_index, hub_system) in enumerate(CANDIDATE_HUB_SYSTEMS)
-        any(measurement -> measurement.time_system === hub_system, measurements) || continue
-        empty!(hub_rows)
-        for measurement in measurements
-            measurement.time_system === hub_system && continue
-            is_collapsed(hub_rows, measurement.time_system) && continue
-            measurement.time_offsets[hub_index].available || continue
-            push!(hub_rows, measurement)
-        end
-        isempty(hub_rows) && continue
+    # broadcasts an offset to a hub system onto that hub (see `select_collapse!`), each
+    # candidate hub in turn until one leaves enough satellites.
+    hub_index = 0
+    while true
+        hub_index = _select_collapse!(hub_rows, measurements, hub_index + 1)
+        hub_index == 0 && break
+        hub_system = CANDIDATE_HUB_SYSTEMS[hub_index]
         decide_bias_columns!(workspace, measurements, hub_system)
         if enough_satellites()
             workspace.hub_system = hub_system
@@ -706,6 +698,93 @@ function decide_bias_layout!(workspace::BiasLayoutWorkspace, measurements)
     empty!(hub_rows)
     decide_bias_columns!(workspace, measurements, nothing)
     return enough_satellites()
+end
+
+"""
+    select_hub_rows(measurements, hub_system) -> Vector{SatelliteMeasurement}
+
+The rows that would carry a clock collapse onto `hub_system`: for every other time system
+among `measurements`, the first row with a broadcast offset toward `hub_system` (see
+[`time_offset_available`](@ref)), in order of appearance. These are the `hub_rows`
+[`decide_bias_layout`](@ref) tries for that hub, chosen by the same rule. To choose the
+hub as well, use [`select_collapse!`](@ref). Evaluate the rows with
+[`inter_system_bias`](@ref).
+
+The offset is one constellation-wide value whichever satellite reports it, so one row
+per system suffices. A system none of whose rows carries an offset toward the hub has no
+row, and neither has `hub_system` itself; the result is empty when no other system can
+be collapsed onto it. Whether the hub itself is measured is not checked.
+"""
+select_hub_rows(measurements, hub_system::SupportedTimeSystem) =
+    select_hub_rows!(SatelliteMeasurement[], measurements, hub_system)
+
+"""
+    select_hub_rows!(hub_rows, measurements, hub_system) -> hub_rows
+
+[`select_hub_rows`](@ref) into `hub_rows`, emptied first. Allocates nothing once
+`hub_rows` has grown to the number of systems.
+"""
+select_hub_rows!(hub_rows, measurements, hub_system::SupportedTimeSystem) =
+    _select_hub_rows!(hub_rows, measurements, hub_system,
+        something(hub_system_index(hub_system)))
+
+# `select_hub_rows!` with the hub's position in `CANDIDATE_HUB_SYSTEMS` already known.
+function _select_hub_rows!(hub_rows, measurements, hub_system, hub_index::Int)
+    empty!(hub_rows)
+    for measurement in measurements
+        measurement.time_system === hub_system && continue
+        is_collapsed(hub_rows, measurement.time_system) && continue
+        measurement.time_offsets[hub_index].available || continue
+        push!(hub_rows, measurement)
+    end
+    hub_rows
+end
+
+"""
+    select_collapse!(hub_rows, measurements) -> Union{Nothing,SupportedTimeSystem}
+
+The clock collapse [`decide_bias_layout`](@ref) tries first: the first of
+[`CANDIDATE_HUB_SYSTEMS`](@ref PositionVelocityTime.CANDIDATE_HUB_SYSTEMS) that is
+measured and onto which some other system can be collapsed, with that hub's
+[`select_hub_rows`](@ref) left in `hub_rows`. `nothing`, and `hub_rows` empty, when no
+system can be collapsed at all.
+
+The candidates are tried in a fixed order, so the choice is deterministic and GPS wins
+whenever it can. Only a measured hub qualifies: a collapse puts the other systems on the
+hub's clock, which needs satellites of the hub to observe it. A consumer that applies
+the broadcast offsets itself — as constraints on its own clock states, say, on an epoch
+the layout decision rejects — gets the hub and rows a collapse would use without
+restating the rule. `decide_bias_layout` goes on to the next candidate only when this
+one leaves too few satellites, which a consumer with its own constraints does not need.
+Allocates nothing once `hub_rows` has grown to the number of systems.
+"""
+function select_collapse!(hub_rows, measurements)::Union{Nothing,SupportedTimeSystem}
+    hub_index = _select_collapse!(hub_rows, measurements, 1)
+    hub_index == 0 ? nothing : CANDIDATE_HUB_SYSTEMS[hub_index]
+end
+
+# `select_collapse!` from the candidate at `first_hub_index` on, returning the chosen
+# hub's position in `CANDIDATE_HUB_SYSTEMS`, or 0 for none. Starting later lets
+# `decide_bias_layout!` move past a hub that left too few satellites. BDT closes the
+# list only for completeness: no signal broadcasts an offset toward BDT today.
+function _select_collapse!(hub_rows, measurements, first_hub_index::Int)
+    for hub_index in first_hub_index:length(CANDIDATE_HUB_SYSTEMS)
+        hub_system = CANDIDATE_HUB_SYSTEMS[hub_index]
+        is_measured(measurements, hub_system) || continue
+        _select_hub_rows!(hub_rows, measurements, hub_system, hub_index)
+        isempty(hub_rows) || return hub_index
+    end
+    empty!(hub_rows)
+    return 0
+end
+
+# Whether any row is of `system`. A plain loop rather than `any`: a closure capturing
+# `system`, whose type is the `SupportedTimeSystem` `Union`, allocates.
+function is_measured(measurements, system)
+    for measurement in measurements
+        measurement.time_system === system && return true
+    end
+    false
 end
 
 # The clock and IFB columns of one candidate layout, into `workspace`: every system
