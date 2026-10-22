@@ -68,6 +68,12 @@ end
         # Too few satellites for two independent clocks.
         "scarce GPS + Galileo" =>
             (gps = first_satellites(l1ca, 3), galileo = first_satellites(e1b, 2)),
+        # Collapsed: one Galileo satellite carrying a GGTO shares the GPS clock column,
+        # so a warm start seeds that column from the hub's own bias.
+        "collapsed GPS + Galileo" => (gps = first_satellites(l1ca, 3),
+            galileo = first_satellites(precompile_galileo(GalileoE1B(), data ->
+                    GNSSDecoder.GalileoINAVData(data; A_0G = 5.0e-9, A_1G = 0.0,
+                        t_0G = 0, WN_0G = 0)), 1)),
         # The test suite's own fixtures, Dictionary-backed.
         "fixture GPS + Galileo" =>
             (gps = signal_group(gps_l1_states(0.0Hz)),

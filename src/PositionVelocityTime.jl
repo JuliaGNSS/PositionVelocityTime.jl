@@ -1491,7 +1491,7 @@ function _solve_pvt!(
     # under-determined. A degenerate geometry, which no count can see, is caught after
     # the solve by the DOP.
     decide_bias_layout!(workspace.layout, measurements) || return (false, prev_pvt)
-    (; bias_columns, extra_bands, reference_bands, hub_system, hub_rows) =
+    (; bias_columns, clock_systems, extra_bands, reference_bands, hub_system, hub_rows) =
         bias_layout(workspace.layout)
     (; clock_bias_indices, num_clock_biases) = bias_columns
     num_params = num_lsq_params(bias_columns)
@@ -1552,15 +1552,23 @@ function _solve_pvt!(
     # absolute bias from the reference bias plus its stored inter-system bias. A
     # distrusted previous solution seeds nothing: the state stays all zeros, the cold
     # start.
+    #
+    # Per column, from the column's own system, not per satellite: a collapsed system's
+    # satellites share the hub's column, and their own previous bias (the hub's plus the
+    # collapsed inter-system bias) would overwrite the hub's seed.
+    #
+    # A system the previous solution has no bias for (it was not tracked then) is seeded
+    # with the previous reference clock. That is off by the inter-system bias, typically
+    # metres; the alternative, zero, is off by the whole receiver clock bias, often
+    # orders of magnitude more.
     prev_abs_bias(sys) =
         sys === prev_pvt.reference_system ? prev_pvt.time_correction :
         prev_pvt.time_correction + get(prev_pvt.inter_system_biases, sys, 0.0m)
     prev_ξ = fill!(resize!(workspace.prev_ξ, num_params), 0.0)
     if !distrusted
         prev_ξ[1], prev_ξ[2], prev_ξ[3] = prev_pvt.position
-        for j in 1:num_sats
-            prev_ξ[3+clock_bias_indices[j]] =
-                ustrip(m, prev_abs_bias(measurements[j].time_system))
+        for (k, sys) in enumerate(clock_systems)
+            prev_ξ[3+k] = ustrip(m, prev_abs_bias(sys))
         end
         # Only warm-start an IFB column from the previous solution when that band's bias
         # was measured against the same reference band; a reference change (the anchor

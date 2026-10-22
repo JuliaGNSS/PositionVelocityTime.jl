@@ -258,6 +258,22 @@ end
         enable_tropospheric_correction = false)
     @test big.inter_system_biases[GST()] ≈ -C * A_big * m rtol = 1e-6
 
+    # A warm start seeds the shared clock column with the hub's own bias. The Galileo
+    # row comes last and maps onto that column too, but its previous absolute bias —
+    # the hub's plus its −c·A_0G ≈ −300 m inter-system bias — must not overwrite it.
+    big_groups = (signal_group(gps[1:3]), signal_group([with_ggto(gal[1]; A_0G = A_big)]))
+    workspace = PVTWorkspace()
+    calc_pvt!(PVTSolution(), workspace, big_groups, big; approximate_year = 2021,
+        enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    @test big.dop.PDOP < PositionVelocityTime.MAX_TRUSTED_WARM_START_PDOP
+    @test workspace.prev_ξ[4] == ustrip(m, big.time_correction)
+    # The seed only sets the starting point: warm and cold starts reach the same fix.
+    warm = calc_pvt(big_groups, big; approximate_year = 2021,
+        enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    @test norm(warm.position - big.position) < 1e-3
+    @test warm.time ≈ big.time
+    @test warm.inter_system_biases[GST()] ≈ big.inter_system_biases[GST()]
+
     # calc_steering_offset evaluates the OS SIS ICD word-type-10 polynomial, taking
     # the reference week difference modulo 64. `broadcast_time_offset` is the flattened
     # `BroadcastTimeOffset` the collection pass puts on every measurement row.
