@@ -881,6 +881,7 @@
         @test layout.hub_system == GPST()
         @test Set(row.time_system for row in layout.hub_rows) == Set([BDT(), GST()])
         @test layout.bias_columns.num_clock_biases == 1
+        @test layout.clock_systems == [GPST()]
 
         # The hub is not GPS-specific. A GPS-free scarce epoch collapses onto
         # Galileo instead: the BGTO's GNSS_ID names Galileo (2) as well as GPS (1)
@@ -917,6 +918,7 @@
         @test gst_layout.hub_system == GST()
         @test map(row -> row.time_system, gst_layout.hub_rows) == [BDT()]
         @test gst_layout.bias_columns.num_clock_biases == 1
+        @test gst_layout.clock_systems == [GST()]
 
         gst_collapsed = calc_pvt(gps_free; kw...)
         @test gst_collapsed.reference_system == GST()
