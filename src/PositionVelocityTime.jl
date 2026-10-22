@@ -511,6 +511,7 @@ means.
 """
 const BiasLayout = @NamedTuple{
     bias_columns::BiasColumns,
+    clock_systems::Vector{SupportedTimeSystem},
     extra_bands::Vector{Symbol},
     reference_bands::Vector{Symbol},
     hub_system::Union{Nothing,SupportedTimeSystem},
@@ -530,6 +531,9 @@ field of the row:
 
 - `bias_columns::BiasColumns`: the per-satellite column assignment (see
   [`BiasColumns`](@ref)).
+- `clock_systems::Vector{SupportedTimeSystem}`: the time system of each clock column, so
+  `clock_systems[k]` belongs to clock column `k`, in order of first appearance. A
+  collapsed system has no column of its own; its satellites share the hub's.
 - `extra_bands::Vector{Symbol}`: band of each inter-frequency-bias column, so
   `extra_bands[i]` belongs to column `i` of the IFB block.
 - `reference_bands::Vector{Symbol}`: per IFB column, the reference band of its coverage
@@ -613,15 +617,15 @@ mutable struct BiasLayoutWorkspace
     reference_bands::Vector{Symbol}
     hub_system::Union{Nothing,SupportedTimeSystem}
     hub_rows::Vector{SatelliteMeasurement}
+    clock_systems::Vector{SupportedTimeSystem}
     # Scratch.
     bands::Vector{Symbol}
     effective_systems::Vector{SupportedTimeSystem}
-    unique_effective_systems::Vector{SupportedTimeSystem}
     band_scratch::BandLayoutScratch{Symbol}
 end
 
 BiasLayoutWorkspace() = BiasLayoutWorkspace(Int[], 0, Int[], Symbol[], Symbol[], nothing,
-    SatelliteMeasurement[], Symbol[], SupportedTimeSystem[], SupportedTimeSystem[],
+    SatelliteMeasurement[], SupportedTimeSystem[], Symbol[], SupportedTimeSystem[],
     BandLayoutScratch{Symbol}())
 
 """
@@ -633,6 +637,7 @@ The layout [`decide_bias_layout!`](@ref) last decided into `workspace`. Its vect
 bias_layout(workspace::BiasLayoutWorkspace) = BiasLayout((
     BiasColumns(workspace.clock_bias_indices, workspace.num_clock_biases,
         workspace.ifb_indices, length(workspace.extra_bands)),
+    workspace.clock_systems,
     workspace.extra_bands,
     workspace.reference_bands,
     workspace.hub_system,
@@ -714,8 +719,7 @@ function decide_bias_columns!(workspace::BiasLayoutWorkspace, measurements, hub_
             !isnothing(hub_system) && is_collapsed(workspace.hub_rows, sys) ? hub_system :
             sys
     end
-    unique_effective = unique_time_systems!(workspace.unique_effective_systems,
-        effective_systems)
+    unique_effective = unique_time_systems!(workspace.clock_systems, effective_systems)
     clock_bias_indices = resize!(workspace.clock_bias_indices, length(measurements))
     # `something`: every system is in `unique_effective` by construction, and saying
     # so keeps the columns a `Vector{Int}` rather than widening them with `Nothing`.
@@ -733,7 +737,7 @@ function decide_bias_columns!(workspace::BiasLayoutWorkspace, measurements, hub_
         workspace.bands)
 end
 
-# Four identity-based helpers over the `time_system` field. Every
+# Identity-based helpers over the `time_system` field. Every
 # `GNSSSignals.TimeSystem` is a singleton, so `===` is both the exactly right
 # comparison and the one that compiles to a pointer test — cheaper than `==` or a
 # `Dict` lookup, which branch on the field's `Union` (see `SupportedTimeSystem`) before
@@ -789,6 +793,49 @@ function count_distinct_satellites(measurements)
         repeated || (distinct += 1)
     end
     distinct
+end
+
+"""
+    select_primary_system(measurements, hub_system) -> system
+
+The primary time system of an epoch: the one whose clock bias, reference time, week and
+start epoch define the reported time ([`PVTSolution`](@ref)'s `reference_system`).
+
+- `measurements`: the epoch's rows.
+- `hub_system`: the hub of a collapse ([`BiasLayout`](@ref PositionVelocityTime.BiasLayout)),
+  or `nothing` if there is none.
+
+A collapse is anchored on its hub, so the hub is primary whenever there is one.
+Otherwise the primary is the system with the most rows — the best-conditioned reported
+time — with ties going to the one that appears first. Throws an `ArgumentError` if there
+is neither a hub nor a row. Allocates nothing.
+"""
+function select_primary_system(measurements, hub_system)
+    isnothing(hub_system) || return hub_system
+    isempty(measurements) &&
+        throw(ArgumentError("no hub and no rows to select a primary system from"))
+    # Plain loops rather than `any`/`count`: closures capturing `system`, whose type is
+    # the `SupportedTimeSystem` `Union`, allocated on every call.
+    primary, most_rows = measurements[firstindex(measurements)].time_system, 0
+    for j in eachindex(measurements)
+        system = measurements[j].time_system
+        # Each system is counted once, at its first appearance; a strict `>` then
+        # leaves a tie with the one that appeared first.
+        seen = false
+        for i in firstindex(measurements):(j-1)
+            if measurements[i].time_system === system
+                seen = true
+                break
+            end
+        end
+        seen && continue
+        n = 0
+        for measurement in measurements
+            n += measurement.time_system === system
+        end
+        n > most_rows && ((primary, most_rows) = (system, n))
+    end
+    primary
 end
 
 """
@@ -887,18 +934,40 @@ function calc_hub_range_offsets!(offsets, measurements, hub_rows, hub_system)
     offsets = resize!(offsets, length(measurements))
     fill!(offsets, 0.0)
     isnothing(hub_system) && return offsets
-    hub_index = hub_system_index(hub_system)
     for (j, measurement) in enumerate(measurements)
         # `hub_rows` holds at most one row per collapsed system (two in practice), so a
         # linear identity scan beats hashing a key.
         row_index =
             findfirst(row -> row.time_system === measurement.time_system, hub_rows)
         isnothing(row_index) && continue
-        offsets[j] =
-            -SPEED_OF_LIGHT * calc_steering_offset(
-                hub_rows[row_index].time_offsets[hub_index], measurement.time)
+        offsets[j] = inter_system_bias(hub_rows[row_index], hub_system, measurement.time)
     end
     offsets
+end
+
+"""
+    inter_system_bias(row, hub_system, t = row.time) -> Float64
+
+The range offset (metres) of `row`'s time system against `hub_system` at the own-scale
+time of week `t`: `−c · Δt_systems`, with `Δt_systems` the broadcast steering offset
+`row` carries toward `hub_system` (see [`calc_steering_offset`](@ref)). Added to a
+modeled range it puts a measurement of `row`'s system on the hub's clock. A collapse
+reports it as that system's entry of `inter_system_biases`, evaluated at the transmit
+time of the system's first row (other times differ by the offset's drift term). Zero when
+`row` is of `hub_system` itself, `NaN` where `row` carries no usable offset toward it
+(see [`time_offset_available`](@ref)).
+
+Pass another row's transmit time as `t` to convert that row with this one's offset, as
+[`calc_hub_range_offsets`](@ref) does.
+"""
+function inter_system_bias(
+    row::SatelliteMeasurement,
+    hub_system::SupportedTimeSystem,
+    t = row.time,
+)
+    row.time_system === hub_system && return 0.0
+    -SPEED_OF_LIGHT *
+    calc_steering_offset(row.time_offsets[hub_system_index(hub_system)], t)
 end
 
 """
@@ -1434,22 +1503,10 @@ function _solve_pvt!(
     end
 
     # Primary system — its clock bias, reference time, week and start epoch
-    # define the reported time. A collapse is anchored on its hub system, so the
-    # hub must be primary there; otherwise pick the system with the most
-    # satellites (best-conditioned reported time), breaking ties by first
-    # appearance.
+    # define the reported time (see `select_primary_system`).
     unique_systems = unique_time_systems!(workspace.unique_systems,
         measurement.time_system for measurement in measurements)
-    primary_system = if isnothing(hub_system)
-        most_satellites, most_index = 0, 0
-        for (i, sys) in enumerate(unique_systems)
-            n = count(measurement -> measurement.time_system === sys, measurements)
-            n > most_satellites && ((most_satellites, most_index) = (n, i))
-        end
-        unique_systems[most_index]
-    else
-        hub_system
-    end
+    primary_system = select_primary_system(measurements, hub_system)
     # `something`, not a bare `findfirst`: the primary system is either one of the
     # systems present or the hub, which `decide_bias_layout!` only picks when it is
     # present — so this never fails, and saying so keeps the index an `Int` rather than
@@ -1633,9 +1690,10 @@ function _solve_pvt!(
 
     # Inter-system biases relative to the reference (primary) system's clock, in
     # meters. The reference is omitted (its bias is `time_correction`); for a
-    # collapsed system this is the broadcast offset −c·Δt_systems, read from the
-    # system's first satellite (the per-satellite offsets differ only by the offset
-    # polynomial's drift term over the transmit-time spread — sub-millimetre).
+    # collapsed system this is the broadcast offset −c·Δt_systems, `hub_offsets` as
+    # `inter_system_bias` computed it, read at the system's first satellite (the
+    # per-satellite offsets differ only by the offset polynomial's drift term over the
+    # transmit-time spread — sub-millimetre).
     inter_system_biases = empty!(solution.inter_system_biases)
     for sys in unique_systems
         sys === primary_system && continue

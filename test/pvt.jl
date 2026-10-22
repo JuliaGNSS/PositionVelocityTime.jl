@@ -318,6 +318,23 @@ end
     # its own transmit time — so the two corrections differ (by the polynomial's drift
     # term) rather than being one shared scalar.
     @test offsets[3] != offsets[4]
+    # `inter_system_bias` is that correction for one row: the offset-carrying row's own,
+    # or applied at another row's transmit time; zero for the hub's own system.
+    @test PositionVelocityTime.inter_system_bias(offset_rows[3], GPST()) == offsets[3]
+    @test PositionVelocityTime.inter_system_bias(
+        offset_rows[3], GPST(), offset_rows[4].time) == offsets[4]
+    @test PositionVelocityTime.inter_system_bias(offset_rows[1], GPST()) == 0.0
+    @test isnan(PositionVelocityTime.inter_system_bias(offset_rows[4], GPST()))
+
+    # The primary system: the hub whenever there is one, otherwise the system with the
+    # most rows, a tie going to the one that appears first.
+    select = PositionVelocityTime.select_primary_system
+    @test select(offset_rows, nothing) == GPST()
+    @test select(offset_rows[2:4], nothing) == GST()
+    @test select(offset_rows[[3, 1, 2, 4]], nothing) == GST()
+    @test select(offset_rows, GST()) == GST()
+    @test select(offset_rows[1:0], GPST()) == GPST()
+    @test_throws ArgumentError select(offset_rows[1:0], nothing)
     @test PositionVelocityTime.calc_hub_range_offsets(
         offset_rows, PositionVelocityTime.SatelliteMeasurement[], nothing) == zeros(4)
 end
@@ -334,6 +351,11 @@ end
 
     @test pvt.reference_system == GST()
     @test Set(keys(pvt.inter_system_biases)) == Set([GPST()])
+    # Independent clocks, one column per system in order of first appearance.
+    layout = PositionVelocityTime.decide_bias_layout(measurement_rows(groups))
+    @test layout.clock_systems == [GPST(), GST()]
+    @test layout.bias_columns.clock_bias_indices ==
+          [fill(1, length(gps[1:2])); fill(2, length(gal))]
     @test pvt.time ≈ gal_only.time
     @test norm(pvt.position - gal_only.position) < 10
 end

@@ -330,6 +330,11 @@ end
         # The time-system and ENU helpers.
         @test PositionVelocityTime.unique_time_systems((GPST(), GST(), GPST(), BDT())) ==
               [GPST(), GST(), BDT()]
+        mixed_rows = measurement_rows((gps = l1ca, galileo = e1b))
+        select_primary(rows) = @allocated PositionVelocityTime.select_primary_system(
+            rows, nothing)
+        select_primary(mixed_rows)
+        @test select_primary(mixed_rows) == 0
         user = ECEF(4.0186e6, 427035.0, 4.918e6)
         sat = ECEF(1.5e7, 1.0e7, 1.8e7)
         @test get_sat_enu(user, sat) == get_sat_enu(ENUfromECEF(user, wgs84), sat)
