@@ -1,5 +1,17 @@
 # Changelog
 
+# [7.1.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v7.0.0...v7.1.0) (2026-10-22)
+
+
+### Bug Fixes
+
+* seed each clock column from its own system on a warm start ([717ec41](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/717ec411e7631942adc436d6e684fbf45703a629))
+
+
+### Features
+
+* share the primary-system rule and inter_system_bias ([9741c76](https://github.com/JuliaGNSS/PositionVelocityTime.jl/commit/9741c76f0e2ee65cdda2fa4ac7d9150734720da4))
+
 # [7.0.0](https://github.com/JuliaGNSS/PositionVelocityTime.jl/compare/v6.2.0...v7.0.0) (2026-10-16)
 
 
