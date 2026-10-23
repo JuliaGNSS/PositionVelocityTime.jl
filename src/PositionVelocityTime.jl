@@ -68,7 +68,7 @@ from the ECEF frame of transmission into the one of reception.
 const EARTH_ROTATION_RATE = 7.2921151467e-5
 
 # PDOP above which a previous solution is distrusted as a warm-start seed and
-# discarded (see the gate at the top of `calc_pvt`). Genuine geometries this
+# discarded (see the warm-start seeding in `_solve_pvt!`). Genuine geometries this
 # side of useless stay well under it — a PDOP of 20 is already an unusable fix —
 # while the spurious far-away roots the gate exists to catch show hundreds (the
 # observed incident: 587). Discarding a fix that honestly earned a high DOP is
@@ -1083,9 +1083,11 @@ end
 """
     PVTWorkspace()
 
-The reusable scratch storage of [`calc_pvt!`](@ref): the flat measurement rows, the bias
-layout, the pseudoranges and their corrections, the least-squares buffers, the design
-and normal-equations matrices, the velocity solve's design rows and the residuals. Every buffer grows to the largest epoch
+The reusable scratch storage of [`calc_pvt!`](@ref), in the order the solve uses it: the
+flat measurement rows and their bias layout, the pseudoranges and the warm-start seed, the
+satellite positions and the atmosphere-corrected pseudoranges the position solve fits, its
+least-squares buffers and residuals, the design and normal-equations matrices of the DOP,
+and the velocity solve's design rows and residuals. Every buffer grows to the largest epoch
 it has seen and is reused from then on; its contents after a solve are not part of any
 interface.
 
@@ -1098,33 +1100,33 @@ matrices sized by it are kept at their largest and used through views.
 mutable struct PVTWorkspace
     measurements::Vector{SatelliteMeasurement}
     layout::BiasLayout
-    sat_positions::Vector{SVector{3,Float64}}
     pseudoranges::Vector{Float64}
+    prev_ξ::Vector{Float64}
+    sat_positions::Vector{SVector{3,Float64}}
     atmospheric_delays::Vector{Float64}
     corrected_ranges::Vector{Float64}
-    prev_ξ::Vector{Float64}
+    least_squares::LMWorkspace
     residuals::Vector{Float64}
-    rate_residuals::Vector{Float64}
-    velocity_design::Vector{SVector{4,Float64}}
     design_matrix::Matrix{Float64}
     normal_matrix::Matrix{Float64}
-    least_squares::LMWorkspace
+    velocity_design::Vector{SVector{4,Float64}}
+    rate_residuals::Vector{Float64}
 end
 
 PVTWorkspace() = PVTWorkspace(
     SatelliteMeasurement[],
     BiasLayout(),
+    Float64[],
+    Float64[],
     SVector{3,Float64}[],
     Float64[],
     Float64[],
-    Float64[],
-    Float64[],
-    Float64[],
-    Float64[],
-    SVector{4,Float64}[],
-    Matrix{Float64}(undef, 0, 0),
-    Matrix{Float64}(undef, 0, 0),
     LMWorkspace(),
+    Float64[],
+    Matrix{Float64}(undef, 0, 0),
+    Matrix{Float64}(undef, 0, 0),
+    SVector{4,Float64}[],
+    Float64[],
 )
 
 """
@@ -1462,16 +1464,6 @@ function _solve_pvt!(
     enable_tropospheric_correction::Bool,
 )
     measurements = workspace.measurements
-
-    # Gauss-Newton converges within its seed's basin, so a spurious far-away root
-    # would re-seed itself epoch after epoch. Such roots flag themselves with an
-    # impossible geometry (negative GDOP, exploded PDOP): solve from a cold seed
-    # instead. Only the seed is affected — an unsolvable epoch still returns
-    # `prev_pvt` unchanged.
-    distrusted =
-        !isnothing(prev_pvt.dop) &&
-        (prev_pvt.dop.GDOP < 0 || prev_pvt.dop.PDOP > MAX_TRUSTED_WARM_START_PDOP)
-
     num_sats = length(measurements)
 
     # Every satellite that was not decoded-complete-and-healthy has already been
@@ -1492,12 +1484,6 @@ function _solve_pvt!(
     bias_columns = fit_columns(layout)
     (; clock_bias_indices, num_clock_biases) = bias_columns
     num_params = num_lsq_params(bias_columns)
-
-    # The propagated ephemerides, already evaluated per satellite by the collection pass.
-    sat_positions = resize!(workspace.sat_positions, num_sats)
-    for j in 1:num_sats
-        sat_positions[j] = measurements[j].position
-    end
 
     # Reference system — its clock bias, reference time, week and start epoch
     # define the reported time (see `select_reference_system`).
@@ -1538,6 +1524,15 @@ function _solve_pvt!(
     start_time = reference_measurement.system_start_epoch
     doy = day_of_year(reference_measurement.system_start_time, week, reference_time)
 
+    # Gauss-Newton converges within its seed's basin, so a spurious far-away root
+    # would re-seed itself epoch after epoch. Such roots flag themselves with an
+    # impossible geometry (negative GDOP, exploded PDOP): solve from a cold seed
+    # instead. Only the seed is affected — an unsolvable epoch still returns
+    # `prev_pvt` unchanged.
+    distrusted =
+        !isnothing(prev_pvt.dop) &&
+        (prev_pvt.dop.GDOP < 0 || prev_pvt.dop.PDOP > MAX_TRUSTED_WARM_START_PDOP)
+
     # Seed each clock bias from the previous solution, reconstructing a system's
     # absolute bias from the reference bias plus its stored inter-system bias. A
     # distrusted previous solution seeds nothing: the state stays all zeros, the cold
@@ -1570,6 +1565,12 @@ function _solve_pvt!(
                 haskey(prev_ifbs, band) && prev_ifbs[band].reference_band == reference_bands[i] ?
                 ustrip(m, prev_ifbs[band].value) : 0.0
         end
+    end
+
+    # The satellite positions at transmission, from the collection pass.
+    sat_positions = resize!(workspace.sat_positions, num_sats)
+    for j in 1:num_sats
+        sat_positions[j] = measurements[j].position
     end
 
     # Atmospheric corrections, summed per satellite and subtracted from the
