@@ -43,9 +43,10 @@
 """
     KlobucharParameters(α_0, α_1, α_2, α_3, β_0, β_1, β_2, β_3)
 
-The eight Klobuchar ionospheric coefficients decoded from a GPS L1 navigation
-message, in IS-GPS-200 SI units (seconds and seconds·semicircle⁻ⁿ). The field
-names mirror `GNSSDecoder.GPSL1CAData` (`α_0…α_3`, `β_0…β_3`).
+The eight Klobuchar ionospheric coefficients decoded from a GPS navigation message
+(LNAV, CNAV or CNAV-2 — every civil signal broadcasts the same set), in IS-GPS-200 SI
+units (seconds and seconds·semicircle⁻ⁿ). The field names mirror GNSSDecoder's GPS
+data containers (`α_0…α_3`, `β_0…β_3`).
 """
 struct KlobucharParameters
     α_0::Float64
