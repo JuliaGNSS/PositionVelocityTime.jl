@@ -286,7 +286,7 @@ block of `D` is in ECEF; it is rotated into
 the local ENU frame at `user_pos` before the horizontal/vertical split, so `HDOP`/`VDOP`
 are taken in the user's tangent plane (`PDOP`/`GDOP` are trace-invariant and unaffected
 by the rotation). `GDOP` spans all parameters; `TDOP` reports the clock variance of the
-primary (reference) system — see [`PVTSolution`](@ref) — while the other systems' clock
+reference system — see [`PVTSolution`](@ref) — while the other systems' clock
 (inter-system-bias) and the inter-frequency-bias variances enter `GDOP` only.
 
 A rank-deficient geometry makes `HᵀH` singular (not positive definite, or only to
@@ -296,14 +296,14 @@ within rounding); the factorisation detects this and the function returns the se
 $SIGNATURES
 `H_GEO`: Geometry matrix
 `user_pos`: User ECEF position, for the ECEF→ENU rotation of the horizontal/vertical DOPs
-`primary_clock_index`: Index (1…num_clock_biases) of the clock column whose variance is reported as TDOP
+`reference_clock_index`: Index (1…num_clock_biases) of the clock column whose variance is reported as TDOP
 """
-calc_DOP(H_GEO, user_pos::ECEF, primary_clock_index = 1) = calc_DOP!(
+calc_DOP(H_GEO, user_pos::ECEF, reference_clock_index = 1) = calc_DOP!(
     Matrix{Float64}(undef, size(H_GEO, 2), size(H_GEO, 2)), H_GEO, user_pos,
-    primary_clock_index)
+    reference_clock_index)
 
 """
-    calc_DOP!(normal_matrix, H_GEO, user_pos::ECEF, primary_clock_index = 1) -> DOP
+    calc_DOP!(normal_matrix, H_GEO, user_pos::ECEF, reference_clock_index = 1) -> DOP
 
 [`calc_DOP`](@ref) with the normal-equations matrix `HᵀH` formed, factorised and
 inverted in `normal_matrix` (`n × n` for the `n` columns of `H_GEO`, overwritten), so
@@ -311,7 +311,7 @@ that it allocates nothing. The factorisation is LAPACK's Cholesky `potrf`, follo
 a relative rank test on its pivots, and the inverse is `potri` on that factor — what
 `inv` of a `Cholesky` computes.
 """
-function calc_DOP!(normal_matrix, H_GEO, user_pos::ECEF, primary_clock_index = 1)
+function calc_DOP!(normal_matrix, H_GEO, user_pos::ECEF, reference_clock_index = 1)
     # HᵀH is symmetric positive definite iff H has full column rank, so a
     # rank-deficient (singular) geometry fails gracefully here instead of throwing —
     # see `factorize_normal_matrix!`. The inverse of an SPD matrix is itself SPD, so
@@ -342,7 +342,7 @@ function calc_DOP!(normal_matrix, H_GEO, user_pos::ECEF, primary_clock_index = 1
     HDOP = sqrt(D_enu[1, 1] + D_enu[2, 2])   # horizontal dop (East² + North²)
     VDOP = sqrt(D_enu[3, 3])                 # vertical dop (Up)
     PDOP = sqrt(D(1, 1) + D(2, 2) + D(3, 3)) # position dop (trace-invariant)
-    TDOP = sqrt(D(3 + primary_clock_index, 3 + primary_clock_index)) # temporal dop (reference system)
+    TDOP = sqrt(D(3 + reference_clock_index, 3 + reference_clock_index)) # temporal dop (reference system)
     GDOP = sqrt(sum(i -> D(i, i), 1:n))      # geometrical dop (all parameters)
 
     return DOP(GDOP, PDOP, VDOP, HDOP, TDOP)

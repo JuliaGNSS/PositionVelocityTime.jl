@@ -158,7 +158,7 @@ PositionVelocityTime.decide_bias_layout!
 PositionVelocityTime.BiasLayoutWorkspace
 PositionVelocityTime.bias_layout
 PositionVelocityTime.BiasLayout
-PositionVelocityTime.select_primary_system
+PositionVelocityTime.select_reference_system
 PositionVelocityTime.calc_ρ_hat!
 PositionVelocityTime.calc_H
 PositionVelocityTime.calc_DOP
@@ -171,7 +171,7 @@ PositionVelocityTime.calc_time_scale_offsets
 PositionVelocityTime.time_offset_available
 PositionVelocityTime.broadcast_time_offset
 PositionVelocityTime.calc_steering_offset
-PositionVelocityTime.inter_system_bias
+PositionVelocityTime.broadcast_inter_system_bias
 PositionVelocityTime.get_week
 PositionVelocityTime.system_start_epoch
 PositionVelocityTime.day_of_year

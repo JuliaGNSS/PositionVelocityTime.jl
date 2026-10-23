@@ -796,27 +796,27 @@ function count_distinct_satellites(measurements)
 end
 
 """
-    select_primary_system(measurements, hub_system) -> system
+    select_reference_system(measurements, hub_system) -> system
 
-The primary time system of an epoch: the one whose clock bias, reference time, week and
+The reference time system of an epoch: the one whose clock bias, reference time, week and
 start epoch define the reported time ([`PVTSolution`](@ref)'s `reference_system`).
 
 - `measurements`: the epoch's rows.
 - `hub_system`: the hub of a collapse ([`BiasLayout`](@ref PositionVelocityTime.BiasLayout)),
   or `nothing` if there is none.
 
-A collapse is anchored on its hub, so the hub is primary whenever there is one.
-Otherwise the primary is the system with the most rows — the best-conditioned reported
+A collapse is anchored on its hub, so the hub is the reference whenever there is one.
+Otherwise the reference is the system with the most rows — the best-conditioned reported
 time — with ties going to the one that appears first. Throws an `ArgumentError` if there
 is neither a hub nor a row. Allocates nothing.
 """
-function select_primary_system(measurements, hub_system)
+function select_reference_system(measurements, hub_system)
     isnothing(hub_system) || return hub_system
     isempty(measurements) &&
-        throw(ArgumentError("no hub and no rows to select a primary system from"))
+        throw(ArgumentError("no hub and no rows to select a reference system from"))
     # Plain loops rather than `any`/`count`: closures capturing `system`, whose type is
     # the `SupportedTimeSystem` `Union`, allocated on every call.
-    primary, most_rows = measurements[firstindex(measurements)].time_system, 0
+    reference, most_rows = measurements[firstindex(measurements)].time_system, 0
     for j in eachindex(measurements)
         system = measurements[j].time_system
         # Each system is counted once, at its first appearance; a strict `>` then
@@ -833,9 +833,9 @@ function select_primary_system(measurements, hub_system)
         for measurement in measurements
             n += measurement.time_system === system
         end
-        n > most_rows && ((primary, most_rows) = (system, n))
+        n > most_rows && ((reference, most_rows) = (system, n))
     end
-    primary
+    reference
 end
 
 """
@@ -846,7 +846,7 @@ instant — `get_tai_offset(GPST) − get_tai_offset(time_system)`, so **negativ
 where the system's count reads lower (BDT: `19 − 33 = −14.0`), and `0.0` for a
 system that counts alike. `calc_time_scale_offsets` adds the *difference of two
 of these* to a transmit time, which is what puts the +14 s onto a BeiDou time
-in a GPS-primary solve.
+in a GPS-referenced solve.
 
 This is structural, not a bias: it follows from the time scales' definitions, not
 from either system's steering. Both GPST and GST are `TAI − 19 s`, so they count
@@ -871,17 +871,17 @@ time_scale_offset_to_gpst(time_system::GNSSSignals.TimeSystem) =
     ustrip(s, get_tai_offset(GPST()) - get_tai_offset(time_system))
 
 """
-    calc_time_scale_offsets(measurements, primary_system) -> Vector{Float64}
+    calc_time_scale_offsets(measurements, reference_system) -> Vector{Float64}
 
 Seconds to add to each satellite's transmit time to express it in
-`primary_system`'s count, so that `calc_pseudoranges` may difference them.
+`reference_system`'s count, so that `calc_pseudoranges` may difference them.
 `0.0` for every satellite of a system that counts alike — which is every GPS and
 Galileo satellite, and all of them in a single-constellation epoch.
 
-Relative to the *primary* system rather than to GPS Time, because the primary
+Relative to the *reference* system rather than to GPS Time, because the reference
 system's count is also what dates the reported epoch: `reference_time` comes out
-of the same differencing, and is combined with the primary system's week and
-`system_start_epoch`. Anchoring on GPST instead leaves a BeiDou-primary solve
+of the same differencing, and is combined with the reference system's week and
+`system_start_epoch`. Anchoring on GPST instead leaves a BeiDou-referenced solve
 reporting a GPS-count time of week dated from the BDT epoch — a 14 s error in
 `PVTSolution.time` traded for the one this removes from the pseudoranges.
 
@@ -892,18 +892,18 @@ shifting the time itself would move the offset into the ephemeris — about 55 k
 of along-track error at BeiDou MEO velocities. `SatInfo.time` and
 [`calc_steering_offset`](@ref) likewise keep the unconverted value.
 """
-calc_time_scale_offsets(measurements, primary_system) = calc_time_scale_offsets!(
-    Vector{Float64}(undef, length(measurements)), measurements, primary_system)
+calc_time_scale_offsets(measurements, reference_system) = calc_time_scale_offsets!(
+    Vector{Float64}(undef, length(measurements)), measurements, reference_system)
 
 # `calc_time_scale_offsets` into `offsets`, resized to the satellite count.
-function calc_time_scale_offsets!(offsets, measurements, primary_system)
+function calc_time_scale_offsets!(offsets, measurements, reference_system)
     offsets = resize!(offsets, length(measurements))
-    primary = time_scale_offset_to_gpst(primary_system)
+    reference = time_scale_offset_to_gpst(reference_system)
     # Each row already carries its own anchor (`count_offset_to_gpst`), precomputed by
     # `collect_measurements`, so this reads a number rather than branching on the
     # `time_system` field per satellite.
     for (j, measurement) in enumerate(measurements)
-        offsets[j] = primary - measurement.count_offset_to_gpst
+        offsets[j] = reference - measurement.count_offset_to_gpst
     end
     offsets
 end
@@ -940,27 +940,28 @@ function calc_hub_range_offsets!(offsets, measurements, hub_rows, hub_system)
         row_index =
             findfirst(row -> row.time_system === measurement.time_system, hub_rows)
         isnothing(row_index) && continue
-        offsets[j] = inter_system_bias(hub_rows[row_index], hub_system, measurement.time)
+        offsets[j] =
+            broadcast_inter_system_bias(hub_rows[row_index], hub_system, measurement.time)
     end
     offsets
 end
 
 """
-    inter_system_bias(row, hub_system, t = row.time) -> Float64
+    broadcast_inter_system_bias(row, hub_system, t = row.time) -> Float64
 
-The range offset (metres) of `row`'s time system against `hub_system` at the own-scale
-time of week `t`: `−c · Δt_systems`, with `Δt_systems` the broadcast steering offset
-`row` carries toward `hub_system` (see [`calc_steering_offset`](@ref)). Added to a
-modeled range it puts a measurement of `row`'s system on the hub's clock. A collapse
-reports it as that system's entry of `inter_system_biases`, evaluated at the transmit
-time of the system's first row (other times differ by the offset's drift term). Zero when
-`row` is of `hub_system` itself, `NaN` where `row` carries no usable offset toward it
-(see [`time_offset_available`](@ref)).
+The inter-system bias (metres) of `row`'s time system against `hub_system` that the
+broadcast offset predicts, at the own-scale time of week `t`: `−c · Δt_systems`, with
+`Δt_systems` the broadcast steering offset `row` carries toward `hub_system` (see
+[`calc_steering_offset`](@ref)). Added to a modeled range it puts a measurement of `row`'s
+system on the hub's clock. A collapse reports it as that system's entry of
+`inter_system_biases`, evaluated at the transmit time of the system's first row (other
+times differ by the offset's drift term). Zero when `row` is of `hub_system` itself, `NaN`
+where `row` carries no usable offset toward it (see [`time_offset_available`](@ref)).
 
 Pass another row's transmit time as `t` to convert that row with this one's offset, as
 [`calc_hub_range_offsets`](@ref) does.
 """
-function inter_system_bias(
+function broadcast_inter_system_bias(
     row::SatelliteMeasurement,
     hub_system::SupportedTimeSystem,
     t = row.time,
@@ -1205,7 +1206,7 @@ See [`tropospheric_delay`](@ref).
   share a ranging signal can still collide, and are not checked for.
 
   **Order is significant**, as vector order was before it: the flat measurement order
-  is group order × within-group order, and it fixes the primary system's tie-break
+  is group order × within-group order, and it fixes the reference system's tie-break
   ("most satellites, ties by first appearance"), [`band_ifb_layout`](@ref)'s
   reference-band tie-break, and the insertion order of `PVTSolution.sats`.
 - `prev_pvt`: Previous PVT solution used as initial guess (default: origin). A
@@ -1502,20 +1503,20 @@ function _solve_pvt!(
         sat_positions[j] = measurements[j].position
     end
 
-    # Primary system — its clock bias, reference time, week and start epoch
-    # define the reported time (see `select_primary_system`).
+    # Reference system — its clock bias, reference time, week and start epoch
+    # define the reported time (see `select_reference_system`).
     unique_systems = unique_time_systems!(workspace.unique_systems,
         measurement.time_system for measurement in measurements)
-    primary_system = select_primary_system(measurements, hub_system)
-    # `something`, not a bare `findfirst`: the primary system is either one of the
+    reference_system = select_reference_system(measurements, hub_system)
+    # `something`, not a bare `findfirst`: the reference system is either one of the
     # systems present or the hub, which `decide_bias_layout!` only picks when it is
     # present — so this never fails, and saying so keeps the index an `Int` rather than
     # a `Union{Int,Nothing}` that would widen the clock column and the DOP call below.
-    primary_index = something(
-        findfirst(measurement -> measurement.time_system === primary_system, measurements))
-    primary_clock_index = clock_bias_indices[primary_index]
+    reference_index = something(
+        findfirst(measurement -> measurement.time_system === reference_system, measurements))
+    reference_clock_index = clock_bias_indices[reference_index]
 
-    # The common reference cancels out of the reported time (the primary clock
+    # The common reference cancels out of the reported time (the reference clock
     # bias absorbs it), so any latest-transmit-time reference works — but the times
     # must first be put on one count (`calc_time_scale_offsets!`).
     # A BeiDou second-of-week reads 14 s below a GPS time of week for the same instant,
@@ -1526,7 +1527,7 @@ function _solve_pvt!(
     # The offsets are written straight into the pseudorange buffer, and the transmit
     # times added onto them, so no separate offset buffer is needed.
     pseudoranges =
-        calc_time_scale_offsets!(workspace.pseudoranges, measurements, primary_system)
+        calc_time_scale_offsets!(workspace.pseudoranges, measurements, reference_system)
     for (j, measurement) in enumerate(measurements)
         pseudoranges[j] += measurement.time
     end
@@ -1540,13 +1541,13 @@ function _solve_pvt!(
         calc_hub_range_offsets!(workspace.hub_offsets, measurements, hub_rows, hub_system)
     pseudoranges .-= hub_offsets
 
-    # The primary system's week and start epoch date the epoch absolutely: the day of
+    # The reference system's week and start epoch date the epoch absolutely: the day of
     # year feeds the tropospheric mapping's seasonal term here, and week/start epoch
     # date the reported time after the solve.
-    primary_measurement = measurements[primary_index]
-    week = primary_measurement.week
-    start_time = primary_measurement.system_start_epoch
-    doy = day_of_year(primary_measurement.system_start_time, week, reference_time)
+    reference_measurement = measurements[reference_index]
+    week = reference_measurement.week
+    start_time = reference_measurement.system_start_epoch
+    doy = day_of_year(reference_measurement.system_start_time, week, reference_time)
 
     # Seed each clock bias from the previous solution, reconstructing a system's
     # absolute bias from the reference bias plus its stored inter-system bias. A
@@ -1643,7 +1644,7 @@ function _solve_pvt!(
     # `calc_user_velocity_and_clock_drift`).
     workspace.normal_matrix = grown(workspace.normal_matrix, num_params, num_params)
     dop = calc_DOP!(view(workspace.normal_matrix, 1:num_params, 1:num_params), H, position,
-        primary_clock_index)
+        reference_clock_index)
 
     dop.GDOP < 0 && return (false, prev_pvt)
 
@@ -1667,7 +1668,7 @@ function _solve_pvt!(
         user_velocity_and_clock_drift[2],
         user_velocity_and_clock_drift[3],
     )
-    time_correction = ξ[3+primary_clock_index]
+    time_correction = ξ[3+reference_clock_index]
     # The estimated time correction is negative
     # See https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/8
     corrected_reference_time = reference_time - time_correction / SPEED_OF_LIGHT
@@ -1696,15 +1697,15 @@ function _solve_pvt!(
             rate_residuals[j] * (m / s)))
     end
 
-    # Inter-system biases relative to the reference (primary) system's clock, in
+    # Inter-system biases relative to the reference system's clock, in
     # meters. The reference is omitted (its bias is `time_correction`); for a
     # collapsed system this is the broadcast offset −c·Δt_systems, `hub_offsets` as
-    # `inter_system_bias` computed it, read at the system's first satellite (the
+    # `broadcast_inter_system_bias` computed it, read at the system's first satellite (the
     # per-satellite offsets differ only by the offset polynomial's drift term over the
     # transmit-time spread — sub-millimetre).
     inter_system_biases = empty!(solution.inter_system_biases)
     for sys in unique_systems
-        sys === primary_system && continue
+        sys === reference_system && continue
         j = something(findfirst(measurement -> measurement.time_system === sys, measurements))
         inter_system_biases[sys] =
             (ξ[3+clock_bias_indices[j]] + hub_offsets[j] - time_correction) * m
@@ -1734,7 +1735,7 @@ function _solve_pvt!(
         user_velocity_and_clock_drift[4] / SPEED_OF_LIGHT,
         dop,
         sats,
-        primary_system,
+        reference_system,
         inter_system_biases,
         inter_frequency_biases,
     )

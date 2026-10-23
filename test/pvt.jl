@@ -330,17 +330,18 @@ end
     # its own transmit time — so the two corrections differ (by the polynomial's drift
     # term) rather than being one shared scalar.
     @test offsets[3] != offsets[4]
-    # `inter_system_bias` is that correction for one row: the offset-carrying row's own,
-    # or applied at another row's transmit time; zero for the hub's own system.
-    @test PositionVelocityTime.inter_system_bias(offset_rows[3], GPST()) == offsets[3]
-    @test PositionVelocityTime.inter_system_bias(
+    # `broadcast_inter_system_bias` is that correction for one row: the offset-carrying
+    # row's own, or applied at another row's transmit time; zero for the hub's own system.
+    @test PositionVelocityTime.broadcast_inter_system_bias(offset_rows[3], GPST()) ==
+          offsets[3]
+    @test PositionVelocityTime.broadcast_inter_system_bias(
         offset_rows[3], GPST(), offset_rows[4].time) == offsets[4]
-    @test PositionVelocityTime.inter_system_bias(offset_rows[1], GPST()) == 0.0
-    @test isnan(PositionVelocityTime.inter_system_bias(offset_rows[4], GPST()))
+    @test PositionVelocityTime.broadcast_inter_system_bias(offset_rows[1], GPST()) == 0.0
+    @test isnan(PositionVelocityTime.broadcast_inter_system_bias(offset_rows[4], GPST()))
 
-    # The primary system: the hub whenever there is one, otherwise the system with the
+    # The reference system: the hub whenever there is one, otherwise the system with the
     # most rows, a tie going to the one that appears first.
-    select = PositionVelocityTime.select_primary_system
+    select = PositionVelocityTime.select_reference_system
     @test select(offset_rows, nothing) == GPST()
     @test select(offset_rows[2:4], nothing) == GST()
     @test select(offset_rows[[3, 1, 2, 4]], nothing) == GST()
@@ -351,9 +352,9 @@ end
         offset_rows, PositionVelocityTime.SatelliteMeasurement[], nothing) == zeros(4)
 end
 
-@testset "PVT primary system is the most-populated GNSS" begin
+@testset "PVT reference system is the most-populated GNSS" begin
     # Galileo-majority independent mix (2 GPS + 5 Galileo): no GGTO collapse, so
-    # the primary system — which sets the reported time scale and time_correction
+    # the reference system — which sets the reported time scale and time_correction
     # — should be Galileo, the constellation with more satellites.
     gps = gps_l1_states(0.0Hz)
     gal = galileo_e1b_states(0.0Hz)

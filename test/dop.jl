@@ -50,8 +50,8 @@
     @test dop_singular.PDOP == -1
 
     # Multi-GNSS: 3 position + 2 clock columns (3 sats per system). GDOP/HDOP are
-    # independent of which clock is "primary"; TDOP reports the selected system's
-    # clock variance, so it changes with primary_clock_index.
+    # independent of which clock is the reference; TDOP reports the selected system's
+    # clock variance, so it changes with reference_clock_index.
     azels6 = [azels; (deg2rad(300), deg2rad(35))]
     sys = [1, 1, 1, 2, 2, 2]
     H_multi = reduce(

@@ -44,7 +44,7 @@
     end
 
     @testset "group order is significant, exactly as vector order was" begin
-        # The primary system is the most-populated one, ties broken by first
+        # The reference system is the most-populated one, ties broken by first
         # appearance — so two groups of equal size swap which one dates the fix.
         # Three each: two systems need 3 + 2 measurements from as many distinct
         # satellites, so a pair each would not solve at all.

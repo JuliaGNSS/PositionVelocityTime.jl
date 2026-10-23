@@ -465,19 +465,19 @@
         @test PositionVelocityTime.time_scale_offset_to_gpst(GPST()) == 0.0
         @test PositionVelocityTime.time_scale_offset_to_gpst(GST()) == 0.0
         @test PositionVelocityTime.time_scale_offset_to_gpst(BDT()) == -14.0
-        # Per satellite it is the seconds to add to reach the *primary* system's count,
+        # Per satellite it is the seconds to add to reach the *reference* system's count,
         # applied whether or not a clock collapsed. Read off each measurement row's
         # precomputed `count_offset_to_gpst`, so a row carrying only that field is
-        # enough here. GPS-primary: BeiDou needs +14 s.
+        # enough here. GPS-referenced: BeiDou needs +14 s.
         row(system) = (;
             count_offset_to_gpst = PositionVelocityTime.time_scale_offset_to_gpst(system),
         )
-        offsets(systems, primary) =
-            PositionVelocityTime.calc_time_scale_offsets(map(row, systems), primary)
+        offsets(systems, reference) =
+            PositionVelocityTime.calc_time_scale_offsets(map(row, systems), reference)
         @test offsets([GPST(), BDT(), GST(), BDT()], GPST()) == [0.0, 14.0, 0.0, 14.0]
-        # BeiDou-primary: the sign reverses, and a BeiDou-only epoch needs nothing —
-        # which is why anchoring on GPST instead of the primary system would have
-        # traded this bug for a 14 s error in the reported time of every BDT-primary
+        # BeiDou-referenced: the sign reverses, and a BeiDou-only epoch needs nothing —
+        # which is why anchoring on GPST instead of the reference system would have
+        # traded this bug for a 14 s error in the reported time of every BDT-referenced
         # fix, where `reference_time` is dated from the BDT epoch.
         @test offsets([BDT(), GPST(), BDT()], BDT()) == [0.0, -14.0, 0.0]
         @test all(iszero, offsets([BDT(), BDT(), BDT()], BDT()))
@@ -887,7 +887,7 @@
         # Galileo instead: the BGTO's GNSS_ID names Galileo (2) as well as GPS (1)
         # — BDS-SIS-ICD-B1C-1.0 §7.13.1 — and `decide_bias_layout` tries GST as the
         # hub once GPST is not in the epoch. Everything downstream follows the hub:
-        # the primary system, the reported time scale, and the inter-system-bias
+        # the reference system, the reported time scale, and the inter-system-bias
         # readout. (The defined BDT count offset against GST is the same 14 s as
         # against GPST — both GPST and GST are TAI − 19 s — so the same `structural`
         # and steering values apply.)
