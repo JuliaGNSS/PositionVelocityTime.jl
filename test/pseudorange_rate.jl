@@ -154,7 +154,7 @@ end
     # ~2 cm of range — so the position is exact only to millimetres.
     @test norm(pvt.position - user_pos) < 1e-2
     @test norm(pvt.velocity - user_vel) < 1e-5
-    @test pvt.relative_clock_drift * c ≈ clock_drift atol = 1e-5
+    @test ustrip(m / s, pvt.clock_drift) ≈ clock_drift atol = 1e-5
     @test maximum(info -> abs(ustrip(m / s, info.rate_residual)), pvt.satellites) < 1e-5
 end
 
@@ -171,7 +171,7 @@ end
     user_vel = SVector{3,Float64}(pvt.velocity)
     for row in measurement_rows(groups)
         modelled = PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel,
-            pvt.relative_clock_drift * c, row.position, row.velocity, row.clock_drift)
+            ustrip(m / s, pvt.clock_drift), row.position, row.velocity, row.satellite_clock_drift)
         measured = -row.carrier_doppler * c / row.center_frequency
         residual = ustrip(m / s, pvt.satellites[(row.signal_id, row.prn)].rate_residual)
         @test abs(residual) > 1e-3
@@ -203,7 +203,7 @@ with_pseudorange_rate(measurement, rate) = PositionVelocityTime.SatelliteMeasure
         truth = SVector(user_vel..., clock_drift)
         exact = [with_pseudorange_rate(row,
             PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel, clock_drift,
-                row.position, row.velocity, row.clock_drift)) for row in rows]
+                row.position, row.velocity, row.satellite_clock_drift)) for row in rows]
         # From rest: hundreds of m/s and kilometres per second of drift in one step.
         solved, residuals =
             PositionVelocityTime.estimate_velocity(exact, user_pos)
@@ -229,11 +229,11 @@ end
     warm = calc_pvt(groups, cold; kwargs...)
     rate_residuals(pvt) = [ustrip(m / s, info.rate_residual) for info in pvt.satellites]
     @test norm(warm.velocity - cold.velocity) < 1e-9
-    @test warm.relative_clock_drift ≈ cold.relative_clock_drift atol = 1e-9 / 3e8
+    @test warm.clock_drift ≈ cold.clock_drift atol = 1e-9m / s
     @test maximum(abs, rate_residuals(warm) - rate_residuals(cold)) < 1e-9
 
     # A previous solution with a non-finite velocity is the cold start.
     broken = PVTSolution(; position = cold.position, dop = cold.dop,
-        velocity = ECEF(NaN, NaN, NaN), relative_clock_drift = NaN)
+        velocity = ECEF(NaN, NaN, NaN), clock_drift = NaN * m / s)
     @test calc_pvt(groups, broken; kwargs...).velocity ≈ cold.velocity atol = 1e-9
 end

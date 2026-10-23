@@ -20,7 +20,8 @@
     # the Earth-rotation angle (see `estimate_velocity`), which moved this by ~3 mm/s
     # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
     # with the Doppler, so the frequency offsets now differ by a few mHz.
-    @test pvt.relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.64Hz + freq_offset) atol = 0.01Hz
+    relative_clock_drift = ustrip(m / s, pvt.clock_drift) / PositionVelocityTime.SPEED_OF_LIGHT
+    @test relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.64Hz + freq_offset) atol = 0.01Hz
 
     warm_pvt = calc_pvt(
         signal_group(states),
@@ -57,7 +58,8 @@ end
     # the Earth-rotation angle (see `estimate_velocity`), which moved this by ~3 mm/s
     # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
     # with the Doppler, so the frequency offsets now differ by a few mHz.
-    @test pvt.relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.61Hz + freq_offset) atol = 0.01Hz
+    relative_clock_drift = ustrip(m / s, pvt.clock_drift) / PositionVelocityTime.SPEED_OF_LIGHT
+    @test relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.61Hz + freq_offset) atol = 0.01Hz
 
     warm_pvt = calc_pvt(
         signal_group(states),
@@ -159,8 +161,8 @@ end
     # A single receiver clock drift is estimated for the whole constellation
     # (one oscillator), so the combined drift agrees with each single-system drift
     # — to well within the inter-system spread, not split per system.
-    @test pvt.relative_clock_drift ≈ gps_only.relative_clock_drift atol = 5e-8
-    @test pvt.relative_clock_drift ≈ gal_only.relative_clock_drift atol = 5e-8
+    @test pvt.clock_drift ≈ gps_only.clock_drift atol = 5e-8 * PositionVelocityTime.SPEED_OF_LIGHT * m / s
+    @test pvt.clock_drift ≈ gal_only.clock_drift atol = 5e-8 * PositionVelocityTime.SPEED_OF_LIGHT * m / s
 
     # Satellites are keyed by (signal, PRN), so both constellations are represented
     # and nothing is merged or dropped across systems: the combined count equals the
@@ -571,7 +573,7 @@ end
         # pinned directly instead of only by magnitude.
         let user_vel = SVector(solution[1], solution[2], solution[3])
             A = reduce(vcat, [last(PositionVelocityTime.pseudorange_rate_and_gradient(user,
-                user_vel, solution[4], m.position, m.velocity, m.clock_drift))'
+                user_vel, solution[4], m.position, m.velocity, m.satellite_clock_drift))'
                               for m in rows])
             @test norm(A - design(spread)) < 1e-4
             @test norm(A' * rate_residuals) < 1e-6

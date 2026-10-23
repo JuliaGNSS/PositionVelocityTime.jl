@@ -283,7 +283,9 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   other systems' biases are `clock_bias + inter_system_biases[system]`.
 - `time::Union{TAITime, Nothing}`: Estimated time as a TAI epoch (see [`TAITime`](@ref);
   with AstroTime loaded, `TAIEpoch(time)` converts it)
-- `relative_clock_drift::Float64`: Relative receiver clock drift (dimensionless)
+- `clock_drift::typeof(1.0m/s)`: Estimated receiver clock drift, as the rate of
+  `clock_bias` (metres per second); divided by the speed of light it is the relative
+  drift (s/s)
 - `dop::Union{DOP, Nothing}`: Dilution of precision values
 - `satellites::Dictionary{Tuple{Symbol, Int}, SatelliteInfo}`: Maps `(signal, PRN)` to
   satellite info — position, transmit time, and the post-fit pseudorange and range-rate
@@ -335,7 +337,7 @@ it reads.
     course_over_ground::typeof(1.0°) = 0.0°
     clock_bias::typeof(1.0m) = 0.0m
     time::Union{TAITime,Nothing} = nothing
-    relative_clock_drift::Float64 = 0
+    clock_drift::typeof(1.0m/s) = 0.0m/s
     dop::Union{DOP,Nothing} = nothing
     satellites::Dictionary{Tuple{Symbol,Int},SatelliteInfo} =
         Dictionary{Tuple{Symbol,Int},SatelliteInfo}()
@@ -1338,7 +1340,7 @@ Base.copy(pvt::PVTSolution) = PVTSolution(
     pvt.course_over_ground,
     pvt.clock_bias,
     pvt.time,
-    pvt.relative_clock_drift,
+    pvt.clock_drift,
     pvt.dop,
     copy(pvt.satellites),
     pvt.reference_system,
@@ -1363,7 +1365,7 @@ function copy_into(solution::PVTSolution, source::PVTSolution)
         source.course_over_ground,
         source.clock_bias,
         source.time,
-        source.relative_clock_drift,
+        source.clock_drift,
         source.dop,
         solution.satellites,
         source.reference_system,
@@ -1630,7 +1632,7 @@ function _solve_pvt!(
     # otherwise: on a cold start (the default `prev_pvt` is at rest anyway), after a
     # distrusted solution, or should the previous one carry a non-finite value.
     previous_velocity_and_drift = SVector(prev_pvt.velocity[1], prev_pvt.velocity[2],
-        prev_pvt.velocity[3], prev_pvt.relative_clock_drift * SPEED_OF_LIGHT)
+        prev_pvt.velocity[3], ustrip(m / s, prev_pvt.clock_drift))
     velocity_start =
         !distrusted && all(isfinite, previous_velocity_and_drift) ?
         previous_velocity_and_drift : zero(SVector{4,Float64})
@@ -1694,7 +1696,7 @@ function _solve_pvt!(
         calc_course_over_ground(position, velocity),
         clock_bias * m,
         week_start + corrected_reference_time,
-        user_velocity_and_clock_drift[4] / SPEED_OF_LIGHT,
+        user_velocity_and_clock_drift[4] * (m / s),
         dop,
         satellites,
         reference_system,

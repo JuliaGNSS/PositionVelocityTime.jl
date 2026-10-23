@@ -123,7 +123,7 @@ end
 end
 
 """
-    calc_pseudorange_rate(user_position, user_velocity, user_clock_drift,
+    calc_pseudorange_rate(user_position, user_velocity, receiver_clock_drift,
         satellite_position, satellite_velocity, satellite_clock_drift) -> Float64
 
 The modelled pseudorange rate (m/s) of one satellite: the exact time derivative, per second
@@ -139,9 +139,11 @@ and of RTKLIB's `resdop`; the Doppler-signed rate a tracking loop works in,
 `λ · carrier_doppler`, is its negative.
 
 `user_position`, `user_velocity`, `satellite_position` and `satellite_velocity` are ECEF
-`SVector{3}`s in m and m/s, the satellite's taken at transmission. `user_clock_drift` is the
-receiver clock drift in m/s, but `satellite_clock_drift` the satellite clock drift as a rate
-in s/s, as [`calc_satellite_clock_drift`](@ref) returns it.
+`SVector{3}`s in m and m/s, the satellite's taken at transmission. `receiver_clock_drift` is
+the receiver clock drift in m/s, as `PVTSolution`'s `clock_drift` reports it, and
+`satellite_clock_drift` the satellite clock drift in s/s, as
+[`calc_satellite_clock_drift`](@ref) returns it: the receiver's clock is estimated in
+range units, the satellite's is broadcast in time units.
 
 Beyond the line-of-sight projection of the relative velocity it carries two terms of
 order `v/c`, each up to about a millimetre per second:
@@ -154,9 +156,9 @@ order `v/c`, each up to about a millimetre per second:
 
 Allocation-free and `@inline`.
 """
-@inline calc_pseudorange_rate(user_position, user_velocity, user_clock_drift,
+@inline calc_pseudorange_rate(user_position, user_velocity, receiver_clock_drift,
     satellite_position, satellite_velocity, satellite_clock_drift) =
-    first(pseudorange_rate_and_gradient(user_position, user_velocity, user_clock_drift,
+    first(pseudorange_rate_and_gradient(user_position, user_velocity, receiver_clock_drift,
         satellite_position, satellite_velocity, satellite_clock_drift))
 
 # `calc_pseudorange_rate` and its gradient in `[v; ċ]`, the velocity solve's design row.
@@ -177,7 +179,7 @@ Allocation-free and `@inline`.
 # `s` and `r` are affine in `[v; ċ]`, so `ρ̇` is quadratic, with the gradient
 #
 #     ∂ρ̇/∂v = k·q − e − s·(q − e)/c,   ∂ρ̇/∂ċ = 1 − s/c.
-@inline function pseudorange_rate_and_gradient(user_pos, user_vel, user_clock_drift,
+@inline function pseudorange_rate_and_gradient(user_pos, user_vel, receiver_clock_drift,
     sat_pos, sat_vel, sat_clock_drift)
     rotated_sat_pos, rotated_sat_vel =
         satellite_state_at_reception(user_pos, sat_pos, sat_vel)
@@ -185,7 +187,7 @@ Allocation-free and `@inline`.
     e = to_rotated_sat / norm(to_rotated_sat)
     q = travel_time_velocity_partial(user_pos, sat_pos)
     s = dot(e, rotated_sat_vel) - sat_clock_drift * SPEED_OF_LIGHT + dot(q, user_vel)
-    r = user_clock_drift - dot(e, user_vel)
+    r = receiver_clock_drift - dot(e, user_vel)
     k = 1 - (s + r) / SPEED_OF_LIGHT
     ∂v = k * q - e - (s / SPEED_OF_LIGHT) * (q - e)
     return k * s + r, SVector(∂v[1], ∂v[2], ∂v[3], 1 - s / SPEED_OF_LIGHT)
@@ -496,7 +498,9 @@ end
         -> (velocity_and_drift::SVector{4}, rate_residuals)
 
 The user velocity and a single receiver clock drift, returned together with
-the per-satellite post-fit range-rate residuals as `([vx, vy, vz, ċ], rate_residuals)`.
+the per-satellite post-fit range-rate residuals as
+`([vx, vy, vz, ċ], rate_residuals)`. `ċ` is the clock drift in m/s, the rate of the clock
+bias in metres, as [`PVTSolution`](@ref)'s `clock_drift` reports it.
 Unlike the position solve — which estimates one clock *bias*
 per GNSS time system (the inter-system bias / GGTO is metre-level and must be
 resolved) — a single clock *drift* is shared by all satellites regardless of
@@ -581,7 +585,7 @@ function estimate_velocity!(rate_residuals, design, measurements,
         measurement = measurements[j]
         modelled, a = pseudorange_rate_and_gradient(position, prev_velocity,
             prev_velocity_and_drift[4], measurement.position, measurement.velocity,
-            measurement.clock_drift)
+            measurement.satellite_clock_drift)
         rⱼ = measured_pseudorange_rate(measurement) - modelled
         rate_residuals[j] = rⱼ
         design[j] = a
