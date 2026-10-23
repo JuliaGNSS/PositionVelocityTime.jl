@@ -393,11 +393,11 @@ end
 
 """
     collect_measurements(groups; approximate_year = year(now(UTC)))
-        -> (Vector{SatelliteMeasurement}, ionospheric_correction)
+        -> (Vector{SatelliteMeasurement}, ionospheric_parameters)
 
 Flatten the [`SignalGroups`](@ref) of one epoch into the solver's input: the
 per-satellite [`SatelliteMeasurement`](@ref) rows, and the single constellation-wide
-ionospheric model [`select_ionospheric_correction`](@ref) would pick for them (folded
+ionospheric parameters [`select_ionospheric_parameters`](@ref) would pick for them (folded
 into the same pass — both need exactly the satellites that survive the health gate).
 
 A satellite is kept only if its full navigation-data set is decoded and it reports
@@ -427,14 +427,14 @@ end
 """
     collect_measurements!(measurements::Vector{SatelliteMeasurement}, groups;
                           approximate_year = year(now(UTC)))
-        -> ionospheric_correction
+        -> ionospheric_parameters
 
 [`collect_measurements`](@ref) into an existing vector: `measurements` is emptied and
-refilled with this epoch's rows, and only the ionospheric correction is returned. That is
-a `Union` of `isbits` coefficient sets, which Julia returns unboxed, so once
-`measurements` has held as many rows before, this allocates nothing. It is the collection
-pass [`calc_pvt!`](@ref) runs, for a consumer that runs its own estimator over the same
-rows in a loop that must not allocate.
+refilled with this epoch's rows, and only the ionospheric parameters are returned. They are
+a `Union` of `isbits` coefficient sets, which Julia returns unboxed, so once `measurements`
+has held as many rows before, this allocates nothing. It is the collection pass
+[`calc_pvt!`](@ref) runs, for a consumer that runs its own estimator over the same rows in a
+loop that must not allocate.
 """
 collect_measurements!(
     measurements::Vector{SatelliteMeasurement},

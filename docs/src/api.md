@@ -83,20 +83,20 @@ These corrections are applied automatically by [`calc_pvt`](@ref); they are
 documented here for reference and for diagnostic use.
 
 ```@docs
-PositionVelocityTime.select_ionospheric_correction
+PositionVelocityTime.select_ionospheric_parameters
 PositionVelocityTime.ionospheric_delay
 PositionVelocityTime.tropospheric_delay
 PositionVelocityTime.saastamoinen_zenith_delays
 PositionVelocityTime.niell_mapping_functions
-PositionVelocityTime.KlobucharParams
+PositionVelocityTime.KlobucharParameters
 PositionVelocityTime.klobuchar_group_delay
-PositionVelocityTime.BeiDouKlobucharParams
+PositionVelocityTime.BeiDouKlobucharParameters
 PositionVelocityTime.beidou_klobuchar_group_delay
-PositionVelocityTime.NTCMGParams
-PositionVelocityTime.BDGIMParams
-PositionVelocityTime.klobuchar_params
-PositionVelocityTime.ntcm_g_params
-PositionVelocityTime.bdgim_params
+PositionVelocityTime.NTCMGParameters
+PositionVelocityTime.BDGIMParameters
+PositionVelocityTime.get_klobuchar_parameters
+PositionVelocityTime.get_ntcm_g_parameters
+PositionVelocityTime.get_bdgim_parameters
 ```
 
 ## Dilution of Precision

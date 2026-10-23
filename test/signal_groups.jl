@@ -94,7 +94,7 @@
             @test occursin("takes signal groups", message)
             @test occursin("SignalGroup(GPSL1CA()", message)
         end
-        @test_throws ArgumentError PositionVelocityTime.select_ionospheric_correction(
+        @test_throws ArgumentError PositionVelocityTime.select_ionospheric_parameters(
             (gps = gps,))
         # An empty NamedTuple is an epoch with no groups, not a malformed one.
         @test PositionVelocityTime._normalize_signal_groups((;)) === (;)
@@ -134,10 +134,10 @@
 
     @testset "an epoch with no usable satellite is not a special case" begin
         empty_group = PositionVelocityTime.SignalGroup(GPSL1CA(), SatelliteState[])
-        rows, correction =
+        rows, ionospheric_parameters =
             PositionVelocityTime.collect_measurements(empty_group; approximate_year = 2021)
         @test isempty(rows)
-        @test isnothing(correction)
+        @test isnothing(ionospheric_parameters)
         # `decide_bias_layout` reports unsolvable, so `calc_pvt` hands `prev_pvt` back.
         @test isnothing(PositionVelocityTime.decide_bias_layout(rows))
         previous = calc_pvt(gps_group; kw...)

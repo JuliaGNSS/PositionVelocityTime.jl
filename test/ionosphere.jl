@@ -105,25 +105,25 @@ end
 
     @testset "parameter extraction from decoders" begin
         # Fresh decoders carry no coefficients
-        @test PositionVelocityTime.klobuchar_params(GNSSDecoderState(GPSL1CA(), 1)) ===
+        @test PositionVelocityTime.get_klobuchar_parameters(GNSSDecoderState(GPSL1CA(), 1)) ===
               nothing
-        @test PositionVelocityTime.ntcm_g_params(GNSSDecoderState(GalileoE1B(), 1)) ===
+        @test PositionVelocityTime.get_ntcm_g_parameters(GNSSDecoderState(GalileoE1B(), 1)) ===
               nothing
-        # Broadcast α/β are extracted into KlobucharParams
-        kp = PositionVelocityTime.klobuchar_params(gps_decoder_with(α, β))
-        @test kp isa PositionVelocityTime.KlobucharParams
+        # Broadcast α/β are extracted into KlobucharParameters
+        kp = PositionVelocityTime.get_klobuchar_parameters(gps_decoder_with(α, β))
+        @test kp isa PositionVelocityTime.KlobucharParameters
         @test (kp.α_0, kp.α_1, kp.α_2, kp.α_3) == α
         @test (kp.β_0, kp.β_1, kp.β_2, kp.β_3) == β
-        # Broadcast a_i0..a_i2 + WN are extracted into NTCMGParams
-        np = PositionVelocityTime.ntcm_g_params(
+        # Broadcast a_i0..a_i2 + WN are extracted into NTCMGParameters
+        np = PositionVelocityTime.get_ntcm_g_parameters(
             galileo_decoder_with(236.831641, -0.39362878, 0.00402826613, 1100),
         )
-        @test np isa PositionVelocityTime.NTCMGParams
+        @test np isa PositionVelocityTime.NTCMGParameters
         @test np.a_i0 == 236.831641
-        @test np.week_number == 1100
+        @test np.week == 1100
         # Wrong-system decoders never yield the other model's params
-        @test PositionVelocityTime.ntcm_g_params(gps_decoder_with(α, β)) === nothing
-        @test PositionVelocityTime.klobuchar_params(
+        @test PositionVelocityTime.get_ntcm_g_parameters(gps_decoder_with(α, β)) === nothing
+        @test PositionVelocityTime.get_klobuchar_parameters(
             galileo_decoder_with(100.0, 0.0, 0.0, 1100),
         ) === nothing
     end
@@ -137,25 +137,25 @@ end
         gal_bare = mkstate(GNSSDecoderState(GalileoE1B(), 2), GalileoE1B())
         gal_ntcm = mkstate(galileo_decoder_with(121.13, 0.35, 0.013, 1100), GalileoE1B())
 
-        select = PositionVelocityTime.select_ionospheric_correction
+        select = PositionVelocityTime.select_ionospheric_parameters
         # Nothing decoded → no correction
         @test select((signal_group([gps_bare]), signal_group([gal_bare]))) === nothing
         # Only Klobuchar → Klobuchar. Both satellites are on one signal, so they are
         # one group.
         @test select(signal_group([gps_klob, gps_bare])) isa
-              PositionVelocityTime.KlobucharParams
+              PositionVelocityTime.KlobucharParameters
         # Only Galileo → NTCM-G
         @test select(signal_group([gal_ntcm, gal_bare])) isa
-              PositionVelocityTime.NTCMGParams
+              PositionVelocityTime.NTCMGParameters
         # Both available → NTCM-G wins (more accurate)
         @test select((signal_group([gps_klob]), signal_group([gal_ntcm]))) isa
-              PositionVelocityTime.NTCMGParams
+              PositionVelocityTime.NTCMGParameters
     end
 
     @testset "selected model applied to every satellite" begin
         user = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         sat = ECEF(user[1] + 1.0e7, user[2] + 1.0e7, user[3] + 2.0e7)
-        klob = PositionVelocityTime.KlobucharParams(α..., β...)
+        klob = PositionVelocityTime.KlobucharParameters(α..., β...)
         # Line-of-sight geometry (same user/sat for every call below)
         el, az = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
         lla = LLAfromECEF(wgs84)(user)
@@ -270,7 +270,7 @@ end
     end
 
     @testset "the delay is defined at B1I and rescales by 1/f²" begin
-        p = PVT.BeiDouKlobucharParams(α..., β...)
+        p = PVT.BeiDouKlobucharParameters(α..., β...)
         lla = LLA(48.0, 11.0, 550.0)
         el, az, t = deg2rad(35.0), deg2rad(120.0), 50000.0
         # At B1I itself the metre conversion is exactly c times the ICD's I_B1I.
@@ -361,11 +361,11 @@ end
             code_phase = 0.0,
             carrier_doppler = 0.0Hz,
         )
-        correction = PositionVelocityTime.select_ionospheric_correction(signal_group([state]))
-        @test correction isa PositionVelocityTime.NTCMGParams
+        parameters = PositionVelocityTime.select_ionospheric_parameters(signal_group([state]))
+        @test parameters isa PositionVelocityTime.NTCMGParameters
         el, az = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
         delay = PositionVelocityTime.ionospheric_delay(
-            correction,
+            parameters,
             carrier_hz(GalileoE1B()),
             el,
             az,
@@ -611,7 +611,7 @@ end
         @test PVT.bdgim_vtec(deg2rad(48), deg2rad(11), mjd, zeros9) == 0.0
         @test PVT.bdgim_stec(deg2rad(30), 0.0, lla, mjd, zeros9) == 0.0
         @test PVT.ionospheric_delay(
-            PVT.BDGIMParams(zeros9..., week),
+            PVT.BDGIMParameters(zeros9..., week),
             carrier_hz(BeiDouB1C_D()),
             deg2rad(30),
             0.0,
@@ -626,7 +626,7 @@ end
     end
 
     @testset "delay scales exactly as 1/f² across signals" begin
-        p = PVT.BDGIMParams(α..., week)
+        p = PVT.BDGIMParameters(α..., week)
         geometry = (deg2rad(35), deg2rad(120), lla, tow)
         d_b1c = PVT.ionospheric_delay(p, carrier_hz(BeiDouB1C_D()), geometry...)
         d_b2a = PVT.ionospheric_delay(p, carrier_hz(BeiDouB2aI()), geometry...)
@@ -644,7 +644,7 @@ end
     end
 
     @testset "magnitude sanity for a plausible daytime coefficient set" begin
-        p = PVT.BDGIMParams(α..., week)
+        p = PVT.BDGIMParameters(α..., week)
         # ~26 TECu of vertical TEC (α₁ = 35 minus the negative A_0 here) is ~4 m at
         # B1C; a low-elevation ray through the same ionosphere is a few metres more.
         # The family stays in the decimetres-to-metres band a single-frequency L-band
@@ -656,7 +656,7 @@ end
         @test d_low < 25.0
         # A quieter ionosphere — the same shape with α₁ down to 12 TECu — lands in the
         # decimetres instead.
-        quiet = PVT.BDGIMParams(12.0, α[2:9]..., week)
+        quiet = PVT.BDGIMParameters(12.0, α[2:9]..., week)
         @test 0.1 < PVT.ionospheric_delay(quiet, carrier_hz(BeiDouB1C_D()), π / 2, 0.0, lla, tow) < 1.5
     end
 
@@ -669,7 +669,7 @@ end
         stec = PVT.bdgim_stec(deg2rad(20), deg2rad(135), lla, mjd, α)
         @test stec ≈ 60.5472505715464 rtol = 1e-10
         @test PVT.ionospheric_delay(
-            PVT.BDGIMParams(α..., week),
+            PVT.BDGIMParameters(α..., week),
             carrier_hz(BeiDouB1C_D()),
             deg2rad(20),
             deg2rad(135),
@@ -708,35 +708,35 @@ end
 
     @testset "parameter extraction from B-CNAV decoders" begin
         for kind in (:b1c, :b2a, :b2b)
-            p = PositionVelocityTime.bdgim_params(bdgim_decoder(kind, α, Int64(911)))
-            @test p isa PositionVelocityTime.BDGIMParams
+            p = PositionVelocityTime.get_bdgim_parameters(bdgim_decoder(kind, α, Int64(911)))
+            @test p isa PositionVelocityTime.BDGIMParameters
             @test (p.α_1, p.α_2, p.α_3, p.α_4, p.α_5, p.α_6, p.α_7, p.α_8, p.α_9) == α
-            @test p.week_number == 911
+            @test p.week == 911
             # A fresh decoder of the same kind has nothing yet.
-            @test PositionVelocityTime.bdgim_params(
+            @test PositionVelocityTime.get_bdgim_parameters(
                 bdgim_decoder(kind, ntuple(_ -> nothing, 9), nothing),
             ) === nothing
             # All nine coefficients *and* the week number are required: the week is
             # decoded in a different subframe/message type, so half-populated is the
             # ordinary transient state.
-            @test PositionVelocityTime.bdgim_params(bdgim_decoder(kind, α, nothing)) ===
+            @test PositionVelocityTime.get_bdgim_parameters(bdgim_decoder(kind, α, nothing)) ===
                   nothing
             partial = ntuple(i -> i == 5 ? nothing : α[i], 9)
-            @test PositionVelocityTime.bdgim_params(
+            @test PositionVelocityTime.get_bdgim_parameters(
                 bdgim_decoder(kind, partial, Int64(911)),
             ) === nothing
         end
         # Constellations and message families that broadcast no BDGIM set fall to the
         # generic method rather than dispatching on fields they do not have.
-        @test PositionVelocityTime.bdgim_params(GNSSDecoderState(GPSL1CA(), 1)) === nothing
-        @test PositionVelocityTime.bdgim_params(GNSSDecoderState(GalileoE1B(), 1)) ===
+        @test PositionVelocityTime.get_bdgim_parameters(GNSSDecoderState(GPSL1CA(), 1)) === nothing
+        @test PositionVelocityTime.get_bdgim_parameters(GNSSDecoderState(GalileoE1B(), 1)) ===
               nothing
-        @test PositionVelocityTime.bdgim_params(GNSSDecoderState(BeiDouB1I(), 1)) ===
+        @test PositionVelocityTime.get_bdgim_parameters(GNSSDecoderState(BeiDouB1I(), 1)) ===
               nothing
         # ... and a B-CNAV decoder yields no Klobuchar or NTCM-G set.
         b1c = bdgim_decoder(:b1c, α, Int64(911))
-        @test PositionVelocityTime.klobuchar_params(b1c) === nothing
-        @test PositionVelocityTime.ntcm_g_params(b1c) === nothing
+        @test PositionVelocityTime.get_klobuchar_parameters(b1c) === nothing
+        @test PositionVelocityTime.get_ntcm_g_parameters(b1c) === nothing
     end
 
     @testset "selection order: NTCM-G > BDGIM > GPS Klobuchar > BeiDou Klobuchar" begin
@@ -794,32 +794,32 @@ end
             BeiDouB1I(),
         )
 
-        select = PositionVelocityTime.select_ionospheric_correction
+        select = PositionVelocityTime.select_ionospheric_parameters
         # Each of these satellites is on a signal of its own, so each is its own group;
         # the tuple's order is the order the scan sees them in, which is what the
         # preference rungs below are asserted against.
         one(state) = signal_group([state])
         # BDGIM alone corrects a BDS-3-only epoch, which used to get nothing at all.
-        @test select(one(bds3)) isa PositionVelocityTime.BDGIMParams
+        @test select(one(bds3)) isa PositionVelocityTime.BDGIMParameters
         # It beats both Klobuchar sources, and loses to NTCM-G.
-        @test select((one(bds3), one(gps))) isa PositionVelocityTime.BDGIMParams
-        @test select((one(gps), one(bds3))) isa PositionVelocityTime.BDGIMParams
-        @test select((one(bds3), one(bds2))) isa PositionVelocityTime.BDGIMParams
-        @test select((one(bds2), one(bds3))) isa PositionVelocityTime.BDGIMParams
-        @test select((one(bds3), one(gal))) isa PositionVelocityTime.NTCMGParams
-        @test select((one(gal), one(bds3))) isa PositionVelocityTime.NTCMGParams
+        @test select((one(bds3), one(gps))) isa PositionVelocityTime.BDGIMParameters
+        @test select((one(gps), one(bds3))) isa PositionVelocityTime.BDGIMParameters
+        @test select((one(bds3), one(bds2))) isa PositionVelocityTime.BDGIMParameters
+        @test select((one(bds2), one(bds3))) isa PositionVelocityTime.BDGIMParameters
+        @test select((one(bds3), one(gal))) isa PositionVelocityTime.NTCMGParameters
+        @test select((one(gal), one(bds3))) isa PositionVelocityTime.NTCMGParameters
         @test select((one(gal), one(bds3), one(gps), one(bds2))) isa
-              PositionVelocityTime.NTCMGParams
+              PositionVelocityTime.NTCMGParameters
         # Without a BDS-3 satellite the previous order is untouched, and each
         # Klobuchar source keeps its own variant of the model.
-        @test select((one(gps), one(bds2))) isa PositionVelocityTime.KlobucharParams
-        @test select(one(bds2)) isa PositionVelocityTime.BeiDouKlobucharParams
+        @test select((one(gps), one(bds2))) isa PositionVelocityTime.KlobucharParameters
+        @test select(one(bds2)) isa PositionVelocityTime.BeiDouKlobucharParameters
         # The BeiDou branch asks both accessors: a legacy satellite alongside a BDS-3
         # one contributes its Klobuchar set without shadowing the BDGIM one. The two
         # legacy satellites are deliberately in separate groups, which is what puts one
         # of them *after* the BDS-3 satellite in scan order.
         @test select((one(bds2), one(bds3), one(bds2_second))) isa
-              PositionVelocityTime.BDGIMParams
+              PositionVelocityTime.BDGIMParameters
         # An epoch with no groups at all — the receiver tracking nothing yet.
         @test select(()) === nothing
     end

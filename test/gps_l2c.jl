@@ -36,15 +36,15 @@
             approximate_year = 2042) == 2200
     end
 
-    @testset "Klobuchar params from CNAV α_0…β_3" begin
+    @testset "Klobuchar parameters from CNAV α_0…β_3" begin
         d = GNSSDecoder.GPSCNAVData(; α_0 = 1e-8, α_1 = 2e-8, α_2 = 3e-8, α_3 = 4e-8,
             β_0 = 1e4, β_1 = 2e4, β_2 = 3e4, β_3 = 4e4)
-        kp = PositionVelocityTime.klobuchar_params(swap(l2c, d))
-        @test kp isa PositionVelocityTime.KlobucharParams
+        kp = PositionVelocityTime.get_klobuchar_parameters(swap(l2c, d))
+        @test kp isa PositionVelocityTime.KlobucharParameters
         @test kp.α_0 == 1e-8
         @test kp.β_3 == 4e4
         # Partially populated → nothing, not an error.
-        @test PositionVelocityTime.klobuchar_params(swap(l2c, GNSSDecoder.GPSCNAVData(; α_0 = 1e-8))) ===
+        @test PositionVelocityTime.get_klobuchar_parameters(swap(l2c, GNSSDecoder.GPSCNAVData(; α_0 = 1e-8))) ===
               nothing
     end
 

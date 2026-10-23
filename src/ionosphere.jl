@@ -25,7 +25,7 @@
 #  Klobuchar reaches this package from two constellations: GPS on every civil
 #  signal, and BeiDou on the legacy D1/D2 message — as BeiDou's own variant of
 #  the algorithm, referenced to B1I rather than L1 (see
-#  `BeiDouKlobucharParams`). BDS-3's B-CNAV messages (B1C/B2a/B2b) instead
+#  `BeiDouKlobucharParameters`). BDS-3's B-CNAV messages (B1C/B2a/B2b) instead
 #  broadcast BDGIM, so a BDS-3-only epoch is corrected by BDGIM and no longer
 #  needs a B1I/B3I or GPS satellite to be tracked alongside it.
 #
@@ -41,13 +41,13 @@
 # ===========================================================================
 
 """
-    KlobucharParams(α_0, α_1, α_2, α_3, β_0, β_1, β_2, β_3)
+    KlobucharParameters(α_0, α_1, α_2, α_3, β_0, β_1, β_2, β_3)
 
 The eight Klobuchar ionospheric coefficients decoded from a GPS L1 navigation
 message, in IS-GPS-200 SI units (seconds and seconds·semicircle⁻ⁿ). The field
 names mirror `GNSSDecoder.GPSL1CAData` (`α_0…α_3`, `β_0…β_3`).
 """
-struct KlobucharParams
+struct KlobucharParameters
     α_0::Float64
     α_1::Float64
     α_2::Float64
@@ -59,16 +59,16 @@ struct KlobucharParams
 end
 
 """
-    BeiDouKlobucharParams(α_0, α_1, α_2, α_3, β_0, β_1, β_2, β_3)
+    BeiDouKlobucharParameters(α_0, α_1, α_2, α_3, β_0, β_1, β_2, β_3)
 
 The eight coefficients of BeiDou's own Klobuchar variant, decoded from the legacy
 D1/D2 message (B1I/B3I), in BDS-SIS-ICD-B1I-3.0 §5.2.4.7 SI units (seconds and
 seconds·π⁻ⁿ — per semicircle, exactly like the GPS set). A type of its own rather
-than a [`KlobucharParams`](@ref) because the ICD prescribes a different algorithm,
+than a [`KlobucharParameters`](@ref) because the ICD prescribes a different algorithm,
 not merely different numbers — see [`beidou_klobuchar_group_delay`](@ref) — and
 defines the resulting delay at the B1I carrier (1561.098 MHz) rather than L1.
 """
-struct BeiDouKlobucharParams
+struct BeiDouKlobucharParameters
     α_0::Float64
     α_1::Float64
     α_2::Float64
@@ -80,21 +80,21 @@ struct BeiDouKlobucharParams
 end
 
 """
-    NTCMGParams(a_i0, a_i1, a_i2, week_number::Integer)
+    NTCMGParameters(a_i0, a_i1, a_i2, week::Integer)
 
 The broadcast Galileo Effective Ionisation Level coefficients `a_i0`/`a_i1`/`a_i2`
 (sfu, sfu/deg, sfu/deg²) decoded from an E1B navigation message, together with the
 GST week number needed to derive the day of year and universal time for NTCM-G.
 """
-struct NTCMGParams
+struct NTCMGParameters
     a_i0::Float64
     a_i1::Float64
     a_i2::Float64
-    week_number::Int
+    week::Int
 end
 
 """
-    BDGIMParams(α_1, …, α_9, week_number::Integer)
+    BDGIMParameters(α_1, …, α_9, week::Integer)
 
 The nine broadcast BDGIM coefficients decoded from a BDS-3 B-CNAV message
 (B1C/B2a/B2b), in the ICD's units of TECu, together with the BDT week number.
@@ -105,12 +105,12 @@ them apart from the legacy D1/D2 Klobuchar `α_0 … α_3`, and already applies 
 one's scale factor and sign — including `α_5`'s negative scale factor of −2⁻³ —
 so they arrive here as plain signed TECu.
 
-`week_number` is needed for the same reason `NTCMGParams` carries one: the model's
+`week` is needed for the same reason `NTCMGParameters` carries one: the model's
 time argument is a date (a Modified Julian Date), which a time of week alone
 cannot supply. Unlike the Klobuchar set there is no reference frequency, because
 BDGIM yields TEC rather than a delay at a particular carrier.
 """
-struct BDGIMParams
+struct BDGIMParameters
     α_1::Float64
     α_2::Float64
     α_3::Float64
@@ -120,29 +120,32 @@ struct BDGIMParams
     α_7::Float64
     α_8::Float64
     α_9::Float64
-    week_number::Int
+    week::Int
 end
 
 """
-    klobuchar_params(decoder) -> Union{KlobucharParams,BeiDouKlobucharParams,Nothing}
+    get_klobuchar_parameters(decoder)
+        -> Union{KlobucharParameters,BeiDouKlobucharParameters,Nothing}
 
 Klobuchar α/β decoded from a GPS navigation message (LNAV `GPSL1CAData`, CNAV
 `GPSCNAVData` on L5/L2C, or CNAV-2 `GPSL1C_DData`) or from the BeiDou legacy
 D1/D2 message (`BeiDouDNAVData` on B1I/B3I), or `nothing` if
 they have not been broadcast yet or the decoder carries no Klobuchar set. The same
 single-frequency Klobuchar model is broadcast on all GPS civil signals; BeiDou
-broadcasts its own set, returned as a [`BeiDouKlobucharParams`](@ref) because its
+broadcasts its own set, returned as a [`BeiDouKlobucharParameters`](@ref) because its
 ICD prescribes its own variant of the algorithm, not just its own numbers.
 """
-klobuchar_params(decoder) = nothing
-function klobuchar_params(decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.AbstractGPSData})
+get_klobuchar_parameters(decoder) = nothing
+function get_klobuchar_parameters(
+    decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.AbstractGPSData},
+)
     d = decoder.data
     # All eight coefficients must be present: they are decoded together (subframe 4,
     # page 18), but guard each so a partially-populated decoder returns `nothing`
     # rather than throwing when a `nothing` hits a `Float64` field.
     any(isnothing, (d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)) &&
         return nothing
-    return KlobucharParams(d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)
+    return KlobucharParameters(d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)
 end
 
 # The legacy D1/D2 message broadcasts an eight-coefficient Klobuchar-style set,
@@ -150,21 +153,21 @@ end
 # algorithm, not a restatement of IS-GPS-200 — exact pierce-point geometry,
 # geographic rather than geomagnetic latitude, a period clamped from above too,
 # and the delay referenced to B1I rather than L1 — so the set gets a type of its
-# own (see [`BeiDouKlobucharParams`](@ref) and
+# own (see [`BeiDouKlobucharParameters`](@ref) and
 # [`beidou_klobuchar_group_delay`](@ref)). The BDS-3 B-CNAV messages instead
-# broadcast BDGIM, reached through `bdgim_params` below — those containers
+# broadcast BDGIM, reached through `get_bdgim_parameters` below — those containers
 # therefore report no Klobuchar set.
-function klobuchar_params(
+function get_klobuchar_parameters(
     decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.BeiDouDNAVData},
 )
     d = decoder.data
     any(isnothing, (d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)) &&
         return nothing
-    return BeiDouKlobucharParams(d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)
+    return BeiDouKlobucharParameters(d.α_0, d.α_1, d.α_2, d.α_3, d.β_0, d.β_1, d.β_2, d.β_3)
 end
 
 """
-    ntcm_g_params(decoder) -> Union{NTCMGParams,Nothing}
+    get_ntcm_g_parameters(decoder) -> Union{NTCMGParameters,Nothing}
 
 NTCM-G Effective Ionisation Level coefficients decoded from a Galileo navigation
 message (I/NAV on E1-B or E5b, or F/NAV on E5a — all broadcast `a_i0…a_i2`), or
@@ -173,18 +176,18 @@ carries no such set. Galileo E6-B is in the latter group: C/NAV broadcasts no
 ionospheric coefficients, so it falls to the generic method rather than being
 dispatched here on a field it does not have.
 """
-ntcm_g_params(decoder) = nothing
-function ntcm_g_params(
+get_ntcm_g_parameters(decoder) = nothing
+function get_ntcm_g_parameters(
     decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.AbstractGalileoEphemerisData},
 )
     d = decoder.data
     (isnothing(d.a_i0) || isnothing(d.a_i1) || isnothing(d.a_i2) || isnothing(d.WN)) &&
         return nothing
-    return NTCMGParams(d.a_i0, d.a_i1, d.a_i2, d.WN)
+    return NTCMGParameters(d.a_i0, d.a_i1, d.a_i2, d.WN)
 end
 
 """
-    bdgim_params(decoder) -> Union{BDGIMParams,Nothing}
+    get_bdgim_parameters(decoder) -> Union{BDGIMParameters,Nothing}
 
 The nine BDGIM coefficients decoded from a BDS-3 B-CNAV message — B-CNAV1 on B1C,
 B-CNAV2 on B2a, B-CNAV3 on B2b, all three broadcasting the same set — or
@@ -194,7 +197,7 @@ legacy D1/D2 message (`BeiDouDNAVData`, on B1I/B3I) is in the latter group: it
 broadcasts Klobuchar instead, so it falls to this generic method rather than being
 dispatched on fields it does not have.
 """
-bdgim_params(decoder) = nothing
+get_bdgim_parameters(decoder) = nothing
 
 # Nine coefficients broadcast identically by all three B-CNAV messages — B-CNAV1
 # on B1C (BDS-SIS-ICD-B1C-1.0 §7.8, subframe 3 page type 1), B-CNAV2 on B2a
@@ -210,7 +213,9 @@ bdgim_params(decoder) = nothing
 # type from the coefficients on every one of the three signals, so a decoder that
 # has one without the other is the ordinary transient state, not a corrupt one —
 # hence the guard rather than an unwrap.
-function bdgim_params(decoder::GNSSDecoder.GNSSDecoderState{<:AbstractBeiDouCNAVData})
+function get_bdgim_parameters(
+    decoder::GNSSDecoder.GNSSDecoderState{<:AbstractBeiDouCNAVData},
+)
     d = decoder.data
     any(
         isnothing,
@@ -227,7 +232,7 @@ function bdgim_params(decoder::GNSSDecoder.GNSSDecoderState{<:AbstractBeiDouCNAV
             d.WN,
         ),
     ) && return nothing
-    return BDGIMParams(
+    return BDGIMParameters(
         d.α_bdgim_1,
         d.α_bdgim_2,
         d.α_bdgim_3,
@@ -250,10 +255,10 @@ end
 # per-group loop of `collect_group!`, where the decoder type is concrete and every
 # accessor below is statically dispatched.
 struct IonosphericCandidates
-    gps_klobuchar::Union{Nothing,KlobucharParams}
-    beidou_klobuchar::Union{Nothing,BeiDouKlobucharParams}
-    bdgim::Union{Nothing,BDGIMParams}
-    ntcm_g::Union{Nothing,NTCMGParams}
+    gps_klobuchar::Union{Nothing,KlobucharParameters}
+    beidou_klobuchar::Union{Nothing,BeiDouKlobucharParameters}
+    bdgim::Union{Nothing,BDGIMParameters}
+    ntcm_g::Union{Nothing,NTCMGParameters}
 end
 
 const NO_IONOSPHERIC_CANDIDATES = IonosphericCandidates(nothing, nothing, nothing, nothing)
@@ -266,12 +271,13 @@ function update_ionospheric_candidates(candidates, decoder)
         # The two BeiDou message families broadcast different models: the legacy
         # D1/D2 one Klobuchar, the BDS-3 B-CNAV ones BDGIM. Both accessors are
         # asked; each answers `nothing` for the family that is not its own.
-        isnothing(beidou_klobuchar) && (beidou_klobuchar = klobuchar_params(decoder))
-        isnothing(bdgim) && (bdgim = bdgim_params(decoder))
+        isnothing(beidou_klobuchar) &&
+            (beidou_klobuchar = get_klobuchar_parameters(decoder))
+        isnothing(bdgim) && (bdgim = get_bdgim_parameters(decoder))
     else
-        isnothing(gps_klobuchar) && (gps_klobuchar = klobuchar_params(decoder))
+        isnothing(gps_klobuchar) && (gps_klobuchar = get_klobuchar_parameters(decoder))
     end
-    isnothing(ntcm_g) && (ntcm_g = ntcm_g_params(decoder))
+    isnothing(ntcm_g) && (ntcm_g = get_ntcm_g_parameters(decoder))
     IonosphericCandidates(gps_klobuchar, beidou_klobuchar, bdgim, ntcm_g)
 end
 
@@ -294,35 +300,42 @@ merge_all_ionospheric_candidates(candidates::Tuple) = merge_ionospheric_candidat
     merge_all_ionospheric_candidates(Base.tail(candidates)),
 )
 
-# The order of preference documented on `select_ionospheric_correction`, top rung first.
+# The order of preference documented on `select_ionospheric_parameters`, top rung first.
 function select_from_ionospheric_candidates(candidates)
     (; gps_klobuchar, beidou_klobuchar, bdgim, ntcm_g) = candidates
     !isnothing(ntcm_g) && return ntcm_g
     !isnothing(bdgim) && return bdgim
     !isnothing(gps_klobuchar) && return gps_klobuchar
-    return beidou_klobuchar          # BeiDouKlobucharParams, or nothing if neither
+    return beidou_klobuchar          # BeiDouKlobucharParameters, or nothing if neither
 end
 
 """
-    IonosphericModel(correction)
+    IonosphericModel(parameters)
 
-The ionospheric `correction` of one solve (see [`select_ionospheric_correction`](@ref)),
-held in a single concrete type. The correction itself is a `Union` of four coefficient
-sets and `nothing`; the solver takes this wrapper instead so that it compiles once
-whichever model an epoch selected, and so that passing the model costs no allocation —
-a `Union` value handed to an unspecialised argument is boxed, whereas a field of a
-concrete struct is stored inline.
+The ionospheric `parameters` of one solve (see [`select_ionospheric_parameters`](@ref)),
+held in a single concrete type. The parameters themselves are a `Union` of four coefficient
+sets and `nothing`; the solver takes this wrapper instead so that it compiles once whichever
+model an epoch selected, and so that passing the model costs no allocation — a `Union` value
+handed to an unspecialised argument is boxed, whereas a field of a concrete struct is stored
+inline.
 """
 struct IonosphericModel
-    correction::Union{Nothing,KlobucharParams,BeiDouKlobucharParams,NTCMGParams,BDGIMParams}
+    parameters::Union{
+        Nothing,
+        KlobucharParameters,
+        BeiDouKlobucharParameters,
+        NTCMGParameters,
+        BDGIMParameters,
+    }
 end
 
 """
-    select_ionospheric_correction(groups)
-        -> Union{KlobucharParams,BeiDouKlobucharParams,NTCMGParams,BDGIMParams,Nothing}
+    select_ionospheric_parameters(groups)
+        -> Union{KlobucharParameters,BeiDouKlobucharParameters,NTCMGParameters,
+                 BDGIMParameters,Nothing}
 
 Scan the satellite decoders of one epoch's [`SignalGroups`](@ref) and pick the
-single ionospheric correction to apply to the whole solve, in a fixed order of
+single set of ionospheric parameters to correct the whole solve with, in a fixed order of
 preference:
 
  1. NTCM-G, if Galileo Effective Ionisation Level coefficients were decoded.
@@ -351,7 +364,7 @@ there the scan sees only the satellites that clear the health gate. This is the
 standalone form, for a consumer running its own estimator over the same measurement
 model.
 """
-function select_ionospheric_correction(groups)
+function select_ionospheric_parameters(groups)
     # Over the groups' `Tuple`, not the `NamedTuple`, as in `collect_measurements`.
     candidates = map(values(_normalize_signal_groups(groups))) do group
         group_candidates = NO_IONOSPHERIC_CANDIDATES
@@ -365,17 +378,18 @@ function select_ionospheric_correction(groups)
 end
 
 """
-    ionospheric_delay(correction, center_frequency, elevation, azimuth, lla, time_of_week)
+    ionospheric_delay(parameters, center_frequency, elevation, azimuth, lla, time_of_week)
         -> Float64
 
 Slant ionospheric group delay in metres for one satellite, using the
-constellation-wide `correction` returned by [`select_ionospheric_correction`](@ref):
+constellation-wide `parameters` returned by [`select_ionospheric_parameters`](@ref):
 
 - `::Nothing` → `0.0` (no coefficients were decoded).
-- [`KlobucharParams`](@ref) → Klobuchar model (IS-GPS-200, Fig. 20-4).
-- [`BeiDouKlobucharParams`](@ref) → BeiDou's Klobuchar variant (BDS-SIS-ICD-B1I-3.0 §5.2.4.7).
-- [`NTCMGParams`](@ref) → NTCM-G model.
-- [`BDGIMParams`](@ref) → BDGIM (BDS-SIS-ICD-B1C-1.0 §7.8.2).
+- [`KlobucharParameters`](@ref) → Klobuchar model (IS-GPS-200, Fig. 20-4).
+- [`BeiDouKlobucharParameters`](@ref) → BeiDou's Klobuchar variant
+  (BDS-SIS-ICD-B1I-3.0 §5.2.4.7).
+- [`NTCMGParameters`](@ref) → NTCM-G model.
+- [`BDGIMParameters`](@ref) → BDGIM (BDS-SIS-ICD-B1C-1.0 §7.8.2).
 
 The line of sight is given by the satellite `elevation`/`azimuth` (radians) and
 the user geodetic position `lla` (a `Geodesy.LLA`); `time_of_week` is the measurement's
@@ -397,7 +411,7 @@ the signal, which is why the row carries the frequency rather than the signal.
 ionospheric_delay(::Nothing, center_frequency, elevation, azimuth, lla, time_of_week) = 0.0
 
 function ionospheric_delay(
-    p::KlobucharParams,
+    p::KlobucharParameters,
     center_frequency,
     elevation,
     azimuth,
@@ -422,7 +436,7 @@ function ionospheric_delay(
 end
 
 function ionospheric_delay(
-    p::BeiDouKlobucharParams,
+    p::BeiDouKlobucharParameters,
     center_frequency,
     elevation,
     azimuth,
@@ -447,14 +461,14 @@ function ionospheric_delay(
 end
 
 function ionospheric_delay(
-    p::NTCMGParams,
+    p::NTCMGParameters,
     center_frequency,
     elevation,
     azimuth,
     lla,
     time_of_week,
 )
-    doy, ut = _galileo_doy_and_ut(p.week_number, time_of_week)
+    doy, ut = _galileo_doy_and_ut(p.week, time_of_week)
     stec = ntcm_g_stec(elevation, azimuth, lla, doy, ut, p.a_i0, p.a_i1, p.a_i2) # TECU
     f = center_frequency
     # Eq. 1: group delay [m] = 40.3 / f² · STEC, with STEC in electrons/m² (1 TECU = 1e16).
@@ -462,14 +476,14 @@ function ionospheric_delay(
 end
 
 function ionospheric_delay(
-    p::BDGIMParams,
+    p::BDGIMParameters,
     center_frequency,
     elevation,
     azimuth,
     lla,
     time_of_week,
 )
-    mjd = _bdgim_modified_julian_date(p.week_number, time_of_week)
+    mjd = _bdgim_modified_julian_date(p.week, time_of_week)
     α = (p.α_1, p.α_2, p.α_3, p.α_4, p.α_5, p.α_6, p.α_7, p.α_8, p.α_9)
     stec = bdgim_stec(elevation, azimuth, lla, mjd, α)   # TECU
     f = center_frequency
@@ -696,10 +710,10 @@ end
 # (`get_system_start_time(GST())` = 1999-08-21T23:59:47 UTC); GST is continuous
 # (offset from UTC by leap seconds, ~18 s), negligible for the day-of-year / UT
 # inputs of NTCM-G.
-function _galileo_doy_and_ut(week_number, time_of_week)
+function _galileo_doy_and_ut(week, time_of_week)
     epoch = get_system_start_time(GST())
     t = epoch +
-        Millisecond(round(Int, (week_number * SECONDS_PER_WEEK + time_of_week) * 1000))
+        Millisecond(round(Int, (week * SECONDS_PER_WEEK + time_of_week) * 1000))
     return dayofyear(t), hour(t) + minute(t) / 60 + second(t) / 3600 + millisecond(t) / 3.6e6
 end
 
@@ -1036,7 +1050,7 @@ end
 # ignores the leap seconds inserted since — ≤ 5 s of error on an argument whose
 # fastest term has a two-hour granularity and a one-day period.
 const _MJD_EPOCH = DateTime(1858, 11, 17)   # MJD 0, by definition
-function _bdgim_modified_julian_date(week_number, time_of_week)
+function _bdgim_modified_julian_date(week, time_of_week)
     epoch_mjd = Dates.value(get_system_start_time(BDT()) - _MJD_EPOCH) / 86_400_000
-    return epoch_mjd + (week_number * SECONDS_PER_WEEK + time_of_week) / 86_400
+    return epoch_mjd + (week * SECONDS_PER_WEEK + time_of_week) / 86_400
 end

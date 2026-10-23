@@ -204,8 +204,8 @@ end
         # makes these answer "no" rather than raise a `FieldError` on a field that was
         # never broadcast.
         @test PositionVelocityTime.time_offset_available(e6b, GPST()) == false
-        @test PositionVelocityTime.ntcm_g_params(e6b) === nothing
-        @test PositionVelocityTime.klobuchar_params(e6b) === nothing
+        @test PositionVelocityTime.get_ntcm_g_parameters(e6b) === nothing
+        @test PositionVelocityTime.get_klobuchar_parameters(e6b) === nothing
         # A week number genuinely does not exist for C/NAV, so this is a MethodError
         # rather than a wrong answer — the honest outcome for a question that has none.
         @test_throws MethodError PositionVelocityTime.get_week(e6b)

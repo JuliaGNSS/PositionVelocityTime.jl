@@ -68,11 +68,11 @@
     end
 
     @testset "NTCM-G coefficients (shared model with E1B)" begin
-        @test PositionVelocityTime.ntcm_g_params(e5a) === nothing            # none broadcast above
+        @test PositionVelocityTime.get_ntcm_g_parameters(e5a) === nothing            # none broadcast above
         with_iono = swap(GNSSDecoder.GalileoE5aData(e5a_eph; a_i0 = 45.0, a_i1 = 0.1, a_i2 = 0.01))
-        p = PositionVelocityTime.ntcm_g_params(with_iono)
-        @test p isa PositionVelocityTime.NTCMGParams
-        @test (p.a_i0, p.a_i1, p.a_i2, p.week_number) == (45.0, 0.1, 0.01, d.WN)
+        p = PositionVelocityTime.get_ntcm_g_parameters(with_iono)
+        @test p isa PositionVelocityTime.NTCMGParameters
+        @test (p.a_i0, p.a_i1, p.a_i2, p.week) == (45.0, 0.1, 0.01, d.WN)
     end
 
     @testset "GGTO (shared word-type-10 layout with E1B)" begin

@@ -427,22 +427,22 @@
         # answers for exactly one of them: only the legacy D1/D2 one yields a
         # Klobuchar set, and only the B-CNAV ones yield BDGIM (see
         # `test/ionosphere.jl` for the model itself).
-        @test PositionVelocityTime.klobuchar_params(d1) === nothing
-        @test PositionVelocityTime.klobuchar_params(b2a) === nothing
-        @test PositionVelocityTime.bdgim_params(d1) === nothing
+        @test PositionVelocityTime.get_klobuchar_parameters(d1) === nothing
+        @test PositionVelocityTime.get_klobuchar_parameters(b2a) === nothing
+        @test PositionVelocityTime.get_bdgim_parameters(d1) === nothing
 
         iono = dnav_decoder(
             galileo[1];
             α_0 = 1.0e-8, α_1 = 2.0e-8, α_2 = -3.0e-8, α_3 = 4.0e-8,
             β_0 = 90112.0, β_1 = 16384.0, β_2 = -196608.0, β_3 = 131072.0,
         )
-        p = PositionVelocityTime.klobuchar_params(iono)
-        # A type of its own, not `KlobucharParams`: BDS-SIS-ICD-B1I-3.0 §5.2.4.7
+        p = PositionVelocityTime.get_klobuchar_parameters(iono)
+        # A type of its own, not `KlobucharParameters`: BDS-SIS-ICD-B1I-3.0 §5.2.4.7
         # prescribes BeiDou's own algorithm (geographic pierce-point latitude,
         # exact geometry, a period clamped from above too), with the delay defined
         # at B1I rather than L1 (see `test/ionosphere.jl` for the model itself).
-        @test p isa PositionVelocityTime.BeiDouKlobucharParams
-        @test !(p isa PositionVelocityTime.KlobucharParams)
+        @test p isa PositionVelocityTime.BeiDouKlobucharParameters
+        @test !(p isa PositionVelocityTime.KlobucharParameters)
         @test (p.α_0, p.β_3) == (1.0e-8, 131072.0)
 
         geometry = (0.6, 1.2, Geodesy.LLA(50.8, 6.1, 180.0), 132000.0)
@@ -451,7 +451,7 @@
         # The same eight numbers fed through the GPS algorithm land elsewhere: the
         # model differs, and so does the reference carrier the 1/f² rescale starts
         # from (B1I is 14 MHz below L1, ~1.8 % on its own).
-        as_gps_set = PositionVelocityTime.KlobucharParams(
+        as_gps_set = PositionVelocityTime.KlobucharParameters(
             p.α_0, p.α_1, p.α_2, p.α_3, p.β_0, p.β_1, p.β_2, p.β_3)
         gps = PositionVelocityTime.ionospheric_delay(as_gps_set, carrier_hz(BeiDouB1I()), geometry...)
         @test !isapprox(bds, gps; rtol = 1e-3)
