@@ -126,7 +126,7 @@ const SUPPORTED_TIME_SYSTEMS = (GPST(), GST(), BDT())
 `time_system` field, and of the keys and the reference system of a [`PVTSolution`](@ref).
 
 A closed `Union` rather than the abstract `GNSSSignals.TimeSystem` so that every call on
-a time system — hashing it into `inter_system_biases`, `time_scale_offset_to_gpst`, an
+a time system — hashing it into `inter_system_biases`, `leap_second_offset_to_gpst`, an
 offset's index — is split into statically dispatched branches instead of being a
 dynamic dispatch, which a `juliac --trim` build rejects. The row it types stays one
 concrete type, so the solver still compiles once for every constellation mix. A time
@@ -164,10 +164,10 @@ The polynomial *coefficients* are stored rather than an evaluated offset, so tha
   polynomial argument is the time of week itself).
 - `week_term::Float64`: `SECONDS_PER_WEEK * (own week − WN_0)`, precomputed, so the
   polynomial argument needs no week lookup. `0.0` where `t_0` is `NaN`.
-- `count_anchor::Float64`: `time_scale_offset_to_gpst(own) −
-  time_scale_offset_to_gpst(target)`, the *defined* whole-second part
-  `GNSSDecoder.GNSSTimeOffset.A_0` folds in and [`calc_steering_offset`](@ref) takes
-  back out (see there).
+- `leap_second_offset_to_target::Float64`:
+  `leap_second_offset_to_gpst(own) − leap_second_offset_to_gpst(target)`, the *defined*
+  whole-second part `GNSSDecoder.GNSSTimeOffset.A_0` folds in and
+  [`calc_steering_offset`](@ref) takes back out (see there).
 """
 struct BroadcastTimeOffset
     available::Bool
@@ -176,12 +176,12 @@ struct BroadcastTimeOffset
     A_2::Float64
     t_0::Float64
     week_term::Float64
-    count_anchor::Float64
+    leap_second_offset_to_target::Float64
 end
 
 # The "this satellite broadcasts nothing toward that system" row. The coefficients and
-# the count anchor are NaN so that a misuse propagates a NaN rather than a plausible
-# zero. A NaN `t_0` alone would not: `calc_steering_offset` reads it as the BeiDou
+# the leap-second offset are NaN so that a misuse propagates a NaN rather than a
+# plausible zero. A NaN `t_0` alone would not: `calc_steering_offset` reads it as the BeiDou
 # D1/D2 "no reference epoch" marker and evaluates the polynomial on `t` instead.
 const NO_TIME_OFFSET = BroadcastTimeOffset(false, NaN, NaN, NaN, NaN, 0.0, NaN)
 
@@ -209,7 +209,7 @@ compiles once for every mix.
   (`GPST()`, `GST()`, `BDT()`), the grouping key of the receiver clock biases. A small
   `Union` of singletons (see [`SupportedTimeSystem`](@ref)), so the row stays concrete
   and every call on the field splits statically.
-- `count_offset_to_gpst::Float64`: [`time_scale_offset_to_gpst`](@ref) of
+- `leap_second_offset_to_gpst::Float64`: [`leap_second_offset_to_gpst`](@ref) of
   `time_system`, precomputed, so the solver reads a number rather than branching on
   the time system per satellite.
 - `transmit_time::Float64`: the transmit time ([`calc_transmit_time`](@ref)) as a
@@ -234,7 +234,7 @@ struct SatelliteMeasurement
     signal_id::Symbol
     band_id::Symbol
     time_system::SupportedTimeSystem
-    count_offset_to_gpst::Float64
+    leap_second_offset_to_gpst::Float64
     transmit_time::Float64
     position::SVector{3,Float64}
     velocity::SVector{3,Float64}
@@ -297,11 +297,10 @@ where `offset.available` (see [`time_offset_available`](@ref)).
 Tens of nanoseconds: it is the residual between two atomic scales, not the whole
 difference between their counts. GNSSDecoder's `GNSSTimeOffset.A_0` folds in the
 *defined* whole-second offset as well — so that `t_target = t_own − Δt` holds for the
-seconds — and `offset.count_anchor` takes that part back out, because
-[`calc_time_scale_offsets`](@ref) has already applied it to the transmit times before
-they were differenced. Both sides are the same
-[`time_scale_offset_to_gpst`](@ref) expression, so the two halves compose exactly
-rather than approximately.
+seconds — and `offset.leap_second_offset_to_target` takes that part back out, because
+[`calc_leap_second_corrections`](@ref) has already applied it to the transmit times before
+they were differenced. Both sides are the same [`leap_second_offset_to_gpst`](@ref)
+expression, so the two halves compose exactly rather than approximately.
 
 !!! note "The subtraction costs about seven digits of the residual"
 
@@ -315,13 +314,14 @@ function calc_steering_offset(offset::BroadcastTimeOffset, t)
     # D1/D2); there the polynomial argument is the time of week itself. Where it is
     # present, `week_term` already carries `SECONDS_PER_WEEK * (own week − WN_0)`.
     Δτ = isnan(offset.t_0) ? t : t - offset.t_0 + offset.week_term
-    offset.A_0 + offset.A_1 * Δτ + offset.A_2 * Δτ^2 - offset.count_anchor
+    offset.A_0 + offset.A_1 * Δτ + offset.A_2 * Δτ^2 -
+    offset.leap_second_offset_to_target
 end
 
 # The broadcast offsets toward every supported time system, flattened. `map` over the
 # heterogeneous `SUPPORTED_TIME_SYSTEMS` tuple specialises per element, so each
 # `get_time_offset` call is statically dispatched on both the decoder and the target.
-function broadcast_time_offsets(decoder, week, count_offset_to_gpst)
+function broadcast_time_offsets(decoder, week, own_leap_second_offset)
     map(SUPPORTED_TIME_SYSTEMS) do target
         offset = get_time_offset(decoder, target)
         isnothing(offset) && return NO_TIME_OFFSET
@@ -332,7 +332,7 @@ function broadcast_time_offsets(decoder, week, count_offset_to_gpst)
             offset.A_2,
             isnothing(offset.t_0) ? NaN : Float64(offset.t_0),
             isnothing(offset.WN_0) ? 0.0 : SECONDS_PER_WEEK * (week - offset.WN_0),
-            count_offset_to_gpst - time_scale_offset_to_gpst(target),
+            own_leap_second_offset - leap_second_offset_to_gpst(target),
         )
     end
 end
@@ -358,7 +358,7 @@ function broadcast_time_offset(
     broadcast_time_offsets(
         decoder,
         get_week(decoder; approximate_year),
-        time_scale_offset_to_gpst(get_time_system(decoder)),
+        leap_second_offset_to_gpst(get_time_system(decoder)),
     )[index]
 end
 
@@ -370,14 +370,14 @@ function satellite_measurement(state::SatelliteState, approximate_year::Integer)
     transmit_time = calc_transmit_time(state)
     position_and_velocity = calc_satellite_position_and_velocity(decoder, transmit_time)
     time_system = get_time_system(signal)
-    count_offset_to_gpst = time_scale_offset_to_gpst(time_system)
+    leap_second_offset = leap_second_offset_to_gpst(time_system)
     week = get_week(decoder; approximate_year)
     SatelliteMeasurement(
         decoder.prn,
         get_signal_id(signal),
         get_band_id(signal),
         time_system,
-        count_offset_to_gpst,
+        leap_second_offset,
         transmit_time,
         position_and_velocity.position,
         position_and_velocity.velocity,
@@ -387,7 +387,7 @@ function satellite_measurement(state::SatelliteState, approximate_year::Integer)
         week,
         system_start_epoch(signal),
         get_system_start_time(signal),
-        broadcast_time_offsets(decoder, week, count_offset_to_gpst),
+        broadcast_time_offsets(decoder, week, leap_second_offset),
     )
 end
 

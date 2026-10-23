@@ -335,7 +335,7 @@ fractions (`calc_uncorrected_transmit_time`), corrected by the SV clock polynomi
 relativistic term and the ranging signal's group delay (`correct_clock`). This
 is the `t` every ephemeris and clock evaluation takes; only pseudorange
 *differencing* converts it to another scale (see
-[`time_scale_offset_to_gpst`](@ref)), never the value itself.
+[`leap_second_offset_to_gpst`](@ref)), never the value itself.
 """
 function calc_transmit_time(state::SatelliteState)
     approximated_time = calc_uncorrected_transmit_time(state)

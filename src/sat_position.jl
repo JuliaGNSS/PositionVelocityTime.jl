@@ -365,7 +365,7 @@ function calc_pseudoranges!(times)
     # inputs are seconds-of-week counts, and the week wrap does not pass through all of
     # them at once. Within one constellation the wrap sweeps through the transmit-time
     # spread (tens of milliseconds, once a week); in a mixed solve the scale alignment
-    # (`calc_time_scale_offsets`) widens the straddle to the full defined offset — a
+    # (`calc_leap_second_corrections`) widens the straddle to the full defined offset — a
     # BeiDou time reads `SOW + 14` on the GPS count, which exceeds 604800 for the first
     # 14 s of every GPS week while the GPS times have already wrapped. Unfolded, every
     # difference across the wrap is off by a week — 1.8e14 m.

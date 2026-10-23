@@ -301,8 +301,8 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   not a receiver one (this receiver has no inter-system hardware bias): it is the GNSS
   system-time offset, so the Galileo entry equals `−c · Δt_systems`, `Δt_systems = GST −
   GPST` (the GGTO), and the BeiDou entry likewise carries the BDT steering residual (the
-  BGTO's subject) — never the defined 14 s count offset, which is a convention already
-  removed from the measurements (see [`calc_time_scale_offsets`](@ref)). It is
+  BGTO's subject) — never the defined 14 s leap-second offset, which is a convention already
+  removed from the measurements (see [`calc_leap_second_corrections`](@ref)). It is
   **estimated directly from the geometry whenever observable** (no broadcast error); the
   broadcast GGTO/BGTO fixes it only where the satellites leave it unobservable (see
   [`decide_bias_layout`](@ref)), as that broadcast value may be erroneous. Reference-independent
@@ -888,14 +888,13 @@ end
 select_reference_clock_column(layout::BiasLayout) = argmax(layout.satellite_counts)
 
 """
-    time_scale_offset_to_gpst(time_system) -> Float64
+    leap_second_offset_to_gpst(time_system) -> Float64
 
-Signed offset of a GNSS time system's *count* against GPS Time's for the same
-instant — `get_tai_offset(GPST) − get_tai_offset(time_system)`, so **negative**
-where the system's count reads lower (BDT: `19 − 33 = −14.0`), and `0.0` for a
-system that counts alike. `calc_time_scale_offsets` adds the *difference of two
-of these* to a transmit time, which is what puts the +14 s onto a BeiDou time
-in a GPS-referenced solve.
+The signed leap-second offset of a GNSS time system's *count* against GPS Time's for the
+same instant — `get_tai_offset(GPST) − get_tai_offset(time_system)`, so **negative** where
+the system's count reads lower (BDT: `19 − 33 = −14.0`), and `0.0` for a system that counts
+alike. `calc_leap_second_corrections` adds the *difference of two of these* to a transmit
+time, which is what puts the +14 s onto a BeiDou time in a GPS-referenced solve.
 
 This is structural, not a bias: it follows from the time scales' definitions, not
 from either system's steering. Both GPST and GST are `TAI − 19 s`, so they count
@@ -916,11 +915,11 @@ added later is covered without touching this.
     about 55 km of along-track error at BeiDou MEO velocities. The transmit time
     must stay on its own scale and the correction must land on the pseudorange.
 """
-time_scale_offset_to_gpst(time_system::GNSSSignals.TimeSystem) =
+leap_second_offset_to_gpst(time_system::GNSSSignals.TimeSystem) =
     ustrip(s, get_tai_offset(GPST()) - get_tai_offset(time_system))
 
 """
-    calc_time_scale_offsets(measurements, reference_system) -> Vector{Float64}
+    calc_leap_second_corrections(measurements, reference_system) -> Vector{Float64}
 
 Seconds to add to each satellite's transmit time to express it in
 `reference_system`'s count, so that `calc_pseudoranges` may difference them.
@@ -941,20 +940,21 @@ shifting the time itself would move the offset into the ephemeris — about 55 k
 of along-track error at BeiDou MEO velocities. `SatelliteInfo.transmit_time` and
 [`calc_steering_offset`](@ref) likewise keep the unconverted value.
 """
-calc_time_scale_offsets(measurements, reference_system) = calc_time_scale_offsets!(
-    Vector{Float64}(undef, length(measurements)), measurements, reference_system)
+calc_leap_second_corrections(measurements, reference_system) =
+    calc_leap_second_corrections!(Vector{Float64}(undef, length(measurements)),
+        measurements, reference_system)
 
-# `calc_time_scale_offsets` into `offsets`, resized to the satellite count.
-function calc_time_scale_offsets!(offsets, measurements, reference_system)
-    offsets = resize!(offsets, length(measurements))
-    reference = time_scale_offset_to_gpst(reference_system)
-    # Each row already carries its own anchor (`count_offset_to_gpst`), precomputed by
+# `calc_leap_second_corrections` into `corrections`, resized to the satellite count.
+function calc_leap_second_corrections!(corrections, measurements, reference_system)
+    corrections = resize!(corrections, length(measurements))
+    reference = leap_second_offset_to_gpst(reference_system)
+    # Each row already carries its own `leap_second_offset_to_gpst`, precomputed by
     # `collect_measurements`, so this reads a number rather than branching on the
     # `time_system` field per satellite.
     for (j, measurement) in enumerate(measurements)
-        offsets[j] = reference - measurement.count_offset_to_gpst
+        corrections[j] = reference - measurement.leap_second_offset_to_gpst
     end
-    offsets
+    corrections
 end
 
 """
@@ -1481,16 +1481,16 @@ function _solve_pvt!(
 
     # The common reference cancels out of the reported time (the reference clock
     # bias absorbs it), so any latest-transmit-time reference works — but the times
-    # must first be put on one count (`calc_time_scale_offsets!`).
+    # must first be put on one count (`calc_leap_second_corrections!`).
     # A BeiDou second-of-week reads 14 s below a GPS time of week for the same instant,
     # so differencing them raw hands every BeiDou measurement 4.2e9 m of structural
     # offset: not merely a biased BeiDou clock column, but a parameter nine orders of
     # magnitude above the others in the normal equations. Zero for GPS and Galileo, and
     # for any single-constellation epoch.
-    # The offsets are written straight into the pseudorange buffer, and the transmit
-    # times added onto them, so no separate offset buffer is needed.
-    pseudoranges =
-        calc_time_scale_offsets!(workspace.pseudoranges, measurements, reference_system)
+    # The corrections are written straight into the pseudorange buffer, and the transmit
+    # times added onto them, so no separate buffer is needed.
+    pseudoranges = calc_leap_second_corrections!(workspace.pseudoranges, measurements,
+        reference_system)
     for (j, measurement) in enumerate(measurements)
         pseudoranges[j] += measurement.transmit_time
     end

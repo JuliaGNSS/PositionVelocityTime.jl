@@ -462,18 +462,19 @@
     @testset "the BDT second-of-week counts 14 s behind a GPS time of week" begin
         # Structural, from the time scales' own definitions rather than any broadcast
         # value: GPST and GST are both TAI − 19 s and so count alike, BDT is TAI − 33 s.
-        @test PositionVelocityTime.time_scale_offset_to_gpst(GPST()) == 0.0
-        @test PositionVelocityTime.time_scale_offset_to_gpst(GST()) == 0.0
-        @test PositionVelocityTime.time_scale_offset_to_gpst(BDT()) == -14.0
+        @test PositionVelocityTime.leap_second_offset_to_gpst(GPST()) == 0.0
+        @test PositionVelocityTime.leap_second_offset_to_gpst(GST()) == 0.0
+        @test PositionVelocityTime.leap_second_offset_to_gpst(BDT()) == -14.0
         # Per satellite it is the seconds to add to reach the *reference* system's count,
         # applied whether or not a clock is constrained. Read off each measurement row's
-        # precomputed `count_offset_to_gpst`, so a row carrying only that field is
+        # precomputed `leap_second_offset_to_gpst`, so a row carrying only that field is
         # enough here. GPS-referenced: BeiDou needs +14 s.
         row(system) = (;
-            count_offset_to_gpst = PositionVelocityTime.time_scale_offset_to_gpst(system),
+            leap_second_offset_to_gpst =
+                PositionVelocityTime.leap_second_offset_to_gpst(system),
         )
         offsets(systems, reference) =
-            PositionVelocityTime.calc_time_scale_offsets(map(row, systems), reference)
+            PositionVelocityTime.calc_leap_second_corrections(map(row, systems), reference)
         @test offsets([GPST(), BDT(), GST(), BDT()], GPST()) == [0.0, 14.0, 0.0, 14.0]
         # BeiDou-referenced: the sign reverses, and a BeiDou-only epoch needs nothing —
         # which is why anchoring on GPST instead of the reference system would have
@@ -490,7 +491,7 @@
         #
         # `A_0` from the decoder bundles the defined 14 s scale offset with the
         # broadcast residual, and `calc_steering_offset` takes the 14 s back out because
-        # `calc_time_scale_offsets` has already applied it to the transmit times.
+        # `calc_leap_second_corrections` has already applied it to the transmit times.
         # Recovering ~1e-8 s by subtracting 14 s in Float64 leaves about one ULP at
         # 14, i.e. ~1.8e-15 s — half a micrometre of range, but far above the default
         # `≈` tolerance on a value of 8e-9, hence the explicit atol throughout.
@@ -745,7 +746,7 @@
         #     publishes, which is what an inter-system bias should actually report.
         #
         # So the BeiDou reception time is `t_rx - 14 + Δ`. Without
-        # `calc_time_scale_range_offsets` the 14 s survives into the normal equations
+        # `calc_leap_second_corrections` the 14 s survives into the normal equations
         # as a parameter nine orders of magnitude above the others: the separate-clock
         # solve reports a nonsense inter-system bias, and the constrained solve — which
         # pins the BeiDou clock difference to the steering term — fails outright.
@@ -936,7 +937,7 @@
 
         # A constraint is not GPS-specific. A GPS-free scarce epoch ties BeiDou to
         # Galileo instead: the BGTO's GNSS_ID names Galileo (2) as well as GPS (1)
-        # — BDS-SIS-ICD-B1C-1.0 §7.13.1. (The defined BDT count offset against GST is
+        # — BDS-SIS-ICD-B1C-1.0 §7.13.1. (The leap-second offset of BDT against GST is
         # the same 14 s as against GPST — both GPST and GST are TAI − 19 s — so the same
         # `structural` and steering values apply.)
         beidou_gal_bgto = ranging_state(
