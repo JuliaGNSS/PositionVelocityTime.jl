@@ -219,7 +219,7 @@ satellite used in the fix).
 
 # Fields
 - `position::ECEF{Float64}`: Satellite ECEF position at transmit time (metres).
-- `transmit_time::Float64`: Satellite transmit time (system time of week, seconds).
+- `transmit_time::typeof(1.0s)`: Satellite transmit time (system time of week).
 - `residual::typeof(1.0m)`: Post-fit least-squares pseudorange residual (metres) — the
   (atmosphere-corrected) measured minus the modelled pseudorange. A per-satellite
   fit-quality / outlier indicator.
@@ -238,7 +238,7 @@ residual from its tracking loops' `λ · carrier_doppler` works in the opposite 
 """
 struct SatelliteInfo
     position::ECEF{Float64}
-    transmit_time::Float64
+    transmit_time::typeof(1.0s)
     residual::typeof(1.0m)
     rate_residual::typeof(1.0m/s)
 end
@@ -1669,8 +1669,8 @@ function _solve_pvt!(
     satellites = empty_keeping_capacity!(solution.satellites)
     for (j, measurement) in enumerate(measurements)
         key = (measurement.signal_id, measurement.prn)
-        set!(satellites, key, SatelliteInfo(measurement.position, measurement.transmit_time,
-            residuals[j] * m, rate_residuals[j] * (m / s)))
+        set!(satellites, key, SatelliteInfo(measurement.position,
+            measurement.transmit_time * s, residuals[j] * m, rate_residuals[j] * (m / s)))
     end
 
     # Inter-system biases relative to the reference system's clock, in
