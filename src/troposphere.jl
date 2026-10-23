@@ -127,20 +127,21 @@ function niell_mapping_functions(latitude, height, elevation, day_of_year)
 end
 
 """
-    saastamoinen_zenith_delays(latitude, height, humidity) -> (hydrostatic, wet)
+    saastamoinen_zenith_delays(latitude, height, relative_humidity) -> (hydrostatic, wet)
 
 Saastamoinen zenith hydrostatic and wet tropospheric delays in metres, from a
 standard atmosphere (15 °C at sea level) evaluated at the geodetic `latitude`
-(radians) and `height` (metres, clamped below at 0). `humidity` is the relative
-humidity (0…1) feeding the water-vapour partial pressure of the wet term. The
-formulas are those of RTKLIB's `tropmodel` at zenith.
+(radians) and `height` (metres, clamped below at 0). `relative_humidity` (0…1) feeds the
+water-vapour partial pressure of the wet term. The formulas are those of RTKLIB's
+`tropmodel` at zenith.
 """
-function saastamoinen_zenith_delays(latitude, height, humidity)
+function saastamoinen_zenith_delays(latitude, height, relative_humidity)
     hgt = max(height, 0.0)
     # Standard atmosphere
     pressure = 1013.25 * (1.0 - 2.2557e-5 * hgt)^5.2568          # hPa
     temperature = 15.0 - 6.5e-3 * hgt + 273.16                  # K (15 °C at sea level)
-    e = 6.108 * humidity * exp((17.15 * temperature - 4684.0) / (temperature - 38.45))  # hPa
+    e = 6.108 * relative_humidity *
+        exp((17.15 * temperature - 4684.0) / (temperature - 38.45))  # hPa
     hydrostatic =
         0.0022768 * pressure /
         (1.0 - 0.00266 * cos(2.0 * latitude) - 0.00028 * hgt / 1.0e3)
@@ -149,15 +150,15 @@ function saastamoinen_zenith_delays(latitude, height, humidity)
 end
 
 """
-    tropospheric_delay(elevation, lla, day_of_year; humidity = 0.7) -> Float64
+    tropospheric_delay(elevation, lla, day_of_year; relative_humidity = 0.7) -> Float64
 
 Slant tropospheric group delay in metres for a satellite at `elevation` (radians)
 seen from the user geodetic position `lla` (a `Geodesy.LLA`): the Saastamoinen
 zenith delays (see [`saastamoinen_zenith_delays`](@ref)) mapped to the line of
 sight by the Niell mapping functions (see [`niell_mapping_functions`](@ref)),
 whose seasonal term is driven by `day_of_year`. The delay is
-non-dispersive (frequency independent). `humidity` is the relative humidity (0…1)
-used for the wet component. The delay is finite and monotone in elevation all the
+non-dispersive (frequency independent). `relative_humidity` (0…1) is used for the wet
+component. The delay is finite and monotone in elevation all the
 way down to the horizon (≈ 90 m for a grazing ray at sea level); elevations below
 the horizon reuse the horizon value. Returns `0.0` when the user height is outside
 the model's valid range (−100 m … 10 km).
@@ -166,11 +167,12 @@ The geometry is taken precomputed so a whole-epoch correction shares the user
 geodetic conversion and the elevation with [`ionospheric_delay`](@ref).
 """
 function tropospheric_delay(elevation, lla, day_of_year;
-    humidity = _DEFAULT_RELATIVE_HUMIDITY)
+    relative_humidity = _DEFAULT_RELATIVE_HUMIDITY)
     (lla.alt < -100.0 || lla.alt > 1.0e4) && return 0.0
     latitude = deg2rad(lla.lat)
     height = max(lla.alt, 0.0)
-    zenith_hydrostatic, zenith_wet = saastamoinen_zenith_delays(latitude, height, humidity)
+    zenith_hydrostatic, zenith_wet = saastamoinen_zenith_delays(latitude, height,
+        relative_humidity)
     hydrostatic_mapping, wet_mapping =
         niell_mapping_functions(latitude, height, elevation, day_of_year)
     return zenith_hydrostatic * hydrostatic_mapping + zenith_wet * wet_mapping

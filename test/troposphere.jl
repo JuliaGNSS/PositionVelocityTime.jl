@@ -80,7 +80,7 @@ end
                 el,
                 LLA(lat, 11.0, h),
                 doy;
-                humidity = humi,
+                relative_humidity = humi,
             )
             ref = slant_delay_reference(lat, h, el, humi, doy)
             @test got ≈ ref rtol = 1e-12
@@ -124,12 +124,12 @@ end
             π / 2,
             LLA(lat, 11.0, 0.0),
             100;
-            humidity = 1.0,
+            relative_humidity = 1.0,
         ) > PositionVelocityTime.tropospheric_delay(
             π / 2,
             LLA(lat, 11.0, 0.0),
             100;
-            humidity = 0.0,
+            relative_humidity = 0.0,
         )
     end
 
