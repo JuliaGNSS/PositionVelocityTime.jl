@@ -90,7 +90,7 @@ end
         data = GNSSDecoder.GPSL1CAData(; TOW = 0),
         raw_data = GNSSDecoder.GPSL1CAData(; TOW = 0),
     )
-    time_of(carrier_phase) = PositionVelocityTime.calc_uncorrected_time(
+    time_of(carrier_phase) = PositionVelocityTime.calc_uncorrected_transmit_time(
         SatelliteState(; decoder, system, code_phase = 0.0, carrier_doppler = 0.0Hz,
             carrier_phase),
     )

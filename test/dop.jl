@@ -1,8 +1,8 @@
-@testset "calc_DOP" begin
-    # ECEF line-of-sight unit vector for a satellite at azimuth `az` (rad, from
-    # North) and elevation `el` (rad), seen from `user`. Built by rotating the
-    # local ENU direction back to ECEF via Geodesy, so the geometry matches what
-    # the solver feeds calc_DOP (rows of negated ECEF lines of sight, as calc_H! builds).
+@testset "calc_dop" begin
+    # ECEF line-of-sight unit vector for a satellite at azimuth `az` (rad, from North) and
+    # elevation `el` (rad), seen from `user`. Built by rotating the local ENU direction back
+    # to ECEF via Geodesy, so the geometry matches what the solver feeds calc_dop (rows of
+    # negated ECEF lines of sight, as calc_design_matrix! builds).
     enu_los(az, el) = [cos(el) * sin(az), cos(el) * cos(az), sin(el)]
     function ecef_los(user, az, el)
         e = enu_los(az, el)
@@ -22,10 +22,10 @@
 
     # Single-system geometry: 3 position columns + 1 clock column.
     H_ecef = reduce(vcat, [[ecef_los(user, az, el)' 1.0] for (az, el) in azels])
-    dop = PositionVelocityTime.calc_DOP(H_ecef, user)
+    dop = PositionVelocityTime.calc_dop(H_ecef, user)
 
     # Reference DOP computed directly in the local ENU frame (RTKLIB-style: rows
-    # are the ENU line-of-sight components). calc_DOP must reproduce these from
+    # are the ENU line-of-sight components). calc_dop must reproduce these from
     # the ECEF H — this is what pins the ECEF→ENU rotation (issue: HDOP/VDOP were
     # previously taken in ECEF and would fail here).
     H_enu = reduce(vcat, [[enu_los(az, el)' 1.0] for (az, el) in azels])
@@ -45,7 +45,7 @@
     # Rank-deficient geometry (identical rows) → singular HᵀH → sentinel
     # DOP(-1, …) returned gracefully, not an exception.
     H_singular = repeat([1.0 0.0 0.0 1.0], 4)
-    dop_singular = PositionVelocityTime.calc_DOP(H_singular, user)
+    dop_singular = PositionVelocityTime.calc_dop(H_singular, user)
     @test dop_singular.GDOP == -1
     @test dop_singular.PDOP == -1
 
@@ -61,8 +61,8 @@
             (i, (az, el)) in enumerate(azels6)
         ],
     )
-    d1 = PositionVelocityTime.calc_DOP(H_multi, user, 1)
-    d2 = PositionVelocityTime.calc_DOP(H_multi, user, 2)
+    d1 = PositionVelocityTime.calc_dop(H_multi, user, 1)
+    d2 = PositionVelocityTime.calc_dop(H_multi, user, 2)
     @test d1.GDOP ≈ d2.GDOP
     @test d1.HDOP ≈ d2.HDOP
     @test d1.PDOP ≈ d2.PDOP

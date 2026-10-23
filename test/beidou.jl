@@ -206,7 +206,7 @@
 
     @testset "time of week comes from the decoder, on every BeiDou signal" begin
         # GNSSDecoder answers this now, including B-CNAV1's reconstruction. Asserted
-        # here because `calc_uncorrected_time` reads it for every signal, so a
+        # here because `calc_uncorrected_transmit_time` reads it for every signal, so a
         # `nothing` would propagate silently into a transmit time.
         @test GNSSDecoder.get_time_of_week(d1) == d1.data.SOW
         @test GNSSDecoder.get_time_of_week(b2a) == b2a.data.SOW
@@ -589,7 +589,7 @@
     function ranging_state(decoder, system, user, t_rx)
         # Solve the light-time equation against the *same* range model the solver
         # uses, which rotates the satellite into the ECEF frame of the reception
-        # instant (`calc_ρ_hat!`). Omitting that Sagnac term would leave a ±30 m
+        # instant (`predict_pseudoranges!`). Omitting that Sagnac term would leave a ±30 m
         # per-satellite inconsistency and the recovered position tens of metres out —
         # a synthesis error that looks exactly like a decoder bug.
         t_tx = t_rx - 0.075                      # ~one light-time as a seed
@@ -624,7 +624,7 @@
             for (i, state) in enumerate(galileo)
         ]
         pvt = calc_pvt(signal_group(b1i); kw...)
-        @test length(pvt.sats) == length(galileo)
+        @test length(pvt.satellites) == length(galileo)
         @test pvt.reference_system == BDT()
         @test norm(pvt.position - user) < 1e-2
         # One constellation, one band, so no inter-system or inter-frequency biases.
@@ -685,7 +685,7 @@
         # the pilot path is the common case rather than an exotic one.
         #
         # Two things differ from the data-ranged fix and both are worth a number
-        # rather than a `hasmethod` check. `calc_uncorrected_time` divides the
+        # rather than a `hasmethod` check. `calc_uncorrected_transmit_time` divides the
         # pilot's code frequency by the *decoder's* data frequency to reduce the
         # shared code phase modulo one data symbol — for B1C that is 1.023 Mcps over
         # 100 Hz, 10230 chips per symbol — and `correct_by_group_delay` applies the
@@ -710,7 +710,7 @@
 
             pvt_data = calc_pvt(signal_group(on_data); kw...)
             pvt_pilot = calc_pvt(signal_group(on_pilot); kw...)
-            @test length(pvt_pilot.sats) == length(galileo)
+            @test length(pvt_pilot.satellites) == length(galileo)
             @test norm(pvt_pilot.position - user) < 1e-2
             @test norm(pvt_pilot.position - pvt_data.position) < 1e-2
             # Same satellite, same band — so a pilot-ranged epoch is one band and one
@@ -726,7 +726,7 @@
             for state in galileo
         ]
         pvt = calc_pvt(signal_group(b2a_states); kw...)
-        @test length(pvt.sats) == length(galileo)
+        @test length(pvt.satellites) == length(galileo)
         @test norm(pvt.position - user) < 1e-2
     end
 
@@ -775,7 +775,7 @@
         plenty_beidou = beidou([21, 22, 23, 24])
         plenty = (signal_group(gps), signal_group(plenty_beidou))
         pvt = calc_pvt(plenty; kw...)
-        @test length(pvt.sats) == length(gps) + length(plenty_beidou)
+        @test length(pvt.satellites) == length(gps) + length(plenty_beidou)
         @test norm(pvt.position - user) < 1e-2
         @test haskey(pvt.inter_system_biases, BDT())
         # The steering term alone, ~3.6 m — not the 4.2e9 m the structural count
@@ -831,7 +831,7 @@
 
         constrained = calc_pvt(scarce; kw...)
         @test constrained.reference_system == GPST()
-        @test length(constrained.sats) == 4
+        @test length(constrained.satellites) == 4
         # A 4-satellite solve has no redundancy at all, so the millimetre-scale
         # time-of-week rounding noise described above is not averaged down here the
         # way it is in the 5-satellite fixes; a few centimetres is the honest bound.
@@ -969,7 +969,7 @@
 
         gst_constrained = calc_pvt(gps_free; kw...)
         @test gst_constrained.reference_system == GST()
-        @test length(gst_constrained.sats) == 4
+        @test length(gst_constrained.satellites) == 4
         @test norm(gst_constrained.position - user) < 5e-2
         @test ustrip(m, gst_constrained.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
     end

@@ -12,7 +12,7 @@ function fold_week_crossover(t)
     t + (t > half_week ? -2 * half_week : (t < -half_week ? 2 * half_week : 0.0))
 end
 
-function calc_uncorrected_time(state::SatelliteState)
+function calc_uncorrected_transmit_time(state::SatelliteState)
     system = state.system
     # Time of week at the navigation-frame reference epoch, from GNSSDecoder's own
     # accessor. Most signals broadcast seconds outright, but GPS L1C-D counts
@@ -327,18 +327,18 @@ correct_by_group_delay(
 # CNAV's L5 and L2C signals, for the same reason.)
 
 """
-    calc_corrected_time(state::SatelliteState) -> Float64
+    calc_transmit_time(state::SatelliteState) -> Float64
 
 The satellite's transmit time as a seconds-of-week count on its own system's
 scale: the decoder's time of week plus the bit, code-phase and carrier-phase
-fractions (`calc_uncorrected_time`), corrected by the SV clock polynomial, the
+fractions (`calc_uncorrected_transmit_time`), corrected by the SV clock polynomial, the
 relativistic term and the ranging signal's group delay (`correct_clock`). This
 is the `t` every ephemeris and clock evaluation takes; only pseudorange
 *differencing* converts it to another scale (see
 [`time_scale_offset_to_gpst`](@ref)), never the value itself.
 """
-function calc_corrected_time(state::SatelliteState)
-    approximated_time = calc_uncorrected_time(state)
+function calc_transmit_time(state::SatelliteState)
+    approximated_time = calc_uncorrected_transmit_time(state)
     correct_clock(state.decoder, state.system, approximated_time)
 end
 

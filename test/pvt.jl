@@ -17,7 +17,7 @@
     @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 9
     # The modelled range rate carries the light-time factor `1 − ρ̇/c` and the rate of
-    # the Earth-rotation angle (see `calc_user_velocity_and_clock_drift`), which moved this by ~3 mm/s
+    # the Earth-rotation angle (see `estimate_velocity`), which moved this by ~3 mm/s
     # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
     # with the Doppler, so the frequency offsets now differ by a few mHz.
     @test pvt.relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.64Hz + freq_offset) atol = 0.01Hz
@@ -33,7 +33,7 @@
     # stops once its step is below `x_tol` relative to `‖ξ‖`, ~2 µm with the ~2e7 m of
     # clock bias in `ξ`, so which side of that the two land on depends on last-bit
     # rounding — 2 µm apart on one GitHub runner. Geodesy's `≈` on `LLA` defaults to 1 µm.
-    @test get_LLA(warm_pvt) ≈ get_LLA(pvt) atol = 1e-5
+    @test get_lla(warm_pvt) ≈ get_lla(pvt) atol = 1e-5
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
@@ -54,7 +54,7 @@ end
     @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 2.5
     # The modelled range rate carries the light-time factor `1 − ρ̇/c` and the rate of
-    # the Earth-rotation angle (see `calc_user_velocity_and_clock_drift`), which moved this by ~3 mm/s
+    # the Earth-rotation angle (see `estimate_velocity`), which moved this by ~3 mm/s
     # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
     # with the Doppler, so the frequency offsets now differ by a few mHz.
     @test pvt.relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.61Hz + freq_offset) atol = 0.01Hz
@@ -66,7 +66,7 @@ end
         enable_ionospheric_correction = false,
         enable_tropospheric_correction = false,
     )
-    @test get_LLA(warm_pvt) ≈ get_LLA(pvt) atol = 1e-5  # see the first testset
+    @test get_lla(warm_pvt) ≈ get_lla(pvt) atol = 1e-5  # see the first testset
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
@@ -104,7 +104,7 @@ function with_health_bad(state)
 end
 
 # Relabels a SatelliteState's decoder PRN. Nothing in the least-squares solve depends on
-# the PRN — it identifies a satellite, as the `sats`-dict key and for the layout's
+# the PRN — it identifies a satellite, as the `satellites`-dict key and for the layout's
 # distinct-satellite count — so this isolates that identity from the measurements.
 function with_prn(state, prn)
     d = state.decoder
@@ -144,7 +144,7 @@ end
     @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.285)
 
     # One clock bias per GNSS; the reference (GPS, most satellites) bias is
-    # reported as time_correction, with Galileo's offset relative to it.
+    # reported as clock_bias, with Galileo's offset relative to it.
     @test pvt.reference_system == GPST()
     @test Set(keys(pvt.inter_system_biases)) == Set([GST()])
 
@@ -165,32 +165,32 @@ end
     # Satellites are keyed by (signal, PRN), so both constellations are represented
     # and nothing is merged or dropped across systems: the combined count equals the
     # sum of the single-system counts (PRNs here don't overlap).
-    @test all(k -> k isa Tuple{Symbol,Int}, keys(pvt.sats))
-    @test Set(first(k) for k in keys(pvt.sats)) == Set([:GPSL1CA, :GalileoE1B])
-    @test length(pvt.sats) ==
-          length(gps_only.sats) + length(gal_only.sats)
-    let (sig, prn) = first(keys(pvt.sats))
-        @test get_sat_info(pvt, sig, prn) === pvt.sats[(sig, prn)]
+    @test all(k -> k isa Tuple{Symbol,Int}, keys(pvt.satellites))
+    @test Set(first(k) for k in keys(pvt.satellites)) == Set([:GPSL1CA, :GalileoE1B])
+    @test length(pvt.satellites) ==
+          length(gps_only.satellites) + length(gal_only.satellites)
+    let (sig, prn) = first(keys(pvt.satellites))
+        @test get_satellite_info(pvt, sig, prn) === pvt.satellites[(sig, prn)]
     end
     # A satellite not used in the fix returns `nothing` rather than throwing.
-    @test get_sat_info(pvt, :GPSL1CA, 999) === nothing
+    @test get_satellite_info(pvt, :GPSL1CA, 999) === nothing
 
-    # Per-satellite post-fit residuals are exposed via SatInfo (measured − modeled
+    # Per-satellite post-fit residuals are exposed via SatelliteInfo (measured − modeled
     # pseudorange, metres); finite and small for a good fix.
-    resids = [info.residual for info in values(pvt.sats)]
-    @test length(resids) == length(pvt.sats)
+    resids = [info.residual for info in values(pvt.satellites)]
+    @test length(resids) == length(pvt.satellites)
     @test all(isfinite, resids)
     @test maximum(abs, resids) < 10m
 
     # The rate-domain counterpart from the Doppler solve (measured − modeled range
     # rate, m/s): finite, and metre-per-second-level for a stationary receiver.
-    rate_resids = [info.rate_residual for info in values(pvt.sats)]
-    @test length(rate_resids) == length(pvt.sats)
+    rate_resids = [info.rate_residual for info in values(pvt.satellites)]
+    @test length(rate_resids) == length(pvt.satellites)
     @test all(isfinite, rate_resids)
     @test maximum(abs, rate_resids) < 10.0m/s
 
     warm_pvt = calc_pvt(groups, pvt; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    @test get_LLA(warm_pvt) ≈ get_LLA(pvt) atol = 1e-5  # see the first testset
+    @test get_lla(warm_pvt) ≈ get_lla(pvt) atol = 1e-5  # see the first testset
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
@@ -263,9 +263,9 @@ end
     calc_pvt!(PVTSolution(), workspace, big_groups, big; approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test big.dop.PDOP < PositionVelocityTime.MAX_TRUSTED_WARM_START_PDOP
-    @test workspace.prev_ξ[4] == ustrip(m, big.time_correction)
+    @test workspace.prev_ξ[4] == ustrip(m, big.clock_bias)
     @test workspace.prev_ξ[5] ==
-          ustrip(m, big.time_correction + big.inter_system_biases[GST()])
+          ustrip(m, big.clock_bias + big.inter_system_biases[GST()])
     # The seed only sets the starting point: warm and cold starts reach the same fix.
     warm = calc_pvt(big_groups, big; approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
@@ -327,7 +327,7 @@ end
     constraint = only(layout.constraints)
     @test (constraint.column, constraint.target_column) == (2, 1)
     @test constraint.offset ≈
-          -C * PositionVelocityTime.calc_steering_offset(ggto, offset_rows[3].time)
+          -C * PositionVelocityTime.calc_steering_offset(ggto, offset_rows[3].transmit_time)
     # The tied systems count as one for the DOP.
     @test layout.clock_group_indices == [1, 1, 1, 1]
     @test layout.num_clock_groups == 1
@@ -382,7 +382,7 @@ end
 
 @testset "PVT reference system is the most-populated GNSS" begin
     # Galileo-majority independent mix (2 GPS + 5 Galileo): no GGTO constraint, so
-    # the reference system — which sets the reported time scale and time_correction
+    # the reference system — which sets the reported time scale and clock_bias
     # — should be Galileo, the constellation with more satellites.
     gps = gps_l1_states(0.0Hz)
     gal = galileo_e1b_states(0.0Hz)
@@ -401,7 +401,7 @@ end
     @test norm(pvt.position - gal_only.position) < 10
 end
 
-@testset "PVT sats keyed by (signal, PRN): same PRN across signals coexists" begin
+@testset "PVT satellites keyed by (signal, PRN): same PRN across signals coexists" begin
     gps = gps_l1_states(0.0Hz)
     gal = galileo_e1b_states(0.0Hz)
     healthy(s) = PositionVelocityTime.is_sat_healthy(s.decoder)
@@ -427,11 +427,11 @@ end
     # Both the GPS and the Galileo satellite with the shared PRN survive as
     # distinct entries — with a bare-Int PRN key one would have overwritten the
     # other and the used-satellite count would have dropped.
-    @test haskey(pvt.sats, (:GPSL1CA, shared_prn))
-    @test haskey(pvt.sats, (:GalileoE1B, shared_prn))
-    @test get_sat_info(pvt, :GPSL1CA, shared_prn) !==
-          get_sat_info(pvt, :GalileoE1B, shared_prn)
-    @test length(pvt.sats) == length(baseline.sats)
+    @test haskey(pvt.satellites, (:GPSL1CA, shared_prn))
+    @test haskey(pvt.satellites, (:GalileoE1B, shared_prn))
+    @test get_satellite_info(pvt, :GPSL1CA, shared_prn) !==
+          get_satellite_info(pvt, :GalileoE1B, shared_prn)
+    @test length(pvt.satellites) == length(baseline.satellites)
 end
 
 # Course over ground: azimuth of the velocity vector in the local ENU frame, degrees
@@ -476,7 +476,7 @@ end
         pvt = calc_pvt(scarce; kwargs...)
         @test pvt.position == ECEF(0, 0, 0)
         @test isnothing(pvt.time)
-        @test isempty(pvt.sats)
+        @test isempty(pvt.satellites)
         # Given a previous fix, that fix is what is carried forward.
         @test calc_pvt(scarce, reference; kwargs...) === reference
     end
@@ -493,7 +493,7 @@ end
 # epoch's geometry left the velocity normal equations singular and the 4×4 solve threw
 # before the epoch could be rejected.
 @testset "degenerate geometry is rejected without throwing" begin
-    # The rank test `calc_DOP` decides the geometry by: the normal-equations matrix `HᵀH`
+    # The rank test `calc_dop` decides the geometry by: the normal-equations matrix `HᵀH`
     # of the design, Cholesky-factorised with a relative tolerance on its pivots.
     full_rank(H) = PositionVelocityTime.factorize_normal_matrix!(
         Matrix{Float64}(undef, size(H, 2), size(H, 2)), H)
@@ -510,7 +510,7 @@ end
     end
 
     @testset "the geometry checks follow the design matrix rank" begin
-        # `calc_DOP` and the velocity solve both decide rank through the normal-equations
+        # `calc_dop` and the velocity solve both decide rank through the normal-equations
         # matrix, so that is what these cases exercise.
         @test full_rank([1.0 0.0 1.0; 0.0 1.0 1.0; 1.0 1.0 0.0])
         @test !full_rank(repeat([1.0 0.0 1.0], 3))               # identical rows
@@ -532,7 +532,7 @@ end
     end
 
     # The velocity solve assumes a full-rank position design (its caller establishes that
-    # with `calc_DOP` first), so what is pinned here is the implication it relies on: a
+    # with `calc_dop` first), so what is pinned here is the implication it relies on: a
     # degenerate line-of-sight set is degenerate for the velocity design too, and would
     # reach a singular solve if the DOP check were ever moved after it.
     @testset "a degenerate line-of-sight set is degenerate for the velocity design" begin
@@ -547,9 +547,9 @@ end
              for name in fieldnames(PositionVelocityTime.SatelliteMeasurement))...)
         placed(dirs) = [with_position(m, user + 2.0e7 * normalize(SVector{3}(d)))
                         for (m, d) in zip(measurements, dirs)]
-        # The position design's columns — the negated lines of sight, as `calc_H!` builds
-        # them — and one column of ones for the per-system clock columns, which the
-        # velocity solve collapses into one drift.
+        # The position design's columns — the negated lines of sight, as
+        # `calc_design_matrix!` builds them — and one column of ones for the per-system
+        # clock columns, which the velocity solve collapses into one drift.
         design(dirs) = reduce(vcat, [[-normalize(d)' 1.0] for d in dirs])
 
         # Four well-spread directions ⇒ solvable: a finite [vx, vy, vz, ċ], plus one
@@ -557,7 +557,7 @@ end
         spread = [[1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0]]
         rows = placed(spread)
         solution, rate_residuals =
-            PositionVelocityTime.calc_user_velocity_and_clock_drift(rows, user)
+            PositionVelocityTime.estimate_velocity(rows, user)
         @test length(solution) == 4
         @test all(isfinite, solution)
         @test length(rate_residuals) == length(measurements)
@@ -577,7 +577,7 @@ end
             @test norm(A' * rate_residuals) < 1e-6
         end
 
-        # The degenerate cases are stated on the design matrix, which `calc_DOP` tests
+        # The degenerate cases are stated on the design matrix, which `calc_dop` tests
         # before the velocity solve. Two distinct directions (a satellite tracked on a
         # second band repeats its line of sight) leave the position columns rank deficient.
         solvable(dirs) = full_rank(design(dirs))
@@ -598,7 +598,7 @@ end
         # little to restore its rank — and reports `NaN` instead of throwing.
         for dirs in (repeated, cone)
             solution, rate_residuals =
-                PositionVelocityTime.calc_user_velocity_and_clock_drift(placed(dirs), user)
+                PositionVelocityTime.estimate_velocity(placed(dirs), user)
             @test all(isnan, solution)
             @test all(isnan, rate_residuals)
         end
@@ -612,7 +612,7 @@ end
 # step is only a fraction of the distance to the optimum. A warm start a metre out
 # therefore took one ~10 cm step and reported convergence, returning a fix most of a
 # metre away from the one the very same measurements give from cold. See the solver
-# settings in `user_position`.
+# settings in `estimate_position`.
 @testset "a warm start converges to the same fix as a cold start" begin
     kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
@@ -625,15 +625,15 @@ end
     for offset in ([1.0, -1.0, 1.0], [30.0, 0.0, -20.0], [1e5, 1e5, -1e5])
         stale = PVTSolution(;
             position = ECEF((Vector(cold.position) .+ offset)...),
-            time_correction = cold.time_correction,
+            clock_bias = cold.clock_bias,
             reference_system = cold.reference_system,
         )
         warm = calc_pvt(signal_group(states), stale; kwargs...)
         @test norm(warm.position - cold.position) < 1e-4
         @test warm.time ≈ cold.time
         # The residuals are those of the converged fit, not of the stale position.
-        @test maximum(abs, [info.residual for info in values(warm.sats)]) ≈
-              maximum(abs, [info.residual for info in values(cold.sats)]) rtol = 1e-6
+        @test maximum(abs, [info.residual for info in values(warm.satellites)]) ≈
+              maximum(abs, [info.residual for info in values(cold.satellites)]) rtol = 1e-6
     end
 end
 
@@ -659,7 +659,7 @@ end
     # as the next seed looks like.
     poisoned = PVTSolution(;
         position = ECEF((Vector(good.position) .+ [2.7e8, 0.0, 0.0])...),
-        time_correction = good.time_correction,
+        clock_bias = good.clock_bias,
         reference_system = good.reference_system,
         dop = PositionVelocityTime.DOP(613.0, 587.0, 400.0, 430.0, 176.6),
     )
@@ -675,8 +675,8 @@ end
     @test recovered.dop.PDOP ≈ good.dop.PDOP
     @test recovered.dop.PDOP < PositionVelocityTime.MAX_TRUSTED_WARM_START_PDOP
     # Nothing of the poisoned seed survives into the reported satellite set.
-    @test maximum(abs, [info.residual for info in values(recovered.sats)]) ≈
-          maximum(abs, [info.residual for info in values(good.sats)]) rtol = 1e-6
+    @test maximum(abs, [info.residual for info in values(recovered.satellites)]) ≈
+          maximum(abs, [info.residual for info in values(good.satellites)]) rtol = 1e-6
 
     # An unsolvable epoch (too few satellites) returns the previous solution exactly
     # as passed, distrusted or not — the gate withholds it from the solve, not from
@@ -698,9 +698,9 @@ end
         [0.7, 0.5, 0.5], [-0.3, -0.5, 0.8], [0.0, 0.9, 0.45]]
     sat_positions = reduce(hcat, [user .+ 2.0e7 .* normalize(d) for d in dirs])
     bias_columns = PositionVelocityTime.BiasColumns(ones(Int, 6), 1, zeros(Int, 6), 0)
-    ρ = PositionVelocityTime.calc_ρ_hat!(
+    ρ = PositionVelocityTime.predict_pseudoranges!(
         zeros(6), sat_positions, [user; 30.0], bias_columns)
-    _, resid = PositionVelocityTime.user_position(sat_positions, ρ, bias_columns)
+    _, resid = PositionVelocityTime.estimate_position(sat_positions, ρ, bias_columns)
     @test maximum(abs, resid) < 1e-6   # self-consistent data ⇒ no residual
 
     # ±100 m on satellite 3's measurement alone. Least squares spreads part of it over
@@ -708,7 +708,7 @@ end
     # the sign of the perturbation: measuring long reads positive, short negative. (How
     # large the fraction is depends on the satellite's leverage, so only the sign and
     # the bound are pinned.)
-    perturbed(δ) = last(PositionVelocityTime.user_position(
+    perturbed(δ) = last(PositionVelocityTime.estimate_position(
         sat_positions, (ρ_δ = copy(ρ); ρ_δ[3] += δ; ρ_δ), bias_columns))[3]
     @test 0.0 < perturbed(100.0) < 100.0
     @test -100.0 < perturbed(-100.0) < 0.0
@@ -733,20 +733,20 @@ end
 
     rows(v) = first(PositionVelocityTime.collect_measurements(
         signal_group(v); approximate_year = 2021))
-    _, base = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(states), user)
+    _, base = PositionVelocityTime.estimate_velocity(rows(states), user)
     Δdoppler = 50.0Hz
     faster = copy(states)
     faster[3] = with_doppler(states[3], states[3].carrier_doppler + Δdoppler)
-    _, closing = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(faster), user)
+    _, closing = PositionVelocityTime.estimate_velocity(rows(faster), user)
     λ = PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(states[3].system))
     @test -λ * ustrip(Hz, Δdoppler) < closing[3] - base[3] < 0.0
 end
 
 @testset "calc_line_of_sight points receiver → satellite" begin
-    # The textbook convention (Misra & Enge's 1ₖ, RTKLIB's `e`), pinned directly
-    # because every H-based assertion is insensitive to it: `calc_H!` negates the
-    # vector into the pseudorange's position partial, so a flipped convention with a
-    # matching flip there would pass the whole suite unnoticed.
+    # The textbook convention (Misra & Enge's 1ₖ, RTKLIB's `e`), pinned directly because
+    # every H-based assertion is insensitive to it: `calc_design_matrix!` negates the vector
+    # into the pseudorange's position partial, so a flipped convention with a matching flip
+    # there would pass the whole suite unnoticed.
     user = [3.9074e6, 3.0684e5, 5.0150e6]
     sat = user + 2.0e7 * normalize([0.3, 0.1, 0.95])
     e = PositionVelocityTime.calc_line_of_sight(sat, [user; 0.0])
@@ -754,7 +754,7 @@ end
     # Up to the ~30 m Sagnac rotation of the satellite position.
     @test dot(e, normalize(sat - user)) > 1 - 1e-10
     # And the design row carries its negative.
-    H = PositionVelocityTime.calc_H(reshape(sat, 3, 1), [user; 0.0],
+    H = PositionVelocityTime.calc_design_matrix(reshape(sat, 3, 1), [user; 0.0],
         PositionVelocityTime.BiasColumns([1], 1, [0], 0))
     @test H[1, 1:3] ≈ -e
 end

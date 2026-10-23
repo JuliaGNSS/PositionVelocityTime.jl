@@ -224,12 +224,13 @@ end
         lla = LLAfromECEF(wgs84)(user)
         # Satellite roughly overhead → near-zenith, small slant delay (~2 m)
         sat_up = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 2.0e7))
-        el_up, _ = PositionVelocityTime._elevation_azimuth(ENUfromECEF(user, wgs84), sat_up)
+        el_up, _ = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat_up)
         d_up = PositionVelocityTime.tropospheric_delay(el_up, lla, 100)
         @test 2.0 < d_up < 2.6
         # A low-elevation satellite has a larger slant delay than the near-zenith one
         sat_low = ECEF(user[1] + 2.0e7, user[2] + 2.0e6, user[3] + 2.0e6)
-        el_low, _ = PositionVelocityTime._elevation_azimuth(ENUfromECEF(user, wgs84), sat_low)
+        el_low, _ =
+            calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat_low)
         @test PositionVelocityTime.tropospheric_delay(el_low, lla, 100) > d_up
         # Frequency independence is implicit: tropospheric_delay takes no system/freq.
     end

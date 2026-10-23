@@ -54,8 +54,8 @@
         gal_first = calc_pvt((a = three_gal, b = three_gps); kw...)
         @test gps_first.reference_system == GPST()
         @test gal_first.reference_system == GST()
-        # And `sats` is built in flat order: group order × within-group order.
-        @test collect(keys(gal_first.sats)) == [
+        # And `satellites` is built in flat order: group order × within-group order.
+        @test collect(keys(gal_first.satellites)) == [
             [(:GalileoE1B, state.decoder.prn) for state in gal[1:3]]
             [(:GPSL1CA, state.decoder.prn) for state in gps[1:3]]
         ]

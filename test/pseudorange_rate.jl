@@ -8,9 +8,9 @@
 
 const ONE_CLOCK_COLUMN = PositionVelocityTime.BiasColumns([1], 1, [0], 0)
 
-# The pseudorange at receiver time `t`, as `calc_ρ_hat!` models it: the satellite taken
-# at its transmit time `t_t = t − ρ/c` (found by fixed-point iteration), the receiver at
-# `user_at(t)` with clock bias `bias_at(t)` (m), and the satellite clock offset
+# The pseudorange at receiver time `t`, as `predict_pseudoranges!` models it: the satellite
+# taken at its transmit time `t_t = t − ρ/c` (found by fixed-point iteration), the receiver
+# at `user_at(t)` with clock bias `bias_at(t)` (m), and the satellite clock offset
 # `sat_clock_at(t_t)` (m) subtracted.
 function modelled_pseudorange(sat_at, sat_clock_at, user_at, bias_at, t)
     c = PositionVelocityTime.SPEED_OF_LIGHT
@@ -18,7 +18,7 @@ function modelled_pseudorange(sat_at, sat_clock_at, user_at, bias_at, t)
     t_t = t
     for _ in 1:10
         t_t = t - ρ / c
-        ρ = PositionVelocityTime.calc_ρ_hat!(
+        ρ = PositionVelocityTime.predict_pseudoranges!(
             zeros(1), [sat_at(t_t)], [user_at(t); bias_at(t)], ONE_CLOCK_COLUMN)[1] -
             sat_clock_at(t_t)
     end
@@ -87,7 +87,7 @@ end
 # `doppler` (Hz). Only the code phase and bit count move, as in `_precompile_states`;
 # the carrier phase, which also counts into the transmit time, is kept.
 function retimed_state(state, transmit_time, doppler)
-    uncorrected = PositionVelocityTime.calc_uncorrected_time(state)
+    uncorrected = PositionVelocityTime.calc_uncorrected_transmit_time(state)
     # `correct_clock` is a slowly varying offset, so a few fixed-point steps invert it.
     for _ in 1:5
         uncorrected += transmit_time -
@@ -97,7 +97,7 @@ function retimed_state(state, transmit_time, doppler)
     chips = ustrip(Hz, get_code_frequency(state.system))
     offset = state.decoder.num_bits_after_valid_syncro_sequence / rate +
              mod(state.code_phase, chips / rate) / chips +
-             uncorrected - PositionVelocityTime.calc_uncorrected_time(state)
+             uncorrected - PositionVelocityTime.calc_uncorrected_transmit_time(state)
     num_bits = floor(Int, offset * rate)
     SatelliteState(;
         decoder = GNSSDecoder.GNSSDecoderState(state.decoder;
@@ -125,7 +125,7 @@ end
     # velocity here — ten times the bounds below, which the solve meets to ~1e-6 m/s.
     user_vel = SVector(150.0, -200.0, 50.0)
     clock_bias, clock_drift = 0.0, 30.0
-    reception = maximum(PositionVelocityTime.calc_corrected_time, states) + 0.075
+    reception = maximum(PositionVelocityTime.calc_transmit_time, states) + 0.075
 
     exact_states = map(states) do state
         orbit_at(t_t) = calc_satellite_position_and_velocity(state.decoder, t_t).position
@@ -155,7 +155,7 @@ end
     @test norm(pvt.position - user_pos) < 1e-2
     @test norm(pvt.velocity - user_vel) < 1e-5
     @test pvt.relative_clock_drift * c ≈ clock_drift atol = 1e-5
-    @test maximum(info -> abs(ustrip(m / s, info.rate_residual)), pvt.sats) < 1e-5
+    @test maximum(info -> abs(ustrip(m / s, info.rate_residual)), pvt.satellites) < 1e-5
 end
 
 # The velocity solve fits `calc_pseudorange_rate` itself: at the solved state, the
@@ -173,7 +173,7 @@ end
         modelled = PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel,
             pvt.relative_clock_drift * c, row.position, row.velocity, row.clock_drift)
         measured = -row.carrier_doppler * c / row.center_frequency
-        residual = ustrip(m / s, pvt.sats[(row.signal_id, row.prn)].rate_residual)
+        residual = ustrip(m / s, pvt.satellites[(row.signal_id, row.prn)].rate_residual)
         @test abs(residual) > 1e-3
         @test measured - modelled ≈ residual atol = 1e-9
     end
@@ -206,13 +206,13 @@ with_pseudorange_rate(measurement, rate) = PositionVelocityTime.SatelliteMeasure
                 row.position, row.velocity, row.clock_drift)) for row in rows]
         # From rest: hundreds of m/s and kilometres per second of drift in one step.
         solved, residuals =
-            PositionVelocityTime.calc_user_velocity_and_clock_drift(exact, user_pos)
+            PositionVelocityTime.estimate_velocity(exact, user_pos)
         @test norm(solved - truth) < 1e-6
         @test maximum(abs, residuals) < 1e-6
         # From a start a few m/s off, the previous epoch's solution, to rounding.
         start = truth + SVector(2.0, -1.5, 0.5, 0.3)
         solved, residuals =
-            PositionVelocityTime.calc_user_velocity_and_clock_drift(exact, user_pos, start)
+            PositionVelocityTime.estimate_velocity(exact, user_pos, start)
         @test norm(solved - truth) < 1e-10
         @test maximum(abs, residuals) < 1e-10
     end
@@ -227,7 +227,7 @@ end
     groups = signal_group(gps_l1_states(0.0Hz))
     cold = calc_pvt(groups; kwargs...)
     warm = calc_pvt(groups, cold; kwargs...)
-    rate_residuals(pvt) = [ustrip(m / s, info.rate_residual) for info in pvt.sats]
+    rate_residuals(pvt) = [ustrip(m / s, info.rate_residual) for info in pvt.satellites]
     @test norm(warm.velocity - cold.velocity) < 1e-9
     @test warm.relative_clock_drift ≈ cold.relative_clock_drift atol = 1e-9 / 3e8
     @test maximum(abs, rate_residuals(warm) - rate_residuals(cold)) < 1e-9

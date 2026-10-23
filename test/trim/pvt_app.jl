@@ -23,7 +23,7 @@ beidou(system) = SignalGroup(system, [SatelliteState(;
 function report(io, name, pvt)
     print(io, name, ":")
     for x in (pvt.position..., pvt.velocity..., pvt.time.second, pvt.time.fraction,
-        pvt.dop.GDOP, length(pvt.sats))
+        pvt.dop.GDOP, length(pvt.satellites))
         print(io, " ", x)
     end
     for (system, bias) in pvt.inter_system_biases

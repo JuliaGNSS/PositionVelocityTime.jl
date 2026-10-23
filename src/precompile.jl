@@ -750,7 +750,7 @@ navigation data converted by `make_data`.
 
 The observables were recorded on `source_system` (GPS L1 C/A or Galileo E1B).
 Expressing them on another signal of the same satellite has to preserve the
-transmit epoch, which [`calc_uncorrected_time`](@ref) builds as `TOW + n_bits/data_rate + (code_phase reduced to one data symbol)/chip_rate`. So the
+transmit epoch, which [`calc_uncorrected_transmit_time`](@ref) builds as `TOW + n_bits/data_rate + (code_phase reduced to one data symbol)/chip_rate`. So the
 sub-TOW offset is converted as a whole: taken off the source signal, then split
 again into whole data symbols and a code phase in the target's own units.
 Scaling the two terms independently would be wrong — a signal whose data symbol

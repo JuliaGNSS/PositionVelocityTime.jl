@@ -76,3 +76,20 @@ end
     pr, _ = PositionVelocityTime.calc_pseudoranges([604803.0, 3.0])
     @test pr[1] ≈ pr[2] atol = 1.0
 end
+
+@testset "Elevation and azimuth follow the GNSS convention" begin
+    # On the equator at the prime meridian, East is +y, North +z and Up +x.
+    user = ECEFfromLLA(wgs84)(LLA(0.0, 0.0, 0.0))
+    for (offset, azimuth) in (
+        ((1.0e7, 0.0, 1.0e7), 0.0),      # North
+        ((1.0e7, 1.0e7, 0.0), π / 2),    # East
+        ((1.0e7, 0.0, -1.0e7), π),       # South
+        ((1.0e7, -1.0e7, 0.0), 3π / 2),  # West: wrapped, not −π/2
+    )
+        sat = ECEF(user[1] + offset[1], user[2] + offset[2], user[3] + offset[3])
+        el, az = calc_elevation_and_azimuth(user, sat)
+        @test el ≈ π / 4
+        @test az ≈ azimuth atol = 1e-12
+        @test 0 <= az < 2π
+    end
+end

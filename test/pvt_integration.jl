@@ -246,11 +246,11 @@ else
         # Solve PVT. `approximate_year` resolves the GPS 1024-week rollover; the
         # recording is from 2014, not "now".
         pvt = calc_pvt(signal_group(states); approximate_year = 2014)
-        @test length(pvt.sats) >= 4
+        @test length(pvt.satellites) >= 4
 
-        lla = get_LLA(pvt)
+        lla = get_lla(pvt)
         @info "PVT fix" lat = lla.lat lon = lla.lon alt = lla.alt used =
-            length(pvt.sats) gdop = pvt.dop.GDOP
+            length(pvt.satellites) gdop = pvt.dop.GDOP
         ref_ecef = ECEFfromLLA(wgs84)(L125_REF_LLA)
         @test euclidean_distance(pvt.position, ref_ecef) < L125_REF_TOL_M
         @test isfinite(pvt.dop.GDOP) && pvt.dop.GDOP > 0

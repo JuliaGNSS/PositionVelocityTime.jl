@@ -168,11 +168,11 @@ end
 Calculate the satellite ECEF position from orbital parameters at time `t`.
 
 The first method takes a decoder state and explicit time. The second method
-computes the corrected transmission time from the [`SatelliteState`](@ref) automatically.
+computes the transmit time from the [`SatelliteState`](@ref) automatically.
 
 # Arguments
 - `decoder`: GNSS decoder state containing ephemeris data
-- `t`: Transmission time in system time (seconds)
+- `t`: Transmit time in system time (seconds)
 - `state`: A [`SatelliteState`](@ref) combining decoder, system, and phase measurements
 
 # Returns
@@ -194,7 +194,7 @@ for argument of latitude, radius, and inclination) to propagate the satellite ep
 
 # Arguments
 - `decoder`: GNSS decoder state containing ephemeris data
-- `t`: Transmission time in system time (seconds)
+- `t`: Transmit time in system time (seconds)
 - `state`: A [`SatelliteState`](@ref) combining decoder, system, and phase measurements
 
 # Returns
@@ -345,7 +345,7 @@ function calc_satellite_position(state::SatelliteState)
     pos_and_vel.position
 end
 function calc_satellite_position_and_velocity(state::SatelliteState)
-    t = calc_corrected_time(state)
+    t = calc_transmit_time(state)
     calc_satellite_position_and_velocity(state.decoder, t)
 end
 

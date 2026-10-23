@@ -157,7 +157,7 @@ end
         sat = ECEF(user[1] + 1.0e7, user[2] + 1.0e7, user[3] + 2.0e7)
         klob = PositionVelocityTime.KlobucharParams(α..., β...)
         # Line-of-sight geometry (same user/sat for every call below)
-        el, az = PositionVelocityTime._elevation_azimuth(ENUfromECEF(user, wgs84), sat)
+        el, az = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
         lla = LLAfromECEF(wgs84)(user)
 
         # No correction → exactly zero for any system
@@ -311,7 +311,7 @@ end
             a0, a1, a2, doy, ut, slon, slat, sh, blon, blat, bh, expected = v
             u = toecef(slat, slon, sh)
             s = toecef(blat, blon, bh)
-            el, az = PositionVelocityTime._elevation_azimuth(ENUfromECEF(u, wgs84), s)
+            el, az = calc_elevation_and_azimuth(ENUfromECEF(u, wgs84), s)
             stec = PositionVelocityTime.ntcm_g_stec(
                 el,
                 az,
@@ -363,7 +363,7 @@ end
         )
         correction = PositionVelocityTime.select_ionospheric_correction(signal_group([state]))
         @test correction isa PositionVelocityTime.NTCMGParams
-        el, az = PositionVelocityTime._elevation_azimuth(ENUfromECEF(user, wgs84), sat)
+        el, az = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
         delay = PositionVelocityTime.ionospheric_delay(
             correction,
             carrier_hz(GalileoE1B()),

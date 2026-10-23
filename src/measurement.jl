@@ -202,7 +202,7 @@ compiles once for every mix.
 # Fields
 - `prn::Int`: the satellite's PRN, unique only within its constellation.
 - `signal_id::Symbol`: `get_signal_id` of the ranging signal (`:GPSL1CA`, …), the
-  per-signal half of the `(signal, PRN)` key of `PVTSolution.sats`.
+  per-signal half of the `(signal, PRN)` key of `PVTSolution.satellites`.
 - `band_id::Symbol`: `get_band_id` of the ranging signal (`:L1`, `:L5`, …), the
   grouping key of the receiver inter-frequency biases.
 - `time_system::SupportedTimeSystem`: `get_time_system` of the ranging signal
@@ -212,14 +212,14 @@ compiles once for every mix.
 - `count_offset_to_gpst::Float64`: [`time_scale_offset_to_gpst`](@ref) of
   `time_system`, precomputed, so the solver reads a number rather than branching on
   the time system per satellite.
-- `time::Float64`: the corrected transmit time ([`calc_corrected_time`](@ref)) as a
+- `transmit_time::Float64`: the transmit time ([`calc_transmit_time`](@ref)) as a
   seconds-of-week count **on this satellite's own system's scale**.
-- `position::SVector{3,Float64}`: satellite ECEF position at `time` (m).
-- `velocity::SVector{3,Float64}`: satellite ECEF velocity at `time` (m/s).
+- `position::SVector{3,Float64}`: satellite ECEF position at `transmit_time` (m).
+- `velocity::SVector{3,Float64}`: satellite ECEF velocity at `transmit_time` (m/s).
 - `carrier_doppler::Float64`: the measured carrier Doppler (Hz, unitless).
 - `center_frequency::Float64`: the ranging signal's carrier (Hz, unitless) — the
   Doppler wavelength, and the `1/f²` of every ionospheric model.
-- `clock_drift::Float64`: [`calc_satellite_clock_drift`](@ref) at `time` (s/s).
+- `clock_drift::Float64`: [`calc_satellite_clock_drift`](@ref) at `transmit_time` (s/s).
 - `week::Int`: the absolute week number of `time_system`, with the GPS L1 C/A
   1024-week rollover already resolved against `approximate_year`.
 - `system_start_epoch::TAITime`: the TAI epoch of that system's week 0,
@@ -235,7 +235,7 @@ struct SatelliteMeasurement
     band_id::Symbol
     time_system::SupportedTimeSystem
     count_offset_to_gpst::Float64
-    time::Float64
+    transmit_time::Float64
     position::SVector{3,Float64}
     velocity::SVector{3,Float64}
     carrier_doppler::Float64
@@ -367,8 +367,8 @@ end
 function satellite_measurement(state::SatelliteState, approximate_year::Integer)
     decoder = state.decoder
     system = state.system
-    time = calc_corrected_time(state)
-    position_and_velocity = calc_satellite_position_and_velocity(decoder, time)
+    transmit_time = calc_transmit_time(state)
+    position_and_velocity = calc_satellite_position_and_velocity(decoder, transmit_time)
     time_system = get_time_system(system)
     count_offset_to_gpst = time_scale_offset_to_gpst(time_system)
     week = get_week(decoder; approximate_year)
@@ -378,12 +378,12 @@ function satellite_measurement(state::SatelliteState, approximate_year::Integer)
         get_band_id(system),
         time_system,
         count_offset_to_gpst,
-        time,
-        get_sat_position(position_and_velocity),
-        get_sat_velocity(position_and_velocity),
+        transmit_time,
+        position_and_velocity.position,
+        position_and_velocity.velocity,
         ustrip(Hz, state.carrier_doppler),
         ustrip(Hz, get_center_frequency(system)),
-        calc_satellite_clock_drift(decoder, time),
+        calc_satellite_clock_drift(decoder, transmit_time),
         week,
         system_start_epoch(system),
         get_system_start_time(system),

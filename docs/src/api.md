@@ -6,7 +6,7 @@
 SatelliteState
 PVTSolution
 TAITime
-SatInfo
+SatelliteInfo
 InterFrequencyBias
 ```
 
@@ -72,10 +72,10 @@ PositionVelocityTime.empty_keeping_capacity!
 ## Position and Velocity
 
 ```@docs
-get_LLA
+get_lla
 calc_satellite_position
 calc_satellite_position_and_velocity
-get_sat_enu
+calc_elevation_and_azimuth
 ```
 
 ## Atmospheric Corrections
@@ -98,7 +98,6 @@ PositionVelocityTime.BDGIMParams
 PositionVelocityTime.klobuchar_params
 PositionVelocityTime.ntcm_g_params
 PositionVelocityTime.bdgim_params
-PositionVelocityTime._elevation_azimuth
 ```
 
 ## Dilution of Precision
@@ -113,7 +112,7 @@ PositionVelocityTime.DOP
 ## Utilities
 
 ```@docs
-get_sat_info
+get_satellite_info
 ```
 
 ## The Measurement-Model Surface
@@ -133,7 +132,7 @@ per row in the same order. A row is a single concrete type with no type paramete
 consumer's own estimator compiles once over it as well, however many constellations it
 mixes.
 
-Only [`calc_corrected_time`](@ref PositionVelocityTime.calc_corrected_time),
+Only [`calc_transmit_time`](@ref PositionVelocityTime.calc_transmit_time),
 [`calc_satellite_clock_drift`](@ref PositionVelocityTime.calc_satellite_clock_drift),
 [`get_week`](@ref PositionVelocityTime.get_week),
 [`broadcast_time_offset`](@ref PositionVelocityTime.broadcast_time_offset) and the
@@ -147,10 +146,8 @@ scale unless a function says otherwise.
 ```@docs
 PositionVelocityTime.SPEED_OF_LIGHT
 PositionVelocityTime.EARTH_ROTATION_RATE
-PositionVelocityTime.calc_corrected_time
+PositionVelocityTime.calc_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
-PositionVelocityTime.get_sat_position
-PositionVelocityTime.get_sat_velocity
 PositionVelocityTime.fold_week_crossover
 PositionVelocityTime.BiasColumns
 PositionVelocityTime.ClockConstraint
@@ -160,13 +157,13 @@ PositionVelocityTime.BiasLayout
 PositionVelocityTime.fit_columns
 PositionVelocityTime.dop_columns
 PositionVelocityTime.select_reference_system
-PositionVelocityTime.calc_ρ_hat!
-PositionVelocityTime.calc_H
-PositionVelocityTime.calc_DOP
-PositionVelocityTime.calc_DOP!
+PositionVelocityTime.predict_pseudoranges!
+PositionVelocityTime.calc_design_matrix
+PositionVelocityTime.calc_dop
+PositionVelocityTime.calc_dop!
 PositionVelocityTime.calc_pseudorange_rate
-PositionVelocityTime.calc_user_velocity_and_clock_drift
-PositionVelocityTime.calc_user_velocity_and_clock_drift!
+PositionVelocityTime.estimate_velocity
+PositionVelocityTime.estimate_velocity!
 PositionVelocityTime.time_scale_offset_to_gpst
 PositionVelocityTime.calc_time_scale_offsets
 PositionVelocityTime.time_offset_available
@@ -185,9 +182,9 @@ PositionVelocityTime.calc_course_over_ground
 The unexported internals the surface above links to, documented for reference:
 
 ```@docs
-PositionVelocityTime.calc_H!
-PositionVelocityTime.user_position
-PositionVelocityTime.user_position!
+PositionVelocityTime.calc_design_matrix!
+PositionVelocityTime.estimate_position
+PositionVelocityTime.estimate_position!
 PositionVelocityTime.num_lsq_params
 PositionVelocityTime.num_observations
 PositionVelocityTime.unique_time_systems
@@ -198,13 +195,13 @@ PositionVelocityTime.time_system_index
 
 When [`calc_pvt`](@ref) combines constellations and bands it classifies each satellite by
 three keys, all provided by GNSSSignals and read from a satellite's ranging signal:
-`GNSSSignals.get_time_system` (a `GNSSSignals.TimeSystem`, i.e. `GPST()`/`GST()`/`BDT()`) drives
-receiver-clock grouping (one bias per time system); `GNSSSignals.get_band_id` (e.g. `:L1`,
-`:L5`) drives inter-frequency-bias grouping (one bias per band); and
-`GNSSSignals.get_signal_id` (e.g. `:GPSL1CA`) is the per-signal identity used in the `sats`
-key of [`PVTSolution`](@ref), and the key a
-[`PositionVelocityTime.SignalGroup`](@ref) is one signal's worth of. All three are read
-off the ranging signal once, by the collection pass, and carried on every
+`GNSSSignals.get_time_system` (a `GNSSSignals.TimeSystem`, i.e. `GPST()`/`GST()`/`BDT()`)
+drives receiver-clock grouping (one bias per time system); `GNSSSignals.get_band_id` (e.g.
+`:L1`, `:L5`) drives inter-frequency-bias grouping (one bias per band); and
+`GNSSSignals.get_signal_id` (e.g. `:GPSL1CA`) is the per-signal identity used in the
+`satellites` key of [`PVTSolution`](@ref), and the key a
+[`PositionVelocityTime.SignalGroup`](@ref) is one signal's worth of. All three are read off
+the ranging signal once, by the collection pass, and carried on every
 [`PositionVelocityTime.SatelliteMeasurement`](@ref) as `time_system`, `band_id` and
 `signal_id`.
 
