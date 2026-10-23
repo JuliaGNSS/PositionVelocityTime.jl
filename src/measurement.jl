@@ -80,15 +80,13 @@ where the satellites are tracked, and hand the same groups to [`calc_pvt`](@ref)
 """
 function signal_groups end
 
-# A flat vector of satellite states is what `calc_pvt` took before 6.0. It has no
-# meaningful normalization — the signals it pools are a runtime property, so any
-# grouping derived here would be inference-blind — and silently accepting it would hide
-# that. Say so instead, and point at what to build. The same directions answer anything
-# else that is not signal groups, above all the NamedTuple of bare state vectors
-# `(gps = gps_states, …)` a 5.x call site is most likely to be migrated to first, which
-# would otherwise surface as a `FieldError` deep inside the collection pass.
-_normalize_signal_groups(states::AbstractVector{<:SatelliteState}) =
-    throw_not_signal_groups("not a vector of `SatelliteState`s")
+# Anything that is not signal groups is refused at the entry point, with directions to
+# what to build: above all the flat vector of satellite states `calc_pvt` took before
+# 6.0, which has no meaningful normalization (the signals it pools are a runtime
+# property, so any grouping derived here would be inference-blind), and the NamedTuple
+# of bare state vectors `(gps = gps_states, …)` a 5.x call site is most likely to be
+# migrated to first, which would otherwise surface as a `FieldError` deep inside the
+# collection pass.
 _normalize_signal_groups(groups) = throw_not_signal_groups(
     "every group must be a `PositionVelocityTime.SignalGroup`, got a `$(typeof(groups))`",
 )
