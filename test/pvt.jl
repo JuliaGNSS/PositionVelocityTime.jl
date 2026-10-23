@@ -175,14 +175,14 @@ end
     # A satellite not used in the fix returns `nothing` rather than throwing.
     @test get_satellite_info(pvt, :GPSL1CA, 999) === nothing
 
-    # Per-satellite post-fit residuals are exposed via SatelliteInfo (measured − modeled
+    # Per-satellite post-fit residuals are exposed via SatelliteInfo (measured − modelled
     # pseudorange, metres); finite and small for a good fix.
     resids = [info.residual for info in values(pvt.satellites)]
     @test length(resids) == length(pvt.satellites)
     @test all(isfinite, resids)
     @test maximum(abs, resids) < 10m
 
-    # The rate-domain counterpart from the Doppler solve (measured − modeled range
+    # The rate-domain counterpart from the Doppler solve (measured − modelled range
     # rate, m/s): finite, and metre-per-second-level for a stationary receiver.
     rate_resids = [info.rate_residual for info in values(pvt.satellites)]
     @test length(rate_resids) == length(pvt.satellites)
@@ -567,7 +567,7 @@ end
         # design's columns and a clock-drift column of ones but for the Earth's rotation
         # of the line of sight and the light-time factor's `s/c`, ~1e-5 here, where the
         # satellites' real velocities meet synthetic directions. That is what makes it a
-        # residual rather than an arbitrary measured-minus-modeled difference, so it is
+        # residual rather than an arbitrary measured-minus-modelled difference, so it is
         # pinned directly instead of only by magnitude.
         let user_vel = SVector(solution[1], solution[2], solution[3])
             A = reduce(vcat, [last(PositionVelocityTime.pseudorange_rate_and_gradient(user,
@@ -608,7 +608,7 @@ end
 # Regression: the position solve must run to its optimum, not stop at the first step
 # LsqFit's *relative* `x_tol` calls small. `‖ξ‖` is dominated by the clock bias — the
 # ~2e7 m of common range the pseudoranges are referred to — which puts the default
-# tolerance at a ~0.2 m step, and with the default Levenberg-Marquardt damping a first
+# tolerance at a ~0.2 m step, and with the default Levenberg–Marquardt damping a first
 # step is only a fraction of the distance to the optimum. A warm start a metre out
 # therefore took one ~10 cm step and reported convergence, returning a fix most of a
 # metre away from the one the very same measurements give from cold. See the solver
@@ -638,7 +638,7 @@ end
 end
 
 # Regression: a warm start is an optimisation, not an anchor. Seeded far enough away,
-# Gauss-Newton converges to a spurious root of the range equations instead of the real
+# Gauss–Newton converges to a spurious root of the range equations instead of the real
 # fix — and once the previous solution *is* that root, every later epoch is seeded in the
 # same basin and the output freezes there (measured on TEX-CUP: 2.7e8 m out, PDOP 587,
 # byte-stable for 355 s, while a cold start of the same measurements solved to metres).

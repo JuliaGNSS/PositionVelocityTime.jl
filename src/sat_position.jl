@@ -177,7 +177,7 @@ computes the transmit time from the [`SatelliteState`](@ref) automatically.
   measurements
 
 # Returns
-An `SVector{3, Float64}` with the satellite position in ECEF coordinates (meters).
+An `SVector{3, Float64}` with the satellite position in ECEF coordinates (metres).
 """
 function calc_satellite_position(decoder::GNSSDecoder.GNSSDecoderState, t)
     pos_and_vel = calc_satellite_position_and_velocity(decoder, t)
@@ -201,7 +201,7 @@ for argument of latitude, radius, and inclination) to propagate the satellite ep
 
 # Returns
 A named tuple `(position, velocity)` where each is an `SVector{3, Float64}` in ECEF
-coordinates (meters and m/s respectively).
+coordinates (metres and m/s respectively).
 """
 function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderState, t)
     data = decoder.data

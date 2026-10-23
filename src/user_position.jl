@@ -258,7 +258,7 @@ calc_design_matrix(satellite_positions, ξ, bias_columns::BiasColumns) = calc_de
 
 The curvature of the predicted pseudoranges along the step `v`: the second directional
 derivative of `predict_pseudoranges!`, written into `curvature`, used by the
-Levenberg-Marquardt geodesic acceleration.
+Levenberg–Marquardt geodesic acceleration.
 
 For each satellite j the residual is `r_j(ξ) = ‖s_j' - r_n‖ + tc - ρ_j`,
 where s_j' is the Earth-rotation-corrected satellite position. Treating
@@ -399,12 +399,12 @@ common reception method.
 
 Returns `(ξ, residuals)`: the solved state vector
 `ξ = [x, y, z, tc₁, …, ifb₁, …]` and the per-satellite post-fit residual vector
-(measured minus modeled pseudorange, metres), in the same satellite order as `pseudoranges`;
-the constraint rows get none.
+(measured minus modelled pseudorange, metres), in the same satellite order as
+`pseudoranges`; the constraint rows get none.
 
 `curve_fit` (LsqFit's, mirrored by [`LevenbergMarquardt`](@ref)) reports its own residual
 as `model - data`, so the returned vector negates it.
-Measured − modeled ("observed minus computed") is how GNSS software reports observation
+Measured − modelled ("observed minus computed") is how GNSS software reports observation
 residuals — RTKLIB's `rescode`, and GNSS-SDR and PocketSDR through it — and the negation
 is the whole of the difference: it is applied to the converged fit, so the solve itself
 is untouched.
@@ -441,7 +441,7 @@ function estimate_position!(
     model! = (out, x, par) -> predict_pseudoranges!(out, x, par, bias_columns)
     jacobian! = (J, x, par) -> calc_design_matrix!(J, x, par, bias_columns)
 
-    # Two departures from LsqFit's Levenberg-Marquardt defaults, both about the scale of
+    # Two departures from LsqFit's Levenberg–Marquardt defaults, both about the scale of
     # this particular problem:
     #
     #  - `x_tol` is a *relative* step tolerance — the iteration stops once a step falls
@@ -452,10 +452,10 @@ function estimate_position!(
     #    previous epoch — stops most of a metre short of it. 1e-13 puts the threshold at a
     #    ~2 µm step, still ~1e3 × the rounding resolution of `ξ`.
     #  - `lambda` is the initial (inverse) trust-region radius, and the default 10 damps
-    #    the first steps to a fraction of the Gauss-Newton step — which is what makes the
+    #    the first steps to a fraction of the Gauss–Newton step — which is what makes the
     #    tolerance above bite so early. The pseudorange model is only mildly nonlinear, so
     #    the full step is a good step here: 1e-8 leaves the iteration effectively
-    #    Gauss-Newton — measured at 2 to 5 iterations to nanometre level from 1 m, 100 km
+    #    Gauss–Newton — measured at 2 to 5 iterations to nanometre level from 1 m, 100 km
     #    or a cold start, against 8 to 16 with the default or with damping switched off
     #    entirely — while keeping LM's machinery available, since a step that fails to
     #    improve still grows `lambda` from there.
@@ -517,12 +517,12 @@ either way. That model needs the satellite's travel time, its rate and its
 Earth-rotation-corrected position, hence the solved `user_position` (ECEF, m — the position
 block of the converged `ξ`).
 
-The residuals are `measured − modeled` range rate (m/s): the measured rate minus
+The residuals are `measured − modelled` range rate (m/s): the measured rate minus
 [`calc_pseudorange_rate`](@ref) at the solved state, to the same precision, the same
 orientation as the pseudorange residuals of [`estimate_position`](@ref) and in the same
 satellite order as `measurements`. They are the range-rate analogue of the post-fit
 pseudorange residual: a per-satellite Doppler-consistency / outlier indicator. Measured
-and modeled are both taken in that model's sense, in which a *receding* satellite reads
+and modelled are both taken in that model's sense, in which a *receding* satellite reads
 positive — the same quantity and sign as RTKLIB's `resdop` residual, and hence the
 negative of the Doppler-signed range rate a tracking loop works in (see the note at the
 residual loop).
@@ -609,7 +609,7 @@ function estimate_velocity!(rate_residuals, design, measurements,
     end
     step = factor \ Atr
 
-    # Post-fit residual, measured minus modeled: the residual at the start moved on by the
+    # Post-fit residual, measured minus modelled: the residual at the start moved on by the
     # step along its design row — `calc_pseudorange_rate` at the solved state to the step's
     # precision above, without a second rotation per satellite. It is orthogonal to the
     # design, as a least-squares residual is.

@@ -32,7 +32,7 @@ function nmf_interpolate(row, abs_lat_deg)
     return (1 - f) * row[i] + f * row[i+1]
 end
 
-# Normalized continued fraction: 1 at zenith, finite at the horizon
+# Normalised continued fraction: 1 at zenith, finite at the horizon
 function continued_fraction(sinel, (a, b, c))
     return (1 + a / (1 + b / (1 + c))) / (sinel + a / (sinel + b / (sinel + c)))
 end
@@ -99,7 +99,7 @@ end
 
     @testset "zenith delay unchanged (regression)" begin
         lat, humi = 48.0, 0.7
-        # Both mapping functions are exactly 1 at zenith (normalized continued
+        # Both mapping functions are exactly 1 at zenith (normalised continued
         # fraction) and the height correction vanishes there, so the zenith slant
         # delay is exactly the sum of the zenith delays — as before the remap.
         mh, mw = PositionVelocityTime.niell_mapping_functions(

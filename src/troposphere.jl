@@ -81,7 +81,7 @@ function _interpolate_nmf_coefficient(values::NTuple{5,Float64}, abs_latitude_de
     return values[i] * (1.0 - w) + values[i+1] * w
 end
 
-# Normalized Marini continued fraction (Herring normalization): exactly 1 at
+# Normalised Marini continued fraction (Herring normalisation): exactly 1 at
 # zenith, finite at the horizon (sin E = 0), strictly decreasing in elevation.
 function _marini_mapping(sin_el, a, b, c)
     return (1.0 + a / (1.0 + b / (1.0 + c))) /

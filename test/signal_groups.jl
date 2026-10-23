@@ -1,4 +1,4 @@
-# Signal groups: the container `calc_pvt` takes, the normalization that accepts the
+# Signal groups: the container `calc_pvt` takes, the normalisation that accepts the
 # shorter spellings of it, the refusal of anything else, and the two properties the
 # whole redesign exists for — one compiled solver for every constellation mix, and a
 # collection pass that is statically dispatched when the groups are named.
@@ -18,7 +18,7 @@
     gps_group = PositionVelocityTime.SignalGroup(GPSL1CA(), gps)
     gal_group = PositionVelocityTime.SignalGroup(GalileoE1B(), gal)
 
-    @testset "normalization accepts every spelling of the same epoch" begin
+    @testset "normalisation accepts every spelling of the same epoch" begin
         named = calc_pvt((gps = gps_group, galileo = gal_group); kw...)
         # A bare tuple of groups is numbered by position…
         @test calc_pvt((gps_group, gal_group); kw...).position == named.position
@@ -119,7 +119,7 @@
 
         # The point of the flat row: one compiled body of the solver serves every
         # constellation mix. Solve six differently-shaped epochs and count the
-        # specializations of `_solve_pvt!` — there is one, whatever the mix and whether
+        # specialisations of `_solve_pvt!` — there is one, whatever the mix and whether
         # or not an ionospheric model is live.
         for input in (
             gps_group, gal_group, (a = gps_group,), (a = gps_group, b = gal_group),
@@ -127,9 +127,9 @@
         )
             calc_pvt(input; approximate_year = 2021)
         end
-        specializations =
+        specialisations =
             Base.specializations(only(methods(PositionVelocityTime._solve_pvt!)))
-        @test count(!isnothing, collect(specializations)) == 1
+        @test count(!isnothing, collect(specialisations)) == 1
     end
 
     @testset "an epoch with no usable satellite is not a special case" begin

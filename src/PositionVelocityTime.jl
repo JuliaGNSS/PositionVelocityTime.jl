@@ -221,15 +221,15 @@ satellite used in the fix).
 - `position::ECEF{Float64}`: Satellite ECEF position at transmit time (metres).
 - `transmit_time::Float64`: Satellite transmit time (system time of week, seconds).
 - `residual::typeof(1.0m)`: Post-fit least-squares pseudorange residual (metres) — the
-  (atmosphere-corrected) measured minus the modeled pseudorange. A per-satellite
+  (atmosphere-corrected) measured minus the modelled pseudorange. A per-satellite
   fit-quality / outlier indicator.
 - `rate_residual::typeof(1.0m/s)`: Post-fit least-squares range-rate residual (metres per
-  second) — the measured minus the modeled range rate of the carrier-Doppler velocity and
+  second) — the measured minus the modelled range rate of the carrier-Doppler velocity and
   clock-drift solve. The rate-domain counterpart of `residual`: it flags a satellite whose
   Doppler disagrees with the velocity fix (cycle slips, dynamics) independently of its
   pseudorange.
 
-Both are *measured minus modeled* ("observed minus computed"), the orientation GNSS
+Both are *measured minus modelled* ("observed minus computed"), the orientation GNSS
 software reports observation residuals in — RTKLIB's `rescode` / `resdop`, and GNSS-SDR
 and PocketSDR through it. Note that `rate_residual` follows `resdop` in the geometric
 range-rate sense, positive while the satellite recedes; a receiver forming the same
@@ -269,7 +269,7 @@ end
 Complete Position, Velocity, and Time solution from GNSS measurements.
 
 # Fields
-- `position::ECEF{Float64}`: User position in ECEF coordinates (meters)
+- `position::ECEF{Float64}`: User position in ECEF coordinates (metres)
 - `velocity::ECEF{Float64}`: User velocity in ECEF coordinates (m/s)
 - `course_over_ground::typeof(1.0°)`: Horizontal direction of travel (degrees), the
   azimuth of the velocity vector in the local East-North-Up frame at `position` —
@@ -279,7 +279,7 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   observe). The vertical (Up) velocity component is ignored. `0°` when the horizontal
   velocity is zero (stationary or purely vertical), where course is undefined.
 - `clock_bias::typeof(1.0m)`: Estimated receiver clock bias of the reference GNSS
-  (meters). For a multi-GNSS solution this is the bias of `reference_system`;
+  (metres). For a multi-GNSS solution this is the bias of `reference_system`;
   other systems' biases are `clock_bias + inter_system_biases[system]`.
 - `time::Union{TAITime, Nothing}`: Estimated time as a TAI epoch (see [`TAITime`](@ref);
   with AstroTime loaded, `TAIEpoch(time)` converts it)
@@ -297,7 +297,7 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   `GNSSSignals.GPST()`, `GST()`) that `time` and `clock_bias` are referenced to.
 - `inter_system_biases::Dict{SupportedTimeSystem, typeof(1.0m)}`: For each GNSS time system
   other than `reference_system`, the offset of that system's time scale relative to the reference
-  system's (meters) — the inter-system bias. This is a **system / space-segment** effect,
+  system's (metres) — the inter-system bias. This is a **system / space-segment** effect,
   not a receiver one (this receiver has no inter-system hardware bias): it is the GNSS
   system-time offset, so the Galileo entry equals `−c · Δt_systems`, `Δt_systems = GST −
   GPST` (the GGTO), and the BeiDou entry likewise carries the BDT steering residual (the
@@ -1507,7 +1507,7 @@ function _solve_pvt!(
     week_start = week_start_epoch(measurements[reference_row])
     doy = day_of_year(week_start + reference_time)
 
-    # Gauss-Newton converges within its seed's basin, so a spurious far-away root
+    # Gauss–Newton converges within its seed's basin, so a spurious far-away root
     # would re-seed itself epoch after epoch. Such roots flag themselves with an
     # impossible geometry (negative GDOP, exploded PDOP): solve from a cold seed
     # instead. Only the seed is affected — an unsolvable epoch still returns
@@ -1672,14 +1672,14 @@ function _solve_pvt!(
     end
 
     # Inter-system biases relative to the reference system's clock, in
-    # meters. The reference is omitted (its bias is `clock_bias`).
+    # metres. The reference is omitted (its bias is `clock_bias`).
     inter_system_biases = empty!(solution.inter_system_biases)
     for (k, sys) in enumerate(clock_systems)
         sys === reference_system && continue
         inter_system_biases[sys] = (ξ[3+k] - clock_bias) * m
     end
 
-    # Receiver inter-frequency biases relative to the reference band, in meters
+    # Receiver inter-frequency biases relative to the reference band, in metres
     # (the reference band is omitted; its bias is folded into the clock biases).
     inter_frequency_biases = empty!(solution.inter_frequency_biases)
     for (i, band) in enumerate(extra_bands)

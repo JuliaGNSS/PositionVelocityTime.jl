@@ -138,7 +138,7 @@
         @test ξ_constrained[5] - ξ_constrained[4] ≈ 50.0 atol = 1e-4
 
         # Drop the IFB column and the same data no longer fits: the extra-band
-        # satellites carry an unmodeled 17 m offset.
+        # satellites carry an unmodelled 17 m offset.
         bias_columns_no_ifb =
             PositionVelocityTime.BiasColumns([1, 1, 1, 1, 2, 2, 2, 1], 2, zeros(Int, 8), 0)
         _, resid_no_ifb =
@@ -292,7 +292,7 @@
 
     # Regression for the disjoint-band bug: GPS on L1 only + Galileo on L5 only makes a
     # band's IFB column collinear with the stranded constellation's clock. The
-    # component-aware layout must not return a degenerate (huge, canceling) solution.
+    # component-aware layout must not return a degenerate (huge, cancelling) solution.
     @testset "disjoint-band coverage is observable, not degenerate" begin
         gps_l1 = gps_l1_states(0.0Hz)                       # GPS on L1 only
         # Connected all-L1 reference fix, for the true position and inter-system offset.

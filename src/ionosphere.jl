@@ -97,13 +97,13 @@ end
     BDGIMParameters(α_1, …, α_9, week::Integer)
 
 The nine broadcast BDGIM coefficients decoded from a BDS-3 B-CNAV message
-(B1C/B2a/B2b), in the ICD's units of TECu, together with the BDT week number.
+(B1C/B2a/B2b), in the ICD's units of TECU, together with the BDT week number.
 
 The names are the ICD's own `α_1 … α_9` (BDS-SIS-ICD-B1C-1.0 Table 7-10);
 GNSSDecoder spells them `α_bdgim_1 … α_bdgim_9` on its BeiDou containers to keep
 them apart from the legacy D1/D2 Klobuchar `α_0 … α_3`, and already applies each
 one's scale factor and sign — including `α_5`'s negative scale factor of −2⁻³ —
-so they arrive here as plain signed TECu.
+so they arrive here as plain signed TECU.
 
 `week` is needed for the same reason `NTCMGParameters` carries one: the model's
 time argument is a date (a Modified Julian Date), which a time of week alone
@@ -760,7 +760,7 @@ const _BDGIM_PERIODS =
     (1.0, 0.5, 0.33, 14.6, 27.0, 121.6, 182.51, 365.25, 4028.71, 2014.35, 1342.90, 1007.18)
 
 # ---------------------------------------------------------------------------
-# Table 7-12, the non-broadcast coefficients [TECu]: the constant row a_{0,j}
+# Table 7-12, the non-broadcast coefficients [TECU]: the constant row a_{0,j}
 # and the twelve (a_{k,j}, b_{k,j}) pairs, each 17 entries wide (j = 1…17).
 #
 # TRANSCRIPTION, DOUBLE-CHECKED. Text extraction mangles the ICD's tables, so
@@ -858,14 +858,14 @@ end
 
 # Normalisation N_{n,m} of Eq. 7-12: √[(n−m)!·(2n+1)·(2 − δ_{0,m}) / (n+m)!], with
 # δ_{0,m} = 1 for m = 0 and 0 otherwise. Max degree 5 keeps (n+m)! ≤ 10! exact in Int.
-_bdgim_normalization(n::Int, m::Int) =
+_bdgim_normalisation(n::Int, m::Int) =
     sqrt(factorial(n - m) * (2n + 1) * (m == 0 ? 1 : 2) / factorial(n + m))
 
 # One normalised spherical-harmonic term of Eq. 7-11 / Eq. 7-14, at the solar-fixed
 # geomagnetic latitude/longitude φ′/λ′ [rad]: P̃_{|n|,|m|}(sin φ′) times cos(m·λ′)
 # for m ≥ 0 and sin(−m·λ′) for m < 0.
 function _bdgim_harmonic(n::Int, m::Int, sinφ′, λ′)
-    p = _bdgim_normalization(abs(n), abs(m)) * _bdgim_legendre(abs(n), abs(m), sinφ′)
+    p = _bdgim_normalisation(abs(n), abs(m)) * _bdgim_legendre(abs(n), abs(m), sinφ′)
     return m ≥ 0 ? p * cos(m * λ′) : p * sin(-m * λ′)
 end
 
@@ -986,7 +986,7 @@ end
 
 Vertical TEC in TECU at the ionospheric pierce point whose geographic
 latitude/longitude are `φ_g`/`λ_g` (radians), at Modified Julian Date `mjd`, from
-the nine broadcast BDGIM coefficients `α` (a 9-tuple, TECu). Implements
+the nine broadcast BDGIM coefficients `α` (a 9-tuple, TECU). Implements
 `VTEC = A_0 + Σ_{i=1}^{9} α_i·A_i` (Eq. 7-16) with the broadcast harmonics `A_i`
 of Eq. 7-11 and the predictive part `A_0` of Eq. 7-14/7-15.
 
@@ -995,7 +995,7 @@ handling of a non-positive VTEC; but a negative vertical electron content is
 unphysical and would enter [`ionospheric_delay`](@ref) as a group *advance*, so it
 is clamped exactly as the NTCM-G branch above clamps its own product. It is
 reachable rather than theoretical: A_0 spans degrees 3-5 only and so has no level
-of its own — it is a ±10-15 TECu structure term, negative over much of the globe —
+of its own — it is a ±10-15 TECU structure term, negative over much of the globe —
 and a broadcast set too small to lift it (an all-zero α is a legal message) leaves
 the sum below zero.
 """
@@ -1033,7 +1033,7 @@ bdgim_mapping_function(elevation) =
 Slant TEC in TECU along the user→satellite line of sight using BDGIM, for the
 satellite `elevation`/`azimuth` (radians) seen from the user geodetic position
 `lla` (a `Geodesy.LLA`), at Modified Julian Date `mjd`, with the nine broadcast
-coefficients `α` (a 9-tuple, TECu). This is `M_F · VTEC` — steps (1) through (5)
+coefficients `α` (a 9-tuple, TECU). This is `M_F · VTEC` — steps (1) through (5)
 of BDS-SIS-ICD-B1C-1.0 §7.8.2; step (6), the metre conversion, is
 [`ionospheric_delay`](@ref).
 """

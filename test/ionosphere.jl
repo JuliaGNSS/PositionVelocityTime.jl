@@ -379,13 +379,13 @@ end
 
 @testset "BDGIM ionospheric model (BeiDou)" begin
     PVT = PositionVelocityTime
-    # A plausible mid-latitude daytime coefficient set, in the ICD's TECu, and one
+    # A plausible mid-latitude daytime coefficient set, in the ICD's TECU, and one
     # that could actually be broadcast: Table 7-10 makes α_1, α_3 and α_4 unsigned,
     # α_5 unsigned with a *negative* scale factor (so α_5 ≤ 0), and only α_2 and
     # α_6…α_9 two's complement. α_1 weights the degree-0 harmonic (P̃₀,₀ ≡ 1), so it
     # carries the bulk of the vertical TEC and the remaining eight shape it — the
     # predictive part A_0 spans only degrees 3-5 and is a near-zero-mean structure
-    # term (±10-15 TECu globally), not a level.
+    # term (±10-15 TECU globally), not a level.
     α = (35.0, -1.5, 2.25, 0.75, -0.5, 0.25, -0.125, 0.375, -0.625)
     lla = LLA(48.0, 11.0, 550.0)
     week, tow = 911, 302400.0   # BDT week 911, Wednesday noon → 2023-06-21T12:00
@@ -482,11 +482,11 @@ end
         @test PVT._bdgim_legendre(3, 3, -0.4) ≈ 15 * (1 - 0.16)^1.5
         @test PVT._bdgim_legendre(4, 2, 0.7) ≈ 7.5 * (7 * 0.49 - 1) * (1 - 0.49)
         # Normalisation N_{n,m} = √[(n−m)!(2n+1)(2−δ₀ₘ)/(n+m)!]
-        @test PVT._bdgim_normalization(0, 0) == 1.0
-        @test PVT._bdgim_normalization(1, 0) ≈ sqrt(3)
-        @test PVT._bdgim_normalization(1, 1) ≈ sqrt(3)          # 0!·3·2/2!
-        @test PVT._bdgim_normalization(2, 2) ≈ sqrt(10 / 24)
-        @test PVT._bdgim_normalization(5, 0) ≈ sqrt(11)
+        @test PVT._bdgim_normalisation(0, 0) == 1.0
+        @test PVT._bdgim_normalisation(1, 0) ≈ sqrt(3)
+        @test PVT._bdgim_normalisation(1, 1) ≈ sqrt(3)          # 0!·3·2/2!
+        @test PVT._bdgim_normalisation(2, 2) ≈ sqrt(10 / 24)
+        @test PVT._bdgim_normalisation(5, 0) ≈ sqrt(11)
     end
 
     @testset "reference frames (Eq. 7-8, 7-9, 7-10)" begin
@@ -566,8 +566,8 @@ end
         @test all(==(block[1]), block)                    # constant within a block
         jump = maximum(abs.(β_of(60116.0 + 2.05 / 24) .- β_of(60116.0 + 1.95 / 24)))
         # Two hours of the fastest term (T₃ = 0.33 d ≈ 7.9 h) is the scale here: a
-        # fraction of a TECu of amplitude, well under the amplitudes themselves
-        # (max |β_j| ≈ 2.7 TECu at this epoch).
+        # fraction of a TECU of amplitude, well under the amplitudes themselves
+        # (max |β_j| ≈ 2.7 TECU at this epoch).
         @test 0 < jump < 1.0
     end
 
@@ -604,7 +604,7 @@ end
 
     @testset "non-positive VTEC is floored at zero" begin
         # The predictive part A_0 spans degrees 3-5 only, so it has no level of its
-        # own and is negative over much of the globe (here ≈ −9.7 TECu). A broadcast
+        # own and is negative over much of the globe (here ≈ −9.7 TECU). A broadcast
         # set too small to lift it — an all-zero α is a legal message, and a genuinely
         # quiet ionosphere broadcasts a small α₁ — therefore reaches Eq. 7-16 with a
         # negative sum. The ICD prescribes no handling of that; this package floors it
@@ -647,7 +647,7 @@ end
 
     @testset "magnitude sanity for a plausible daytime coefficient set" begin
         p = PVT.BDGIMParameters(α..., week)
-        # ~26 TECu of vertical TEC (α₁ = 35 minus the negative A_0 here) is ~4 m at
+        # ~26 TECU of vertical TEC (α₁ = 35 minus the negative A_0 here) is ~4 m at
         # B1C; a low-elevation ray through the same ionosphere is a few metres more.
         # The family stays in the decimetres-to-metres band a single-frequency L-band
         # correction should, and never in the tens of metres.
@@ -656,7 +656,7 @@ end
         d_low = PVT.ionospheric_delay(p, carrier_hz(BeiDouB1C_D()), deg2rad(10), 0.0, lla, tow)
         @test d_low > d_zenith
         @test d_low < 25.0
-        # A quieter ionosphere — the same shape with α₁ down to 12 TECu — lands in the
+        # A quieter ionosphere — the same shape with α₁ down to 12 TECU — lands in the
         # decimetres instead.
         quiet = PVT.BDGIMParameters(12.0, α[2:9]..., week)
         @test 0.1 < PVT.ionospheric_delay(quiet, carrier_hz(BeiDouB1C_D()), π / 2, 0.0, lla, tow) < 1.5

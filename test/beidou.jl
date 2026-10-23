@@ -562,7 +562,7 @@
 
     # ---- End to end ---------------------------------------------------------
     #
-    # Synthesize observables from a known user position by solving the light-time
+    # Synthesise observables from a known user position by solving the light-time
     # equation per satellite, then check `calc_pvt` recovers that position. This
     # exercises the whole BeiDou chain — SOW, the shimmed clock model, the
     # propagator, BDT as a time system — against an answer computed independently of
@@ -619,7 +619,7 @@
     # off, which is why the position assertions below are at the centimetre level, as
     # everywhere else in this suite.
 
-    @testset "BeiDou-only fix recovers a synthesized position" begin
+    @testset "BeiDou-only fix recovers a synthesised position" begin
         b1i = [
             ranging_state(dnav_decoder(state; prn = 20 + i), BeiDouB1I(), user, t_rx)
             for (i, state) in enumerate(galileo)
@@ -732,7 +732,7 @@
     end
 
     @testset "GPS + BeiDou: separate clocks, and the BGTO constraint when scarce" begin
-        # Synthesize both constellations against the same user position and the same
+        # Synthesise both constellations against the same user position and the same
         # physical instant. Two things separate their reported times, and getting only
         # the small one right is how this test used to encode a bug rather than catch
         # it: it fed both constellations the same numeric reception time, which is only
@@ -956,7 +956,7 @@
             user,
             t_rx + structural + Δ,
         )
-        # Re-synthesized against this testset's own `user`/`t_rx`, like every other
+        # Re-synthesised against this testset's own `user`/`t_rx`, like every other
         # satellite here; the top-level `galileo` states were built for another epoch.
         gal_states = [
             ranging_state(st.decoder, st.signal, user, t_rx) for st in galileo[1:3]

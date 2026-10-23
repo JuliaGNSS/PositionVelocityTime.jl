@@ -53,7 +53,7 @@ set of group keys through tracking, decoding and the fix.
 """
 const SignalGroups{N} = NamedTuple{<:Any,<:NTuple{N,SignalGroup}}
 
-# Normalization, mirroring `Tracking._normalize_signal_groups`: a NamedTuple passes
+# Normalisation, mirroring `Tracking._normalize_signal_groups`: a NamedTuple passes
 # through, a single group becomes the `:default` group (so a one-constellation solve
 # stays a one-liner), and a bare tuple is numbered by position — `group1`, `group2`, …
 # Numbered rather than named after the signals because group order is significant
@@ -82,7 +82,7 @@ function signal_groups end
 
 # Anything that is not signal groups is refused at the entry point, with directions to
 # what to build, rather than surfacing as a `FieldError` deep inside the collection
-# pass: a flat vector of satellite states has no meaningful normalization (the signals
+# pass: a flat vector of satellite states has no meaningful normalisation (the signals
 # it pools are a runtime property, so any grouping derived here would be
 # inference-blind), nor does a NamedTuple of bare state vectors.
 _normalize_signal_groups(groups) = throw_not_signal_groups(
@@ -440,13 +440,13 @@ collect_measurements!(
 
 # The collection pass proper. Positional, for the solver's own call.
 function _collect_measurements!(measurements, groups, approximate_year::Integer)
-    normalized = _normalize_signal_groups(groups)
+    normalised = _normalize_signal_groups(groups)
     empty!(measurements)
     # `map` over the groups visits them in order, which is what makes the flat row order
     # group order × within-group order. Over their `Tuple` rather than the `NamedTuple`
     # itself: `map(f, ::NamedTuple)` only passes `f` on, so Julia does not specialise it
     # on the closure, and every group's call would be a dynamic dispatch.
-    candidates = map(values(normalized)) do group
+    candidates = map(values(normalised)) do group
         collect_group!(measurements, group, approximate_year)
     end
     select_from_ionospheric_candidates(merge_all_ionospheric_candidates(candidates))
