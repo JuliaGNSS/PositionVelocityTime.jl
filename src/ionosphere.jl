@@ -404,7 +404,7 @@ ECEF with `LLAfromECEF(wgs84)(user)` and
 [`calc_elevation_and_azimuth`](@ref)`(ENUfromECEF(user, wgs84), sat)`.
 
 `center_frequency` is the ranging signal's carrier in Hz as a plain `Float64`
-(`ustrip(Hz, get_center_frequency(system))`, precomputed on every
+(`ustrip(Hz, get_center_frequency(signal))`, precomputed on every
 [`SatelliteMeasurement`](@ref)) — every model needs the carrier and nothing else about
 the signal, which is why the row carries the frequency rather than the signal.
 """

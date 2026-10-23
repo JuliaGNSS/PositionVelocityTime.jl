@@ -173,7 +173,8 @@ computes the transmit time from the [`SatelliteState`](@ref) automatically.
 # Arguments
 - `decoder`: GNSS decoder state containing ephemeris data
 - `t`: Transmit time in system time (seconds)
-- `state`: A [`SatelliteState`](@ref) combining decoder, system, and phase measurements
+- `state`: A [`SatelliteState`](@ref) combining decoder, ranging signal, and phase
+  measurements
 
 # Returns
 An `SVector{3, Float64}` with the satellite position in ECEF coordinates (meters).
@@ -195,7 +196,8 @@ for argument of latitude, radius, and inclination) to propagate the satellite ep
 # Arguments
 - `decoder`: GNSS decoder state containing ephemeris data
 - `t`: Transmit time in system time (seconds)
-- `state`: A [`SatelliteState`](@ref) combining decoder, system, and phase measurements
+- `state`: A [`SatelliteState`](@ref) combining decoder, ranging signal, and phase
+  measurements
 
 # Returns
 A named tuple `(position, velocity)` where each is an `SVector{3, Float64}` in ECEF

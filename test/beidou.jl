@@ -602,7 +602,7 @@
         SatelliteState(;
             decoder = GNSSDecoder.GNSSDecoderState(
                 decoder; num_bits_after_valid_syncro_sequence = num_bits),
-            system = system,
+            signal = system,
             code_phase = code_phase,
             carrier_doppler = 0.0Hz,
             carrier_phase = 0.0,
@@ -858,7 +858,7 @@
         galileo_ggto = SatelliteState(;
             decoder = GNSSDecoder.GNSSDecoderState(
                 galileo[5].decoder; data = ggto_data, raw_data = ggto_data),
-            system = galileo[5].system,
+            signal = galileo[5].signal,
             code_phase = galileo[5].code_phase,
             carrier_doppler = galileo[5].carrier_doppler,
             carrier_phase = galileo[5].carrier_phase,
@@ -958,7 +958,7 @@
         # Re-synthesized against this testset's own `user`/`t_rx`, like every other
         # satellite here; the top-level `galileo` states were built for another epoch.
         gal_states = [
-            ranging_state(st.decoder, st.system, user, t_rx) for st in galileo[1:3]
+            ranging_state(st.decoder, st.signal, user, t_rx) for st in galileo[1:3]
         ]
         gps_free = (signal_group(gal_states), signal_group([beidou_gal_bgto]))
         gst_layout = PositionVelocityTime.decide_bias_layout(measurement_rows(gps_free))

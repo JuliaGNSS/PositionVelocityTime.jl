@@ -79,7 +79,7 @@ function with_ggto(state; A_0G, A_1G = 0.0, t_0G = 0, WN_0G = 0)
     new_decoder = GNSSDecoder.GNSSDecoderState(d; raw_data = new_raw, data = new_data)
     SatelliteState(;
         decoder = new_decoder,
-        system = state.system,
+        signal = state.signal,
         code_phase = state.code_phase,
         carrier_doppler = state.carrier_doppler,
         carrier_phase = state.carrier_phase,
@@ -96,7 +96,7 @@ function with_health_bad(state)
         d; raw_data = unhealthy(d.raw_data), data = unhealthy(d.data))
     SatelliteState(;
         decoder = new_decoder,
-        system = state.system,
+        signal = state.signal,
         code_phase = state.code_phase,
         carrier_doppler = state.carrier_doppler,
         carrier_phase = state.carrier_phase,
@@ -119,7 +119,7 @@ function with_prn(state, prn)
     )
     SatelliteState(;
         decoder = new_decoder,
-        system = state.system,
+        signal = state.signal,
         code_phase = state.code_phase,
         carrier_doppler = state.carrier_doppler,
         carrier_phase = state.carrier_phase,
@@ -472,7 +472,7 @@ end
     # passed explicitly because `n = 0` leaves no satellite to read it off — a group
     # carries its ranging signal precisely so that an empty one is still well formed.
     for n in 0:3
-        scarce = signal_group(gps[1].system, gps[1:n])
+        scarce = signal_group(gps[1].signal, gps[1:n])
         pvt = calc_pvt(scarce; kwargs...)
         @test pvt.position == ECEF(0, 0, 0)
         @test isnothing(pvt.time)
@@ -725,7 +725,7 @@ end
     states = gps_l1_states(0.0Hz)[1:5]
     with_doppler(state, doppler) = PositionVelocityTime.SatelliteState(;
         decoder = state.decoder,
-        system = state.system,
+        signal = state.signal,
         code_phase = state.code_phase,
         carrier_phase = state.carrier_phase,
         carrier_doppler = doppler,
@@ -738,7 +738,7 @@ end
     faster = copy(states)
     faster[3] = with_doppler(states[3], states[3].carrier_doppler + Δdoppler)
     _, closing = PositionVelocityTime.estimate_velocity(rows(faster), user)
-    λ = PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(states[3].system))
+    λ = PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(states[3].signal))
     @test -λ * ustrip(Hz, Δdoppler) < closing[3] - base[3] < 0.0
 end
 

@@ -12,7 +12,7 @@
     l2c = GNSSDecoder.GPSL2CMDecoderState(1)
     l5 = GNSSDecoder.GPSL5IDecoderState(1)
     swap(state, d) = GNSSDecoder.GNSSDecoderState(state; data = d, raw_data = d)
-    state_of(d) = SatelliteState(; decoder = swap(l2c, d), system = GNSSSignals.GPSL2CM(),
+    state_of(d) = SatelliteState(; decoder = swap(l2c, d), signal = GNSSSignals.GPSL2CM(),
         code_phase = 0.0, carrier_doppler = 0.0Hz, carrier_phase = 0.0)
 
     @testset "classification: GPS time system, L2 band, GPSL2CM signal id" begin

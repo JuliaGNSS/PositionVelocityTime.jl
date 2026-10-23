@@ -35,7 +35,7 @@ one vector would make them dynamic.
   or as an `AbstractVector{<:SatelliteState}` (so a consumer can reuse one buffer per
   group). Iteration order is significant — see [`calc_pvt`](@ref).
 
-Every satellite's own `state.system` must be `signal`. This is not checked per epoch;
+Every satellite's own `state.signal` must be `signal`. This is not checked per epoch;
 a group built by Tracking.jl ([`signal_groups`](@ref)) satisfies it by
 construction.
 """
@@ -366,27 +366,27 @@ end
 # whole solve happens here.
 function satellite_measurement(state::SatelliteState, approximate_year::Integer)
     decoder = state.decoder
-    system = state.system
+    signal = state.signal
     transmit_time = calc_transmit_time(state)
     position_and_velocity = calc_satellite_position_and_velocity(decoder, transmit_time)
-    time_system = get_time_system(system)
+    time_system = get_time_system(signal)
     count_offset_to_gpst = time_scale_offset_to_gpst(time_system)
     week = get_week(decoder; approximate_year)
     SatelliteMeasurement(
         decoder.prn,
-        get_signal_id(system),
-        get_band_id(system),
+        get_signal_id(signal),
+        get_band_id(signal),
         time_system,
         count_offset_to_gpst,
         transmit_time,
         position_and_velocity.position,
         position_and_velocity.velocity,
         ustrip(Hz, state.carrier_doppler),
-        ustrip(Hz, get_center_frequency(system)),
+        ustrip(Hz, get_center_frequency(signal)),
         calc_satellite_clock_drift(decoder, transmit_time),
         week,
-        system_start_epoch(system),
-        get_system_start_time(system),
+        system_start_epoch(signal),
+        get_system_start_time(signal),
         broadcast_time_offsets(decoder, week, count_offset_to_gpst),
     )
 end

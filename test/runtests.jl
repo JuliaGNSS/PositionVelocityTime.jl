@@ -15,7 +15,7 @@ using PositionVelocityTime: SVector
 # type of the same name, and `test/pvt_integration.jl` loads Tracking, so the
 # deliberate collision can be live in this very session.
 function signal_group(signal, states)
-    ids = unique(get_signal_id(state.system) for state in states)
+    ids = unique(get_signal_id(state.signal) for state in states)
     all(id -> id === get_signal_id(signal), ids) || error(
         "signal_group takes the satellites of one ranging signal, got $ids — " *
         "put each signal in its own group",
@@ -28,7 +28,7 @@ end
 # The signal read off the satellites, for the usual case of a non-empty group. A group
 # that may be empty has to be given its signal explicitly — which is exactly why a
 # `SignalGroup` carries one rather than deriving it from its satellites.
-signal_group(states) = signal_group(first(states).system, states)
+signal_group(states) = signal_group(first(states).signal, states)
 
 # Two more shorthands, for the tests that exercise the measurement-model surface
 # directly rather than through `calc_pvt`. They live here rather than in `fixtures.jl`,

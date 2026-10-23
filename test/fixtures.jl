@@ -6,11 +6,19 @@
 # Needs only GNSSDecoder, GNSSSignals, PositionVelocityTime and Unitful's Hz — no
 # test-only dependencies, so the benchmark script can include it directly.
 
+# AirspeedVelocity runs the benchmark script against both the PR and the base
+# revision, and before 8.0 `SatelliteState` called its ranging signal `system`. The
+# fixtures below are written with `signal`; this hands it on under whichever name the
+# loaded revision takes. Drop it once the base revision of the comparison is 8.0.
+satellite_state(; signal, kwargs...) =
+    hasfield(SatelliteState, :signal) ? SatelliteState(; signal, kwargs...) :
+    SatelliteState(; system = signal, kwargs...)
+
 "5 Galileo E1B satellites; `freq_offset` shifts every carrier Doppler."
 function galileo_e1b_states(freq_offset)
     galileo_e1b = GalileoE1B()
     [
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 2,
                 GNSSDecoder.GalileoINAVData(;
@@ -99,12 +107,12 @@ function galileo_e1b_states(freq_offset)
                 1549,
                 false,
             ),
-            system = galileo_e1b,
+            signal = galileo_e1b,
             carrier_doppler = 1617.3312825078192Hz + freq_offset,
             code_phase = 2216.5793761534956,
             carrier_phase = -1.461823180908076,
         ),
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 4,
                 GNSSDecoder.GalileoINAVData(;
@@ -193,12 +201,12 @@ function galileo_e1b_states(freq_offset)
                 1546,
                 true,
             ),
-            system = galileo_e1b,
+            signal = galileo_e1b,
             carrier_doppler = 4055.9318556579988Hz + freq_offset,
             code_phase = 48.75149191469789,
             carrier_phase = -2.3877702498883373,
         ),
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 11,
                 GNSSDecoder.GalileoINAVData(;
@@ -287,12 +295,12 @@ function galileo_e1b_states(freq_offset)
                 1551,
                 false,
             ),
-            system = galileo_e1b,
+            signal = galileo_e1b,
             carrier_doppler = 209.7024609093128Hz + freq_offset,
             code_phase = 69.54389556899758,
             carrier_phase = -1.4138935647217596,
         ),
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 25,
                 GNSSDecoder.GalileoINAVData(;
@@ -381,12 +389,12 @@ function galileo_e1b_states(freq_offset)
                 1548,
                 true,
             ),
-            system = galileo_e1b,
+            signal = galileo_e1b,
             carrier_doppler = -974.6289079820336Hz + freq_offset,
             code_phase = 1701.8894620076721,
             carrier_phase = -1.721713905186919,
         ),
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 30,
                 GNSSDecoder.GalileoINAVData(;
@@ -475,7 +483,7 @@ function galileo_e1b_states(freq_offset)
                 1547,
                 true,
             ),
-            system = galileo_e1b,
+            signal = galileo_e1b,
             carrier_doppler = 4089.415808665647Hz + freq_offset,
             code_phase = 4015.495436832823,
             carrier_phase = -2.8554107708683047,
@@ -487,7 +495,7 @@ end
 function gps_l1_states(freq_offset)
     gpsl1 = GPSL1CA()
     [
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 7,
                 GNSSDecoder.GPSL1CAData(
@@ -581,12 +589,12 @@ function gps_l1_states(freq_offset)
                 360,
                 false,
             ),
-            system = gpsl1,
+            signal = gpsl1,
             carrier_doppler = 2669.8440799388595Hz + freq_offset,
             code_phase = 4876.431542382193,
             carrier_phase = 0.09402551301430394,
         ),
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 8,
                 GNSSDecoder.GPSL1CAData(
@@ -680,12 +688,12 @@ function gps_l1_states(freq_offset)
                 360,
                 false,
             ),
-            system = gpsl1,
+            signal = gpsl1,
             carrier_doppler = 4704.3549972665805Hz + freq_offset,
             code_phase = 8455.107739656896,
             carrier_phase = 2.7614518715603946,
         ),
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 10,
                 GNSSDecoder.GPSL1CAData(
@@ -779,12 +787,12 @@ function gps_l1_states(freq_offset)
                 360,
                 true,
             ),
-            system = gpsl1,
+            signal = gpsl1,
             carrier_doppler = 4603.179391134832Hz + freq_offset,
             code_phase = 10510.15670303955,
             carrier_phase = -0.7447786034769108,
         ),
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 15,
                 GNSSDecoder.GPSL1CAData(
@@ -878,12 +886,12 @@ function gps_l1_states(freq_offset)
                 360,
                 false,
             ),
-            system = gpsl1,
+            signal = gpsl1,
             carrier_doppler = 3144.174219887768Hz + freq_offset,
             code_phase = 3618.5099300503684,
             carrier_phase = -0.22375187424152987,
         ),
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 16,
                 GNSSDecoder.GPSL1CAData(
@@ -977,12 +985,12 @@ function gps_l1_states(freq_offset)
                 360,
                 false,
             ),
-            system = gpsl1,
+            signal = gpsl1,
             carrier_doppler = 595.7926881306387Hz + freq_offset,
             code_phase = 17600.66651489137,
             carrier_phase = 2.59152430602131,
         ),
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 18,
                 GNSSDecoder.GPSL1CAData(
@@ -1076,12 +1084,12 @@ function gps_l1_states(freq_offset)
                 360,
                 true,
             ),
-            system = gpsl1,
+            signal = gpsl1,
             carrier_doppler = -794.0022484221436Hz + freq_offset,
             code_phase = 14504.587373634655,
             carrier_phase = -0.7416765461612318,
         ),
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 23,
                 GNSSDecoder.GPSL1CAData(
@@ -1175,12 +1183,12 @@ function gps_l1_states(freq_offset)
                 360,
                 true,
             ),
-            system = gpsl1,
+            signal = gpsl1,
             carrier_doppler = 2826.783251528247Hz + freq_offset,
             code_phase = 14394.465193705755,
             carrier_phase = -0.7597910878699417,
         ),
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 26,
                 GNSSDecoder.GPSL1CAData(
@@ -1274,12 +1282,12 @@ function gps_l1_states(freq_offset)
                 360,
                 true,
             ),
-            system = gpsl1,
+            signal = gpsl1,
             carrier_doppler = -1083.2317687377372Hz + freq_offset,
             code_phase = 13905.233170289455,
             carrier_phase = -2.1444956909602526,
         ),
-        SatelliteState(;
+        satellite_state(;
             decoder = GNSSDecoderState(
                 27,
                 GNSSDecoder.GPSL1CAData(
@@ -1373,7 +1381,7 @@ function gps_l1_states(freq_offset)
                 360,
                 false,
             ),
-            system = gpsl1,
+            signal = gpsl1,
             carrier_doppler = 3393.7445379085816Hz + freq_offset,
             code_phase = 16861.02713837273,
             carrier_phase = -0.9185401811870872,

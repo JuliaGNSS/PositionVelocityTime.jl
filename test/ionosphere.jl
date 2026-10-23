@@ -98,7 +98,7 @@ end
     end
     mkstate(dec, sys) = SatelliteState(;
         decoder = dec,
-        system = sys,
+        signal = sys,
         code_phase = 0.0,
         carrier_doppler = 0.0Hz,
     )
@@ -357,7 +357,7 @@ end
         )
         state = SatelliteState(;
             decoder = gal,
-            system = GalileoE1B(),
+            signal = GalileoE1B(),
             code_phase = 0.0,
             carrier_doppler = 0.0Hz,
         )
@@ -742,7 +742,7 @@ end
     @testset "selection order: NTCM-G > BDGIM > GPS Klobuchar > BeiDou Klobuchar" begin
         mk(dec, sys) = SatelliteState(;
             decoder = dec,
-            system = sys,
+            signal = sys,
             code_phase = 0.0,
             carrier_doppler = 0.0Hz,
         )

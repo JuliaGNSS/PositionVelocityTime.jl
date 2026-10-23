@@ -44,7 +44,7 @@ using PositionVelocityTime, GNSSSignals, GNSSDecoder
 gpsl1 = GPSL1CA()
 sat_state = SatelliteState(
     decoder = decoder,
-    system = gpsl1,
+    signal = gpsl1,
     code_phase = code_phase,
     carrier_doppler = carrier_doppler,
     carrier_phase = carrier_phase,  # optional, in radians

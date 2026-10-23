@@ -236,7 +236,7 @@ else
             tracked = get_sat_state(ts, :gps, p)
             SatelliteState(;
                 decoder = decoders[p],
-                system = GPSL1CA(),
+                signal = GPSL1CA(),
                 code_phase = get_code_phase(tracked),
                 carrier_doppler = get_carrier_doppler(tracked),
                 carrier_phase = get_carrier_phase(tracked),

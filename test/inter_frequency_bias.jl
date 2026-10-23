@@ -52,7 +52,7 @@
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GalileoE5aDecoderState(state.decoder.prn);
             data = e5a_data, raw_data = e5a_data,
             num_bits_after_valid_syncro_sequence = num_bits)
-        SatelliteState(; decoder = dec, system = GalileoE5aI(), code_phase = code_phase,
+        SatelliteState(; decoder = dec, signal = GalileoE5aI(), code_phase = code_phase,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end
 
@@ -77,7 +77,7 @@
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GPSL2CMDecoderState(state.decoder.prn);
             data = l2c_data, raw_data = l2c_data,
             num_bits_after_valid_syncro_sequence = num_bits)
-        SatelliteState(; decoder = dec, system = GPSL2CM(), code_phase = code_phase,
+        SatelliteState(; decoder = dec, signal = GPSL2CM(), code_phase = code_phase,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end
 
@@ -95,7 +95,7 @@
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GPSL5IDecoderState(state.decoder.prn);
             data = l5_data, raw_data = l5_data,
             num_bits_after_valid_syncro_sequence = num_bits)
-        SatelliteState(; decoder = dec, system = GPSL5I(), code_phase = code_phase,
+        SatelliteState(; decoder = dec, signal = GPSL5I(), code_phase = code_phase,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end
 

@@ -134,7 +134,7 @@
                     raw_data = decoder.data,
                     num_bits_after_valid_syncro_sequence = num_bits,
                 ),
-                system = GalileoE5bI(),
+                signal = GalileoE5bI(),
                 code_phase = code_phase,
                 carrier_doppler = 0.0Hz,
                 carrier_phase = 0.0,
@@ -173,7 +173,7 @@ end
     )
     e6b_state = SatelliteState(;
         decoder = e6b,
-        system = GalileoE6B(),
+        signal = GalileoE6B(),
         code_phase = 0.0,
         carrier_doppler = 0.0Hz,
         carrier_phase = 0.0,

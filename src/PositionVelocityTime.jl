@@ -155,15 +155,17 @@ Combines the GNSS decoder state with code and carrier phase measurements for a s
 
 # Fields
 - `decoder::GNSSDecoderState`: GNSS decoder state containing decoded navigation data
-- `system::AbstractGNSSSignal`: GNSS system (e.g., `GPSL1CA()`, `GalileoE1B()`)
+- `signal::AbstractGNSSSignal`: the ranging signal the code phase and carrier Doppler
+  were measured on (e.g., `GPSL1CA()`, `GalileoE1C()`). It may be a dataless pilot,
+  whose navigation data `decoder` decoded from the data component of the same band.
 - `code_phase::CP`: Code phase measurement in chips
 - `carrier_doppler`: Carrier Doppler frequency in Hz
 - `carrier_phase::CP`: Carrier phase measurement in radians, matching
   `Tracking.get_carrier_phase` (default: `0.0`)
 
 # Constructors
-    SatelliteState(; decoder, system, code_phase, carrier_doppler, carrier_phase=0.0)
-    SatelliteState(decoder, system, tracked_satellite)
+    SatelliteState(; decoder, signal, code_phase, carrier_doppler, carrier_phase=0.0)
+    SatelliteState(decoder, signal, tracked_satellite)
 
 The second constructor extracts code phase, carrier Doppler, and carrier phase from
 `tracked_satellite`, a `Tracking.TrackedSat`. Tracking.jl defines it (from
@@ -172,7 +174,7 @@ depend on Tracking.
 """
 @kwdef struct SatelliteState{CP<:Real,D<:GNSSDecoder.GNSSDecoderState,S<:AbstractGNSSSignal}
     decoder::D
-    system::S
+    signal::S
     code_phase::CP
     carrier_doppler::typeof(1.0Hz)
     carrier_phase::CP = 0.0
@@ -405,12 +407,12 @@ function calc_course_over_ground(position::ECEF, velocity::ECEF)
 end
 
 """
-    inter_frequency_bias_layout(system_keys, bands)
+    inter_frequency_bias_layout(constellation_keys, bands)
         -> (inter_frequency_bias_columns, extra_bands, reference_bands, num_components)
 
 Lay out the receiver inter-frequency biases from the (constellation × band) coverage
-graph. `system_keys[j]` and `bands[j]` are satellite `j`'s constellation and frequency
-band; the constellation enters only through equality and first appearance, so any
+graph. `constellation_keys[j]` and `bands[j]` are satellite `j`'s constellation and
+frequency band; the constellation enters only through equality and first appearance, so any
 per-satellite key that separates the constellations will do — [`decide_bias_layout`](@ref)
 passes the *clock group* of each satellite (its clock column, unless a
 [`ClockConstraint`](@ref) ties its system to another), which is concretely typed, unlike
@@ -431,13 +433,13 @@ or `0` for a per-component reference band; `extra_bands[i]` is the band of IFB c
 coverage component (the anchor its IFB is measured against); `num_components` is the number
 of coverage components (`1` ⇔ the graph is connected).
 """
-function inter_frequency_bias_layout(system_keys, bands)
+function inter_frequency_bias_layout(constellation_keys, bands)
     inter_frequency_bias_columns = Int[]
     extra_bands = Vector{eltype(bands)}()
     reference_bands = Vector{eltype(bands)}()
     num_components = inter_frequency_bias_layout!(inter_frequency_bias_columns,
         extra_bands, reference_bands, IFBLayoutScratch{eltype(bands)}(),
-        system_keys, bands)
+        constellation_keys, bands)
     return inter_frequency_bias_columns, extra_bands, reference_bands, num_components
 end
 
@@ -466,7 +468,7 @@ function inter_frequency_bias_layout!(
     extra_bands,
     reference_bands,
     scratch::IFBLayoutScratch,
-    system_keys,
+    constellation_keys,
     bands,
 )
     (; unique_bands, band_index, parent, band_count, reference, column) = scratch
@@ -487,8 +489,9 @@ function inter_frequency_bias_layout!(
     resize!(parent, num_bands)
     parent .= 1:num_bands
     for j in 1:num_sats
-        first_of_system = something(findfirst(i -> isequal(system_keys[i], system_keys[j]), 1:j))
-        a = find_root!(parent, band_index[first_of_system])
+        first_of_constellation = something(
+            findfirst(i -> isequal(constellation_keys[i], constellation_keys[j]), 1:j))
+        a = find_root!(parent, band_index[first_of_constellation])
         c = find_root!(parent, band_index[j])
         a == c || (parent[a] = c)
     end
@@ -1707,7 +1710,7 @@ function _solve_pvt!(
 end
 
 """
-    system_start_epoch(system) -> TAITime
+    system_start_epoch(signal) -> TAITime
 
 Absolute TAI epoch of a ranging signal's GNSS time-scale origin (week 0, time of
 week 0), from GNSSSignals' `get_tai_system_start_time` — the epoch already
@@ -1716,7 +1719,7 @@ labelled on the atomic scale (GPS `1980-01-06T00:00:19` TAI, Galileo
 table is consulted, which is also what makes the value safe to derive at precompile
 time.
 """
-system_start_epoch(system) = TAITime(get_tai_system_start_time(system))
+system_start_epoch(signal) = TAITime(get_tai_system_start_time(signal))
 
 """
     get_week(decoder::GNSSDecoderState{<:GPSL1CAData}; approximate_year)

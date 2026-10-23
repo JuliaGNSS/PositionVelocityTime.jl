@@ -91,10 +91,10 @@ function retimed_state(state, transmit_time, doppler)
     # `correct_clock` is a slowly varying offset, so a few fixed-point steps invert it.
     for _ in 1:5
         uncorrected += transmit_time -
-                       PositionVelocityTime.correct_clock(state.decoder, state.system, uncorrected)
+                       PositionVelocityTime.correct_clock(state.decoder, state.signal, uncorrected)
     end
     rate = ustrip(Hz, get_data_frequency(state.decoder))
-    chips = ustrip(Hz, get_code_frequency(state.system))
+    chips = ustrip(Hz, get_code_frequency(state.signal))
     offset = state.decoder.num_bits_after_valid_syncro_sequence / rate +
              mod(state.code_phase, chips / rate) / chips +
              uncorrected - PositionVelocityTime.calc_uncorrected_transmit_time(state)
@@ -102,7 +102,7 @@ function retimed_state(state, transmit_time, doppler)
     SatelliteState(;
         decoder = GNSSDecoder.GNSSDecoderState(state.decoder;
             num_bits_after_valid_syncro_sequence = num_bits),
-        system = state.system,
+        signal = state.signal,
         code_phase = (offset - num_bits / rate) * chips,
         carrier_doppler = doppler * Hz,
         carrier_phase = state.carrier_phase,
@@ -140,7 +140,7 @@ end
             t_t -> c * sat_clock_drift * (t_t - transmit_time),
             t -> user_pos + user_vel * (t - reception),
             t -> clock_bias + clock_drift * (t - reception), t))
-        λ = c / ustrip(Hz, get_center_frequency(state.system))
+        λ = c / ustrip(Hz, get_center_frequency(state.signal))
         doppler = -central_difference(pseudorange, reception, 0.1) / λ
         # The public model at the true state is the exact rate, satellite by satellite.
         sat = calc_satellite_position_and_velocity(state.decoder, transmit_time)

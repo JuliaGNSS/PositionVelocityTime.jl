@@ -7,16 +7,16 @@ using PositionVelocityTime:
     _PRECOMPILE_GPS_L1CA_STATES, _PRECOMPILE_GALILEO_E1B_STATES
 using Unitful: Hz
 
-gps(system, make_data = identity) = SignalGroup(
-    system, _precompile_states(system, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA()))
-galileo(system, make_data = identity) = SignalGroup(
-    system, _precompile_states(system, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B()))
+gps(signal, make_data = identity) = SignalGroup(
+    signal, _precompile_states(signal, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA()))
+galileo(signal, make_data = identity) = SignalGroup(
+    signal, _precompile_states(signal, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B()))
 
 # The fixtures hold no BeiDou satellites, so this group's is undecoded and drops out as
 # unhealthy — the solution is that of the other groups — but the solve is compiled, and
 # so verified, for the BeiDou message family and its ionospheric model.
-beidou(system) = SignalGroup(system, [SatelliteState(;
-    decoder = GNSSDecoderState(system, 1), system, code_phase = 0.0, carrier_doppler = 0.0Hz)])
+beidou(signal) = SignalGroup(signal, [SatelliteState(;
+    decoder = GNSSDecoderState(signal, 1), signal, code_phase = 0.0, carrier_doppler = 0.0Hz)])
 
 # One `print` per value: a long `print(io, xs...)` is not specialised on its
 # arguments' types, which leaves the call dynamic.
