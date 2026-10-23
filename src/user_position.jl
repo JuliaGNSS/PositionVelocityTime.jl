@@ -18,12 +18,17 @@ $SIGNATURES
      `[x, y, z, tc₁, …, tc_num_clock_biases, ifb₁, …, ifb_num_ifb]`
 `sat_positions`: Satellite positions, a `3 × N` matrix or a vector of `SVector{3}`s
 `bias_columns`: The per-satellite [`BiasColumns`](@ref) (clock column and
-     inter-frequency-bias column of each satellite). Known range corrections (atmosphere,
-     GGTO offset) are already folded into the measured `ρ` by [`calc_pvt`](@ref).
+     inter-frequency-bias column of each satellite). Known range corrections (atmosphere)
+     are already folded into the measured `ρ` by [`calc_pvt`](@ref).
+
+After the satellites, `ρ` holds one modelled clock difference per
+[`ClockConstraint`](@ref) of `bias_columns`, so it has
+[`num_observations`](@ref)`(sat_positions, bias_columns)` entries.
 """
 function calc_ρ_hat!(ρ, sat_positions, ξ, bias_columns::BiasColumns)
     rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
-    for j in 1:satellite_count(sat_positions)
+    num_sats = satellite_count(sat_positions)
+    for j in 1:num_sats
         sat_pos = satellite_position(sat_positions, j)
         ifb =
             bias_columns.ifb_indices[j] == 0 ? 0.0 :
@@ -31,8 +36,20 @@ function calc_ρ_hat!(ρ, sat_positions, ξ, bias_columns::BiasColumns)
         ρ[j] = norm(satellite_position_at_reception(rₙ, sat_pos) - rₙ) +
                ξ[3+bias_columns.clock_bias_indices[j]] + ifb
     end
+    for (i, constraint) in enumerate(bias_columns.constraints)
+        ρ[num_sats+i] = ξ[3+constraint.column] - ξ[3+constraint.target_column]
+    end
     return ρ
 end
+
+"""
+    num_observations(sat_positions, bias_columns::BiasColumns) -> Int
+
+Rows of the least-squares problem: one per satellite and one per
+[`ClockConstraint`](@ref).
+"""
+num_observations(sat_positions, bias_columns::BiasColumns) =
+    satellite_count(sat_positions) + length(bias_columns.constraints)
 
 # The ECEF frame turns by `EARTH_ROTATION_RATE · Δt` while a signal is in flight for
 # `Δt`; this rotation carries a vector given in the ECEF frame of transmission into the
@@ -184,7 +201,8 @@ partials, one per GNSS time system, and one per frequency band beyond the refere
 band. Each row carries a `1.0` in its system's clock column (`3 + clock_bias_indices[j]`)
 and, unless the satellite is on the reference band, a `1.0` in its band's
 inter-frequency-bias column (`3 + num_clock_biases + ifb_indices[j]`); the remaining
-bias columns are zero.
+bias columns are zero. Each [`ClockConstraint`](@ref) adds a row after the satellites,
+`+1` in its `column` and `−1` in its `target_column`.
 
 $SIGNATURES
 `ξ`: Estimated user position, per-system clock corrections, and per-band inter-frequency biases
@@ -206,6 +224,11 @@ function calc_H!(H, sat_positions, ξ, bias_columns::BiasColumns)
             H[j, 3+bias_columns.num_clock_biases+bias_columns.ifb_indices[j]] = 1.0
         end
     end
+    num_sats = satellite_count(sat_positions)
+    for (i, constraint) in enumerate(bias_columns.constraints)
+        H[num_sats+i, 3+constraint.column] = 1.0
+        H[num_sats+i, 3+constraint.target_column] = -1.0
+    end
     return H
 end
 
@@ -213,13 +236,15 @@ end
     calc_H(sat_positions, ξ, bias_columns::BiasColumns) -> Matrix{Float64}
 
 Allocating form of [`calc_H!`](@ref PositionVelocityTime.calc_H!): the
-least-squares design matrix at the state `ξ`, one row per satellite, with
+least-squares design matrix at the state `ξ`, one row per satellite and per
+[`ClockConstraint`](@ref), with
 [`num_lsq_params`](@ref PositionVelocityTime.num_lsq_params)`(bias_columns)`
 columns.
 """
-calc_H(sat_positions, ξ, bias_columns::BiasColumns) =
-    calc_H!(Matrix{Float64}(undef, satellite_count(sat_positions), num_lsq_params(bias_columns)),
-        sat_positions, ξ, bias_columns)
+calc_H(sat_positions, ξ, bias_columns::BiasColumns) = calc_H!(
+    Matrix{Float64}(undef, num_observations(sat_positions, bias_columns),
+        num_lsq_params(bias_columns)),
+    sat_positions, ξ, bias_columns)
 
 """
 Computes the directional second derivative of `calc_ρ_hat` along `v`,
@@ -230,11 +255,13 @@ where s_j' is the Earth-rotation-corrected satellite position. Treating
 s_j' as constant w.r.t. ξ (the rotation depends on ξ via travel time,
 but ω_e/c ≈ 2e-13 makes that contribution negligible here), the Hessian
 is block-diagonal: the position block is `(I - û û^T) / d_j`, the time
-block is zero. So `v^T H_j v = (‖v_r‖² - (û · v_r)²) / d_j`.
+block is zero. So `v^T H_j v = (‖v_r‖² - (û · v_r)²) / d_j`. The clock-constraint rows
+after the satellites are linear, so their entries are zero.
 
 $SIGNATURES
 """
 function calc_Avv!(dir_deriv, sat_positions, ξ, v)
+    fill!(dir_deriv, 0.0)
     rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
     v_r = SVector{3}(v[1], v[2], v[3])
     v_r_sq = dot(v_r, v_r)
@@ -360,9 +387,13 @@ Calculates the user position by least squares method. The algorithm is based on 
 
 `bias_columns`: The per-satellite [`BiasColumns`](@ref) (clock and inter-frequency-bias columns).
 
+`ρ` holds the satellites' pseudoranges followed by the known `offset` of each
+[`ClockConstraint`](@ref) of `bias_columns`; any other length is an `ArgumentError`.
+
 Returns `(ξ, residuals)`: the solved state vector
 `ξ = [x, y, z, tc₁, …, ifb₁, …]` and the per-satellite post-fit residual vector
-(measured minus modeled pseudorange, metres), in the same satellite order as `ρ`.
+(measured minus modeled pseudorange, metres), in the same satellite order as `ρ`;
+the constraint rows get none.
 
 `curve_fit` (LsqFit's, mirrored by [`LevenbergMarquardt`](@ref)) reports its own residual
 as `model - data`, so the returned vector negates it.
@@ -375,8 +406,8 @@ The allocating form of [`user_position!`](@ref), on fresh buffers.
 """
 user_position(sat_positions_mat, ρ, bias_columns::BiasColumns,
     prev_ξ = zeros(num_lsq_params(bias_columns))) = user_position!(
-    LMWorkspace(), Vector{Float64}(undef, length(ρ)), sat_positions_mat, ρ, bias_columns,
-    prev_ξ)
+    LMWorkspace(), Vector{Float64}(undef, satellite_count(sat_positions_mat)),
+    sat_positions_mat, ρ, bias_columns, prev_ξ)
 
 """
     user_position!(workspace::LMWorkspace, residuals, sat_positions, ρ, bias_columns, prev_ξ)
@@ -395,6 +426,10 @@ function user_position!(
     bias_columns::BiasColumns,
     prev_ξ,
 )
+    length(ρ) == num_observations(sat_positions_mat, bias_columns) || throw(ArgumentError(
+        "ρ has $(length(ρ)) entries, but the $(satellite_count(sat_positions_mat)) " *
+        "satellites and $(length(bias_columns.constraints)) clock constraints need " *
+        "$(num_observations(sat_positions_mat, bias_columns))"))
     model! = (out, x, par) -> calc_ρ_hat!(out, x, par, bias_columns)
     jacobian! = (J, x, par) -> calc_H!(J, x, par, bias_columns)
 
@@ -442,8 +477,9 @@ function user_position!(
     #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions_mat, ρ, wt, collect(prev_ξ))
     # Negated into the caller's buffer rather than in place: `resid` is the workspace's
     # own residual buffer, which the next fit starts from.
-    residuals = resize!(residuals, length(ρ))
-    residuals .= .-ξ_fit_ols.resid
+    num_sats = satellite_count(sat_positions_mat)
+    residuals = resize!(residuals, num_sats)
+    residuals .= .-view(ξ_fit_ols.resid, 1:num_sats)
     return ξ_fit_ols.param, residuals
 end
 

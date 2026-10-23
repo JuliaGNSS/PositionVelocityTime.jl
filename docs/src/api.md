@@ -43,7 +43,7 @@ PositionVelocityTime.BroadcastTimeOffset
 PositionVelocityTime.collect_measurements
 PositionVelocityTime.collect_measurements!
 PositionVelocityTime.collect_measurement_rows!
-PositionVelocityTime.CANDIDATE_HUB_SYSTEMS
+PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
 PositionVelocityTime.SupportedTimeSystem
 ```
 
@@ -153,11 +153,12 @@ PositionVelocityTime.get_sat_position
 PositionVelocityTime.get_sat_velocity
 PositionVelocityTime.fold_week_crossover
 PositionVelocityTime.BiasColumns
+PositionVelocityTime.ClockConstraint
 PositionVelocityTime.decide_bias_layout
 PositionVelocityTime.decide_bias_layout!
-PositionVelocityTime.BiasLayoutWorkspace
-PositionVelocityTime.bias_layout
 PositionVelocityTime.BiasLayout
+PositionVelocityTime.fit_columns
+PositionVelocityTime.dop_columns
 PositionVelocityTime.select_reference_system
 PositionVelocityTime.calc_ρ_hat!
 PositionVelocityTime.calc_H
@@ -188,7 +189,7 @@ PositionVelocityTime.calc_H!
 PositionVelocityTime.user_position
 PositionVelocityTime.user_position!
 PositionVelocityTime.num_lsq_params
-PositionVelocityTime.calc_hub_range_offsets
+PositionVelocityTime.num_observations
 PositionVelocityTime.unique_time_systems
 PositionVelocityTime.time_system_index
 ```

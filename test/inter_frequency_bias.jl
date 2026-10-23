@@ -126,6 +126,17 @@
         @test ξ[6] ≈ 17.0 atol = 1e-4      # inter-frequency bias of the extra band
         @test maximum(abs, resid) < 1e-6   # consistent data → zero residual
 
+        # With a clock constraint, `ρ` needs its offset after the satellites; the
+        # pseudoranges alone are refused rather than indexed past.
+        constrained = PositionVelocityTime.BiasColumns([1, 1, 1, 1, 2, 2, 2, 1], 2,
+            [0, 0, 0, 1, 0, 0, 1, 1], 1,
+            [PositionVelocityTime.ClockConstraint(2, 1, 50.0)])
+        @test_throws ArgumentError PositionVelocityTime.user_position(sat_positions, ρ,
+            constrained)
+        ξ_constrained, _ = PositionVelocityTime.user_position(sat_positions, [ρ; 50.0],
+            constrained)
+        @test ξ_constrained[5] - ξ_constrained[4] ≈ 50.0 atol = 1e-4
+
         # Drop the IFB column and the same data no longer fits: the extra-band
         # satellites carry an unmodeled 17 m offset.
         bias_columns_no_ifb =
@@ -167,10 +178,10 @@
     end
 
     @testset "layout gate counts both measurements and distinct satellites" begin
-        # GPS-only (no GGTO collapse possible): 3 position + 1 clock + num_ifb unknowns.
-        # Only the classification fields of a measurement row are read here — the
-        # broadcast time offsets are touched on the collapse path only, never reached
-        # for a GPS-only constellation — so stand-in rows carrying those suffice.
+        # GPS-only (no GGTO constraint possible): 3 position + 1 clock + num_ifb
+        # unknowns. Only the classification fields of a measurement row are read here —
+        # the broadcast time offsets are looked at only between two systems, never for
+        # a GPS-only constellation — so stand-in rows carrying those suffice.
         decide = PositionVelocityTime.decide_bias_layout
         gate(prns, bands) = decide([
             (; time_system = GPST(), band_id = band, prn = prn, time_offsets = ())
@@ -299,13 +310,13 @@
         @test norm(pvt.position - connected.position) < 1e-3
         @test all(isfinite, [info.residual for info in values(pvt.sats)])
 
-        # With a (correct) broadcast GGTO, the collapse reconnects the bands: a clean
+        # With a (correct) broadcast GGTO, a constraint reconnects the bands: a clean
         # inter-frequency bias is recovered and the inter-system bias comes from the GGTO.
         true_isb = connected.inter_system_biases[GST()]
         gal_l5_ggto =
             map(s -> as_e5a(s; ggto = -ustrip(m, true_isb) / C), galileo_e1b_states(0.0Hz))
         pvt_ggto = calc_pvt((signal_group(gps_l1), signal_group(gal_l5_ggto)); kw...)
-        @test pvt_ggto.reference_system == GPST()              # Galileo collapsed onto GPS
+        @test pvt_ggto.reference_system == connected.reference_system
         @test haskey(pvt_ggto.inter_frequency_biases, :L5)   # reconnected ⇒ IFB observable
         @test pvt_ggto.inter_frequency_biases[:L5].reference == :L1
         @test pvt_ggto.inter_system_biases[GST()] ≈ true_isb atol = 5m

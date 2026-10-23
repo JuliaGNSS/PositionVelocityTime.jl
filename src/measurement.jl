@@ -113,51 +113,48 @@ function throw_not_signal_groups(what)
 end
 
 """
-    PositionVelocityTime.CANDIDATE_HUB_SYSTEMS
+    PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
 
-The GNSS time systems a clock collapse can be anchored on, in the fixed order
-[`decide_bias_layout`](@ref) tries them: `(GPST(), GST(), BDT())`. Each
-[`SatelliteMeasurement`](@ref)'s `time_offsets` tuple is indexed by this order, so a
-hub's broadcast offset is a tuple index rather than a dictionary lookup.
+The GNSS time systems this package solves with: `(GPST(), GST(), BDT())`. Each
+[`SatelliteMeasurement`](@ref)'s `time_offsets` tuple holds its broadcast offsets toward
+these, in this order, so an offset toward a system is a tuple index rather than a
+dictionary lookup.
 """
-const CANDIDATE_HUB_SYSTEMS = (GPST(), GST(), BDT())
+const SUPPORTED_TIME_SYSTEMS = (GPST(), GST(), BDT())
 
 """
     PositionVelocityTime.SupportedTimeSystem
 
 `Union{GPST,GST,BDT}`: the GNSS time systems a satellite can be on, which are exactly
-[`CANDIDATE_HUB_SYSTEMS`](@ref) — every system GNSSSignals defines is a candidate hub.
-The type of [`SatelliteMeasurement`](@ref)'s `time_system` field, and of the keys and
-the reference system of a [`PVTSolution`](@ref).
+[`SUPPORTED_TIME_SYSTEMS`](@ref). The type of [`SatelliteMeasurement`](@ref)'s
+`time_system` field, and of the keys and the reference system of a [`PVTSolution`](@ref).
 
 A closed `Union` rather than the abstract `GNSSSignals.TimeSystem` so that every call on
-a time system — hashing it into `inter_system_biases`, `time_scale_offset_to_gpst`, a
-hub's offset index — is split into statically dispatched branches instead of being a
+a time system — hashing it into `inter_system_biases`, `time_scale_offset_to_gpst`, an
+offset's index — is split into statically dispatched branches instead of being a
 dynamic dispatch, which a `juliac --trim` build rejects. The row it types stays one
 concrete type, so the solver still compiles once for every constellation mix. A time
-system GNSSSignals adds later has to be added to `CANDIDATE_HUB_SYSTEMS` anyway (the
+system GNSSSignals adds later has to be added to `SUPPORTED_TIME_SYSTEMS` anyway (the
 `time_offsets` tuple is indexed by it), and this follows.
 """
-const SupportedTimeSystem = Union{map(typeof, CANDIDATE_HUB_SYSTEMS)...}
+const SupportedTimeSystem = Union{map(typeof, SUPPORTED_TIME_SYSTEMS)...}
 
-# Position of a time system in `CANDIDATE_HUB_SYSTEMS`, or `nothing` for a system no
+# Position of a time system in `SUPPORTED_TIME_SYSTEMS`, or `nothing` for a system no
 # broadcast offset can target. Every element is a distinct singleton, so this folds to
 # a constant whenever the argument type is known.
-hub_system_index(target::GNSSSignals.TimeSystem) =
-    findfirst(==(target), CANDIDATE_HUB_SYSTEMS)
+time_offset_index(target::GNSSSignals.TimeSystem) =
+    findfirst(==(target), SUPPORTED_TIME_SYSTEMS)
 
 """
     BroadcastTimeOffset
 
 One constellation's broadcast offset toward one target GNSS time system, flattened out
 of the navigation message into an `isbits` row so that evaluating it costs no dispatch
-and no decoder field access. One per entry of [`CANDIDATE_HUB_SYSTEMS`](@ref) is
+and no decoder field access. One per entry of [`SUPPORTED_TIME_SYSTEMS`](@ref) is
 carried by every [`SatelliteMeasurement`](@ref).
 
-The polynomial *coefficients* are stored rather than an evaluated offset because
-[`calc_hub_range_offsets`](@ref) evaluates one system-wide offset at **each
-satellite's own transmit time**; an evaluated scalar per satellite would change that
-(negligibly in metres, but visibly against the tolerances the steering tests pin).
+The polynomial *coefficients* are stored rather than an evaluated offset, so that
+[`calc_steering_offset`](@ref) can evaluate it at any time of week.
 
 # Fields
 - `available::Bool`: whether this satellite's message carries a usable offset toward
@@ -234,7 +231,7 @@ compiles once for every mix.
 - `system_start_time::DateTime`: the same origin as a calendar date, for
   [`day_of_year`](@ref).
 - `time_offsets::NTuple{3,BroadcastTimeOffset}`: this satellite's broadcast offsets
-  toward [`CANDIDATE_HUB_SYSTEMS`](@ref), in that order.
+  toward [`SUPPORTED_TIME_SYSTEMS`](@ref), in that order.
 """
 struct SatelliteMeasurement
     prn::Int
@@ -262,13 +259,13 @@ Whether a usable broadcast offset from this satellite's own GNSS time system to
 `target` is available. Such an offset lets that constellation's measurements be
 expressed on the target system's clock, which makes a fix possible when the geometry
 is too weak to estimate an independent clock bias for it — see
-[`decide_bias_layout`](@ref), which collapses onto a hub system this way. Toward GPS
+[`decide_bias_layout`](@ref), which ties the two clocks together this way. Toward GPS
 Time that is Galileo's GGTO and BeiDou's BGTO; toward Galileo System Time it is
 BeiDou's BGTO variant and the GGTO GPS itself broadcasts on CNAV/CNAV-2.
 
 The measurement form reads the flag [`collect_measurements`](@ref) already flattened
 into `measurement.time_offsets` (equivalently `measurement.time_offsets[i].available`),
-and is `false` for any `target` outside [`CANDIDATE_HUB_SYSTEMS`](@ref), which no
+and is `false` for any `target` outside [`SUPPORTED_TIME_SYSTEMS`](@ref), which no
 message broadcasts an offset toward.
 
 The decoder form is the underlying predicate, and delegates to GNSSDecoder's
@@ -284,7 +281,7 @@ function time_offset_available(
     measurement::SatelliteMeasurement,
     target::GNSSSignals.TimeSystem,
 )
-    index = hub_system_index(target)
+    index = time_offset_index(target)
     isnothing(index) ? false : measurement.time_offsets[index].available
 end
 
@@ -325,11 +322,11 @@ function calc_steering_offset(offset::BroadcastTimeOffset, t)
     offset.A_0 + offset.A_1 * Δτ + offset.A_2 * Δτ^2 - offset.count_anchor
 end
 
-# The broadcast offsets toward every candidate hub, flattened. `map` over the
-# heterogeneous `CANDIDATE_HUB_SYSTEMS` tuple specialises per element, so each
+# The broadcast offsets toward every supported time system, flattened. `map` over the
+# heterogeneous `SUPPORTED_TIME_SYSTEMS` tuple specialises per element, so each
 # `get_time_offset` call is statically dispatched on both the decoder and the target.
 function broadcast_time_offsets(decoder, week, count_offset_to_gpst)
-    map(CANDIDATE_HUB_SYSTEMS) do target
+    map(SUPPORTED_TIME_SYSTEMS) do target
         offset = get_time_offset(decoder, target)
         isnothing(offset) && return NO_TIME_OFFSET
         BroadcastTimeOffset(
@@ -352,7 +349,7 @@ The single [`BroadcastTimeOffset`](@ref) from `decoder`'s own GNSS time system t
 `target`, as [`collect_measurements`](@ref) flattens it onto every
 [`SatelliteMeasurement`](@ref) — the standalone form, for a consumer evaluating a
 broadcast time offset outside a fix. Unavailable (`available == false`) for a `target`
-outside [`CANDIDATE_HUB_SYSTEMS`](@ref), and for any message that carries no such
+outside [`SUPPORTED_TIME_SYSTEMS`](@ref), and for any message that carries no such
 offset (see [`time_offset_available`](@ref)).
 """
 function broadcast_time_offset(
@@ -360,7 +357,7 @@ function broadcast_time_offset(
     target::GNSSSignals.TimeSystem;
     approximate_year::Integer = year(now(UTC)),
 )
-    index = hub_system_index(target)
+    index = time_offset_index(target)
     isnothing(index) && return NO_TIME_OFFSET
     broadcast_time_offsets(
         decoder,
