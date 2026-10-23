@@ -323,13 +323,13 @@ end
 
     layout = PositionVelocityTime.decide_bias_layout(offset_rows)
     @test layout.clock_systems == [GPST(), GST()]
-    @test layout.clock_bias_indices == [1, 1, 2, 2]
+    @test layout.clock_columns == [1, 1, 2, 2]
     constraint = only(layout.constraints)
     @test (constraint.column, constraint.target_column) == (2, 1)
     @test constraint.offset ≈
           -C * PositionVelocityTime.calc_steering_offset(ggto, offset_rows[3].transmit_time)
     # The tied systems count as one for the DOP.
-    @test layout.clock_group_indices == [1, 1, 1, 1]
+    @test layout.clock_group_columns == [1, 1, 1, 1]
     @test layout.num_clock_groups == 1
     # `broadcast_inter_system_bias` is the constraint's offset, the offset-carrying row's
     # own; zero for the target's own system.
@@ -395,7 +395,7 @@ end
     # Independent clocks, one column per system in order of first appearance.
     layout = PositionVelocityTime.decide_bias_layout(measurement_rows(groups))
     @test layout.clock_systems == [GPST(), GST()]
-    @test layout.clock_bias_indices == [fill(1, length(gps[1:2])); fill(2, length(gal))]
+    @test layout.clock_columns == [fill(1, length(gps[1:2])); fill(2, length(gal))]
     @test isempty(layout.constraints)
     @test pvt.time ≈ gal_only.time
     @test norm(pvt.position - gal_only.position) < 10

@@ -918,7 +918,7 @@
         @test !PositionVelocityTime.decide_bias_layout!(reused,
             [gps_rows[1:2]; [beidou_row, plain_galileo_row]])
         @test map(c -> (c.column, c.target_column), reused.constraints) == [(2, 1)]
-        @test reused.clock_group_indices == [1, 1, 1, 2]
+        @test reused.clock_group_columns == [1, 1, 1, 2]
         @test reused.num_clock_groups == 2
         # With no offset to tie with, none.
         @test !PositionVelocityTime.decide_bias_layout!(reused,
@@ -931,7 +931,7 @@
             [gps_rows[1:1]; [beidou_row, galileo_row]])
         @test sort(map(c -> (c.column, c.target_column), reused.constraints)) ==
               [(2, 1), (3, 1)]
-        @test reused.clock_group_indices == [1, 1, 1]
+        @test reused.clock_group_columns == [1, 1, 1]
         @test reused.num_clock_groups == 1
 
         # A constraint is not GPS-specific. A GPS-free scarce epoch ties BeiDou to

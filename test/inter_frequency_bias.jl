@@ -147,7 +147,7 @@
     end
 
     @testset "band layout follows coverage-graph connectivity" begin
-        bcl = PositionVelocityTime.band_ifb_layout
+        bcl = PositionVelocityTime.inter_frequency_bias_layout
         # Disjoint: GPS only on L5, Galileo only on L1 ⇒ two components, no IFB column
         # (each band is the sole band of its component, so its bias folds into a clock).
         ifb, extra, refs, ncomp = bcl([GPST(), GPST(), GST(), GST()], [:L5, :L5, :L1, :L1])
@@ -179,8 +179,9 @@
     end
 
     @testset "layout gate counts both measurements and distinct satellites" begin
-        # GPS-only (no GGTO constraint possible): 3 position + 1 clock + num_ifb
-        # unknowns. Only the classification fields of a measurement row are read here —
+        # GPS-only (no GGTO constraint possible): 3 position + 1 clock +
+        # num_inter_frequency_biases unknowns. Only the classification fields of a
+        # measurement row are read here —
         # the broadcast time offsets are looked at only between two systems, never for
         # a GPS-only constellation — so stand-in rows carrying those suffice.
         decide = PositionVelocityTime.decide_bias_layout

@@ -102,48 +102,51 @@ end
 Per-satellite assignment of the estimated bias columns of the least-squares design matrix,
 shared by [`predict_pseudoranges!`](@ref), [`calc_design_matrix!`](@ref) and
 [`estimate_position`](@ref). The state vector is `[x, y, z, tc₁, …, tc_num_clock_biases,
-ifb₁, …, ifb_num_ifb]` with [`num_lsq_params`](@ref)`(bias_columns)` entries. The two column
-kinds have different physical sources: a clock column is the receiver clock for one GNSS
-time system (the spacing *between* systems is a system/space-segment effect — the broadcast
-GNSS time offset, GGTO or BGTO), whereas an inter-frequency-bias column is the receiver's
-per-band RF-chain delay. Known per-satellite corrections (atmosphere) are applied to the
-pseudoranges in [`calc_pvt`](@ref), not carried here.
+ifb₁, …, ifb_num_inter_frequency_biases]` with [`num_parameters`](@ref)`(bias_columns)`
+entries. The two column kinds have different physical sources: a clock column is the
+receiver clock for one GNSS time system (the spacing *between* systems is a
+system/space-segment effect — the broadcast GNSS time offset, GGTO or BGTO), whereas an
+inter-frequency-bias column is the receiver's per-band RF-chain delay. Known per-satellite
+corrections (atmosphere) are applied to the pseudoranges in [`calc_pvt`](@ref), not carried
+here.
 
 # Fields
-- `clock_bias_indices::Vector{Int}`: per satellite, the clock column (1…`num_clock_biases`)
-  of its GNSS time system; the design-matrix `1.0` lands at `3 + clock_bias_indices[j]`.
+- `clock_columns::Vector{Int}`: per satellite, the clock column (1…`num_clock_biases`)
+  of its GNSS time system; the design-matrix `1.0` lands at `3 + clock_columns[j]`.
 - `num_clock_biases::Int`: number of clock biases (also the offset of the IFB block).
-- `ifb_indices::Vector{Int}`: per satellite, the inter-frequency-bias column
-  (1…`num_ifb`) of its frequency band, or `0` for the reference band; the `1.0` lands
-  at `3 + num_clock_biases + ifb_indices[j]`.
-- `num_ifb::Int`: number of inter-frequency biases (frequency bands beyond the reference).
+- `inter_frequency_bias_columns::Vector{Int}`: per satellite, the inter-frequency-bias
+  column (1…`num_inter_frequency_biases`) of its frequency band, or `0` for the reference
+  band; the `1.0` lands at `3 + num_clock_biases + inter_frequency_bias_columns[j]`.
+- `num_inter_frequency_biases::Int`: number of inter-frequency biases (frequency bands
+  beyond the reference).
 - `constraints::Vector{ClockConstraint}`: the clock-difference rows, appended after the
   satellite rows. Without the argument, an empty vector shared by every `BiasColumns`
   built that way and by [`dop_columns`](@ref), which must not be modified.
 """
 struct BiasColumns
-    clock_bias_indices::Vector{Int}
+    clock_columns::Vector{Int}
     num_clock_biases::Int
-    ifb_indices::Vector{Int}
-    num_ifb::Int
+    inter_frequency_bias_columns::Vector{Int}
+    num_inter_frequency_biases::Int
     constraints::Vector{ClockConstraint}
 end
 
-BiasColumns(clock_bias_indices, num_clock_biases, ifb_indices, num_ifb) = BiasColumns(
-    clock_bias_indices, num_clock_biases, ifb_indices, num_ifb, NO_CLOCK_CONSTRAINTS)
+BiasColumns(clock_columns, num_clock_biases, inter_frequency_bias_columns,
+    num_inter_frequency_biases) = BiasColumns(clock_columns, num_clock_biases,
+    inter_frequency_bias_columns, num_inter_frequency_biases, NO_CLOCK_CONSTRAINTS)
 
 # The constraints of every `BiasColumns` without any: shared, so building one allocates
 # nothing for them. Never pushed to.
 const NO_CLOCK_CONSTRAINTS = ClockConstraint[]
 
 """
-    num_lsq_params(bias_columns::BiasColumns) -> Int
+    num_parameters(bias_columns::BiasColumns) -> Int
 
 Length of the least-squares state vector for `bias_columns`:
-`3 + num_clock_biases + num_ifb`.
+`3 + num_clock_biases + num_inter_frequency_biases`.
 """
-num_lsq_params(bias_columns::BiasColumns) =
-    3 + bias_columns.num_clock_biases + bias_columns.num_ifb
+num_parameters(bias_columns::BiasColumns) =
+    3 + bias_columns.num_clock_biases + bias_columns.num_inter_frequency_biases
 
 """
     SatelliteState{CP<:Real,D<:GNSSDecoderState,S<:AbstractGNSSSignal}
@@ -250,8 +253,8 @@ against.
   longer this band's receiver chain delay is than the reference band's.
 - `reference_band::Symbol`: The reference band (e.g. `:L1`; see `get_band_id`) whose delay is
   folded into the clock biases and against which `value` is measured. Chosen per
-  coverage component (see [`band_ifb_layout`](@ref)), so different biases in a
-  disconnected solution can in principle carry different references.
+  coverage component (see [`inter_frequency_bias_layout`](@ref)), so different biases in
+  a disconnected solution can in principle carry different references.
 """
 struct InterFrequencyBias
     value::typeof(1.0m)
@@ -312,8 +315,8 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   (in metres) and the reference band it is measured against — the anchor whose delay is
   folded into the clock biases — so each reported bias's anchor is explicit rather than
   implicit. The reference is chosen per coverage component (see
-  [`band_ifb_layout`](@ref)), so a disconnected constellation can in principle yield
-  several references. Empty for a single-band solution. A solution then needs
+  [`inter_frequency_bias_layout`](@ref)), so a disconnected constellation can in principle
+  yield several references. Empty for a single-band solution. A solution then needs
   `n ≥ 3 + M + B` satellites for `M` time systems and `B` extra bands, less one per
   broadcast offset that ties two clocks together (see [`decide_bias_layout`](@ref)).
 
@@ -402,8 +405,8 @@ function calc_course_over_ground(position::ECEF, velocity::ECEF)
 end
 
 """
-    band_ifb_layout(system_keys, bands)
-        -> (ifb_indices, extra_bands, reference_bands, num_components)
+    inter_frequency_bias_layout(system_keys, bands)
+        -> (inter_frequency_bias_columns, extra_bands, reference_bands, num_components)
 
 Lay out the receiver inter-frequency biases from the (constellation × band) coverage
 graph. `system_keys[j]` and `bands[j]` are satellite `j`'s constellation and frequency
@@ -422,26 +425,27 @@ a band that is the sole band of its component (its constellation lives only ther
 gets none, its delay folding into that constellation's clock — so the resulting design
 matrix is always full rank.
 
-`ifb_indices[j]` is satellite `j`'s IFB column (1…`length(extra_bands)`), or `0` for a
-per-component reference band; `extra_bands[i]` is the band of IFB column `i` (ordered
-deterministically) and `reference_bands[i]` is the reference band of that column's
-coverage component (the anchor its IFB is measured against); `num_components` is the
-number of coverage components (`1` ⇔ the graph is connected).
+`inter_frequency_bias_columns[j]` is satellite `j`'s IFB column (1…`length(extra_bands)`),
+or `0` for a per-component reference band; `extra_bands[i]` is the band of IFB column `i`
+(ordered deterministically) and `reference_bands[i]` is the reference band of that column's
+coverage component (the anchor its IFB is measured against); `num_components` is the number
+of coverage components (`1` ⇔ the graph is connected).
 """
-function band_ifb_layout(system_keys, bands)
-    ifb_indices = Int[]
+function inter_frequency_bias_layout(system_keys, bands)
+    inter_frequency_bias_columns = Int[]
     extra_bands = Vector{eltype(bands)}()
     reference_bands = Vector{eltype(bands)}()
-    num_components = band_ifb_layout!(ifb_indices, extra_bands, reference_bands,
-        BandLayoutScratch{eltype(bands)}(), system_keys, bands)
-    return ifb_indices, extra_bands, reference_bands, num_components
+    num_components = inter_frequency_bias_layout!(inter_frequency_bias_columns,
+        extra_bands, reference_bands, IFBLayoutScratch{eltype(bands)}(),
+        system_keys, bands)
+    return inter_frequency_bias_columns, extra_bands, reference_bands, num_components
 end
 
-# The scratch vectors of `band_ifb_layout!`. Bands are identified by their position in
-# `unique_bands` (first appearance), so the union-find, the counts and the per-component
-# references are all plain `Int` vectors — the same bookkeeping a `Dict` keyed by band
-# would hold, without a hash table to allocate per epoch.
-struct BandLayoutScratch{B}
+# The scratch vectors of `inter_frequency_bias_layout!`. Bands are identified by their
+# position in `unique_bands` (first appearance), so the union-find, the counts and the
+# per-component references are all plain `Int` vectors — the same bookkeeping a `Dict` keyed
+# by band would hold, without a hash table to allocate per epoch.
+struct IFBLayoutScratch{B}
     unique_bands::Vector{B}
     band_index::Vector{Int}   # per satellite: its band's position in `unique_bands`
     parent::Vector{Int}       # per band: union-find parent
@@ -450,22 +454,18 @@ struct BandLayoutScratch{B}
     column::Vector{Int}       # per band: its IFB column, or 0 for a reference band
 end
 
-BandLayoutScratch{B}() where {B} = BandLayoutScratch{B}(B[], Int[], Int[], Int[], Int[], Int[])
+IFBLayoutScratch{B}() where {B} = IFBLayoutScratch{B}(B[], Int[], Int[], Int[], Int[], Int[])
 
-"""
-    band_ifb_layout!(ifb_indices, extra_bands, reference_bands, scratch, system_keys, bands)
-        -> num_components
-
-[`band_ifb_layout`](@ref) writing its three vectors into the given ones (emptied first)
-and working in `scratch`, so that it allocates nothing once they have grown to the epoch.
-The result is identical: the same components, the same references and tie-breaks, and
-the same column order.
-"""
-function band_ifb_layout!(
-    ifb_indices,
+# `inter_frequency_bias_layout` writing its three vectors into the given ones (emptied
+# first) and working in `scratch`, so that it allocates nothing once they have grown to the
+# epoch; returns `num_components`. The result is identical: the same components, the same
+# references and tie-breaks, and the same column order. Internal: `decide_bias_layout!` is
+# the allocation-free way in.
+function inter_frequency_bias_layout!(
+    inter_frequency_bias_columns,
     extra_bands,
     reference_bands,
-    scratch::BandLayoutScratch,
+    scratch::IFBLayoutScratch,
     system_keys,
     bands,
 )
@@ -519,9 +519,9 @@ function band_ifb_layout!(
             column[u] = length(extra_bands)
         end
     end
-    resize!(ifb_indices, num_sats)
+    resize!(inter_frequency_bias_columns, num_sats)
     for j in 1:num_sats
-        ifb_indices[j] = column[band_index[j]]
+        inter_frequency_bias_columns[j] = column[band_index[j]]
     end
     # Every root, and only a root, holds its component's reference.
     return count(!iszero, reference)
@@ -549,29 +549,29 @@ Its vectors are refilled in place, so a layout reused across epochs allocates no
 once it has grown to the largest one.
 
 # Fields
-- `clock_bias_indices::Vector{Int}`: per satellite, the clock column of its time system.
+- `clock_columns::Vector{Int}`: per satellite, the clock column of its time system.
 - `clock_systems::Vector{SupportedTimeSystem}`: the time system of each clock column, in
   order of first appearance.
 - `constraints::Vector{ClockConstraint}`: the broadcast-offset rows; usually empty.
-- `clock_group_indices::Vector{Int}`: per satellite, its *clock group*, in which the systems
+- `clock_group_columns::Vector{Int}`: per satellite, its *clock group*, in which the systems
   `constraints` tie together count as one.
 - `num_clock_groups::Int`: the number of clock groups.
-- `ifb_indices::Vector{Int}`, `extra_bands::Vector{Symbol}`,
+- `inter_frequency_bias_columns::Vector{Int}`, `extra_bands::Vector{Symbol}`,
   `reference_bands::Vector{Symbol}`: the inter-frequency-bias columns, as
-  [`band_ifb_layout`](@ref) lays them out over the clock groups — `extra_bands[i]` is
-  the band of IFB column `i` and `reference_bands[i]` the reference band it is measured
-  against.
+  [`inter_frequency_bias_layout`](@ref) lays them out over the clock groups —
+  `extra_bands[i]` is the band of IFB column `i` and `reference_bands[i]` the reference
+  band it is measured against.
 
 [`fit_columns`](@ref) is the design the position solve fits, [`dop_columns`](@ref) the one
 its DOP is taken from.
 """
 mutable struct BiasLayout
-    clock_bias_indices::Vector{Int}
+    clock_columns::Vector{Int}
     clock_systems::Vector{SupportedTimeSystem}
     constraints::Vector{ClockConstraint}
-    clock_group_indices::Vector{Int}
+    clock_group_columns::Vector{Int}
     num_clock_groups::Int
-    ifb_indices::Vector{Int}
+    inter_frequency_bias_columns::Vector{Int}
     extra_bands::Vector{Symbol}
     reference_bands::Vector{Symbol}
     # Scratch.
@@ -580,12 +580,12 @@ mutable struct BiasLayout
     candidates::Vector{ClockConstraint}      # one per pair of systems with an offset
     system_parent::Vector{Int}               # per clock column: union-find parent
     clock_group_of_root::Vector{Int}         # per union-find root: its group, or 0
-    band_scratch::BandLayoutScratch{Symbol}
+    ifb_scratch::IFBLayoutScratch{Symbol}
 end
 
 BiasLayout() = BiasLayout(Int[], SupportedTimeSystem[], ClockConstraint[], Int[], 0, Int[],
     Symbol[], Symbol[], Symbol[], Int[], ClockConstraint[], Int[], Int[],
-    BandLayoutScratch{Symbol}())
+    IFBLayoutScratch{Symbol}())
 
 """
     fit_columns(layout::BiasLayout) -> BiasColumns
@@ -593,9 +593,9 @@ BiasLayout() = BiasLayout(Int[], SupportedTimeSystem[], ClockConstraint[], Int[]
 The [`BiasColumns`](@ref) the position solve fits: one clock column per time system, and
 the layout's clock constraints as extra rows. Its vectors **are** the layout's.
 """
-fit_columns(layout::BiasLayout) = BiasColumns(layout.clock_bias_indices,
-    length(layout.clock_systems), layout.ifb_indices, length(layout.extra_bands),
-    layout.constraints)
+fit_columns(layout::BiasLayout) = BiasColumns(layout.clock_columns,
+    length(layout.clock_systems), layout.inter_frequency_bias_columns,
+    length(layout.extra_bands), layout.constraints)
 
 """
     dop_columns(layout::BiasLayout) -> BiasColumns
@@ -604,9 +604,9 @@ The [`BiasColumns`](@ref) the DOP is taken from: one clock column per clock grou
 constraint rows, i.e. the constraints taken as exact. Its vectors **are** the layout's,
 except `constraints`: an empty vector shared by every call, which must not be modified.
 """
-dop_columns(layout::BiasLayout) = BiasColumns(layout.clock_group_indices,
-    layout.num_clock_groups, layout.ifb_indices, length(layout.extra_bands),
-    NO_CLOCK_CONSTRAINTS)
+dop_columns(layout::BiasLayout) = BiasColumns(layout.clock_group_columns,
+    layout.num_clock_groups, layout.inter_frequency_bias_columns,
+    length(layout.extra_bands), NO_CLOCK_CONSTRAINTS)
 
 """
     decide_bias_layout(measurements) -> Union{BiasLayout,Nothing}
@@ -672,13 +672,13 @@ function decide_bias_layout!(layout::BiasLayout, measurements)
     clock_systems = unique_time_systems!(layout.clock_systems,
         measurement.time_system for measurement in measurements)
     num_systems = length(clock_systems)
-    clock_bias_indices = resize!(layout.clock_bias_indices, num_sats)
+    clock_columns = resize!(layout.clock_columns, num_sats)
     satellite_counts = fill!(resize!(layout.satellite_counts, num_systems), 0)
     for j in 1:num_sats
         # `something`: every system is in `clock_systems` by construction, and saying so
         # keeps the columns a `Vector{Int}` rather than widening them with `Nothing`.
         column = something(time_system_index(clock_systems, measurements[j].time_system))
-        clock_bias_indices[j] = column
+        clock_columns[j] = column
         is_new_satellite(measurements, j) && (satellite_counts[column] += 1)
     end
 
@@ -760,20 +760,21 @@ function group_clocks!(layout::BiasLayout, measurements, mask)
         parent[a] = b
     end
     clock_group_of_root = fill!(resize!(layout.clock_group_of_root, num_systems), 0)
-    clock_group_indices = resize!(layout.clock_group_indices, length(measurements))
+    clock_group_columns = resize!(layout.clock_group_columns, length(measurements))
     num_clock_groups = 0
-    for j in eachindex(clock_group_indices)
-        root = find_root!(parent, layout.clock_bias_indices[j])
+    for j in eachindex(clock_group_columns)
+        root = find_root!(parent, layout.clock_columns[j])
         if clock_group_of_root[root] == 0
             num_clock_groups += 1
             clock_group_of_root[root] = num_clock_groups
         end
-        clock_group_indices[j] = clock_group_of_root[root]
+        clock_group_columns[j] = clock_group_of_root[root]
     end
     layout.num_clock_groups = num_clock_groups
     # Keyed by clock group, so the tied systems count as one constellation.
-    num_components = band_ifb_layout!(layout.ifb_indices, layout.extra_bands,
-        layout.reference_bands, layout.band_scratch, clock_group_indices, layout.bands)
+    num_components = inter_frequency_bias_layout!(layout.inter_frequency_bias_columns,
+        layout.extra_bands, layout.reference_bands, layout.ifb_scratch,
+        clock_group_columns, layout.bands)
     # Both are necessary for a full-rank design, neither is sufficient: the geometry itself
     # can still be degenerate, which `calc_pvt` screens for once the design exists.
     solvable =
@@ -876,12 +877,12 @@ reference system is never the one whose clock only a broadcast offset determines
 function select_reference_system(layout::BiasLayout)
     isempty(layout.clock_systems) &&
         throw(ArgumentError("no time system to select a reference system from"))
-    layout.clock_systems[reference_clock_column(layout)]
+    layout.clock_systems[select_reference_clock_column(layout)]
 end
 
 # The clock column of `select_reference_system`. `argmax` returns the first maximum, and
 # the columns are in order of first appearance.
-reference_clock_column(layout::BiasLayout) = argmax(layout.satellite_counts)
+select_reference_clock_column(layout::BiasLayout) = argmax(layout.satellite_counts)
 
 """
     time_scale_offset_to_gpst(time_system) -> Float64
@@ -1203,8 +1204,8 @@ See [`tropospheric_delay`](@ref).
 
   **Order is significant**: the flat measurement order is group order × within-group
   order, and it fixes the reference system's tie-break ("most satellites, ties by first
-  appearance"), [`band_ifb_layout`](@ref)'s reference-band tie-break, and the insertion
-  order of `PVTSolution.satellites`.
+  appearance"), [`inter_frequency_bias_layout`](@ref)'s reference-band tie-break, and the
+  insertion order of `PVTSolution.satellites`.
 - `prev_pvt`: Previous PVT solution used as initial guess (default: origin). A
   previous solution whose own DOP is implausible (`GDOP < 0`, or `PDOP` above
   `MAX_TRUSTED_WARM_START_PDOP` = 50) is not used as a seed and the epoch is
@@ -1482,17 +1483,17 @@ function _solve_pvt!(
     decide_bias_layout!(layout, measurements) || return (false, prev_pvt)
     (; clock_systems, extra_bands, reference_bands, constraints) = layout
     bias_columns = fit_columns(layout)
-    (; clock_bias_indices, num_clock_biases) = bias_columns
-    num_params = num_lsq_params(bias_columns)
+    (; clock_columns, num_clock_biases) = bias_columns
+    num_params = num_parameters(bias_columns)
 
     # Reference system — its clock bias, reference time, week and start epoch
     # define the reported time (see `select_reference_system`).
-    reference_clock_index = reference_clock_column(layout)
-    reference_system = clock_systems[reference_clock_index]
+    reference_clock_column = select_reference_clock_column(layout)
+    reference_system = clock_systems[reference_clock_column]
     # `something`, not a bare `findfirst`: every clock column has a satellite, so this
     # never fails, and saying so keeps the index an `Int` rather than a
     # `Union{Int,Nothing}` that would widen the DOP call below.
-    reference_index = something(findfirst(==(reference_clock_index), clock_bias_indices))
+    reference_row = something(findfirst(==(reference_clock_column), clock_columns))
 
     # The common reference cancels out of the reported time (the reference clock
     # bias absorbs it), so any latest-transmit-time reference works — but the times
@@ -1519,7 +1520,7 @@ function _solve_pvt!(
     # The reference system's week and start epoch date the epoch absolutely: the day of
     # year feeds the tropospheric mapping's seasonal term here, and week/start epoch
     # date the reported time after the solve.
-    reference_measurement = measurements[reference_index]
+    reference_measurement = measurements[reference_row]
     week = reference_measurement.week
     start_time = reference_measurement.system_start_epoch
     doy = day_of_year(reference_measurement.system_start_time, week, reference_time)
@@ -1630,13 +1631,13 @@ function _solve_pvt!(
     #
     # The DOP takes the constraints as exact (see `dop_columns`).
     dop_bias_columns = dop_columns(layout)
-    num_dop_params = num_lsq_params(dop_bias_columns)
+    num_dop_params = num_parameters(dop_bias_columns)
     workspace.design_matrix = grown(workspace.design_matrix, num_sats, num_dop_params)
     H = calc_design_matrix!(view(workspace.design_matrix, 1:num_sats, 1:num_dop_params),
         sat_positions, ξ, dop_bias_columns)
     workspace.normal_matrix = grown(workspace.normal_matrix, num_dop_params, num_dop_params)
     dop = calc_dop!(view(workspace.normal_matrix, 1:num_dop_params, 1:num_dop_params), H,
-        position, layout.clock_group_indices[reference_index])
+        position, layout.clock_group_columns[reference_row])
 
     dop.GDOP < 0 && return (false, prev_pvt)
 
@@ -1660,7 +1661,7 @@ function _solve_pvt!(
         user_velocity_and_clock_drift[2],
         user_velocity_and_clock_drift[3],
     )
-    clock_bias = ξ[3+reference_clock_index]
+    clock_bias = ξ[3+reference_clock_column]
     # A receiver clock running ahead reads the epoch late by its bias.
     corrected_reference_time = reference_time - clock_bias / SPEED_OF_LIGHT
 

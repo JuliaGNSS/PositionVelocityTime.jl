@@ -19,7 +19,7 @@ biases.
 - `sat_positions`: Satellite positions, a `3 × N` matrix or a vector of `SVector{3}`s.
 - `ξ`: Estimated user position, one receiver clock bias per GNSS time system, and one
   receiver inter-frequency bias per frequency band beyond the reference band, i.e.
-  `[x, y, z, tc₁, …, tc_num_clock_biases, ifb₁, …, ifb_num_ifb]`.
+  `[x, y, z, tc₁, …, tc_num_clock_biases, ifb₁, …, ifb_num_inter_frequency_biases]`.
 - `bias_columns`: The per-satellite [`BiasColumns`](@ref) (clock column and
   inter-frequency-bias column of each satellite). Known range corrections (atmosphere)
   are not modelled here: [`calc_pvt`](@ref) folds them into the measured pseudoranges.
@@ -33,11 +33,10 @@ function predict_pseudoranges!(ρ, sat_positions, ξ, bias_columns::BiasColumns)
     num_sats = satellite_count(sat_positions)
     for j in 1:num_sats
         sat_pos = satellite_position(sat_positions, j)
-        ifb =
-            bias_columns.ifb_indices[j] == 0 ? 0.0 :
-            ξ[3+bias_columns.num_clock_biases+bias_columns.ifb_indices[j]]
+        ifb_column = bias_columns.inter_frequency_bias_columns[j]
+        ifb = ifb_column == 0 ? 0.0 : ξ[3+bias_columns.num_clock_biases+ifb_column]
         ρ[j] = norm(satellite_position_at_reception(rₙ, sat_pos) - rₙ) +
-               ξ[3+bias_columns.clock_bias_indices[j]] + ifb
+               ξ[3+bias_columns.clock_columns[j]] + ifb
     end
     for (i, constraint) in enumerate(bias_columns.constraints)
         ρ[num_sats+i] = ξ[3+constraint.column] - ξ[3+constraint.target_column]
@@ -201,13 +200,13 @@ end
 The least-squares design matrix at the state `ξ`, written into `H`: the Jacobian of
 [`predict_pseudoranges!`](@ref), whose arguments it shares.
 
-The matrix has [`num_lsq_params`](@ref)`(bias_columns)` columns: three for the position
-partials, one per GNSS time system, and one per frequency band beyond the reference
-band. Each row carries a `1.0` in its system's clock column (`3 + clock_bias_indices[j]`)
-and, unless the satellite is on the reference band, a `1.0` in its band's
-inter-frequency-bias column (`3 + num_clock_biases + ifb_indices[j]`); the remaining
-bias columns are zero. Each [`ClockConstraint`](@ref) adds a row after the satellites,
-`+1` in its `column` and `−1` in its `target_column`.
+The matrix has [`num_parameters`](@ref)`(bias_columns)` columns: three for the position
+partials, one per GNSS time system, and one per frequency band beyond the reference band.
+Each row carries a `1.0` in its system's clock column (`3 + clock_columns[j]`) and,
+unless the satellite is on the reference band, a `1.0` in its band's inter-frequency-bias
+column (`3 + num_clock_biases + inter_frequency_bias_columns[j]`); the remaining bias
+columns are zero. Each [`ClockConstraint`](@ref) adds a row after the satellites, `+1` in
+its `column` and `−1` in its `target_column`.
 """
 function calc_design_matrix!(H, sat_positions, ξ, bias_columns::BiasColumns)
     fill!(H, 0.0)
@@ -219,9 +218,10 @@ function calc_design_matrix!(H, sat_positions, ξ, bias_columns::BiasColumns)
         H[j, 1] = -e[1]
         H[j, 2] = -e[2]
         H[j, 3] = -e[3]
-        H[j, 3+bias_columns.clock_bias_indices[j]] = 1.0
-        if bias_columns.ifb_indices[j] != 0
-            H[j, 3+bias_columns.num_clock_biases+bias_columns.ifb_indices[j]] = 1.0
+        H[j, 3+bias_columns.clock_columns[j]] = 1.0
+        ifb_column = bias_columns.inter_frequency_bias_columns[j]
+        if ifb_column != 0
+            H[j, 3+bias_columns.num_clock_biases+ifb_column] = 1.0
         end
     end
     num_sats = satellite_count(sat_positions)
@@ -238,11 +238,11 @@ end
 Allocating form of [`calc_design_matrix!`](@ref PositionVelocityTime.calc_design_matrix!):
 the least-squares design matrix at the state `ξ`, one row per satellite and per
 [`ClockConstraint`](@ref), with
-[`num_lsq_params`](@ref PositionVelocityTime.num_lsq_params)`(bias_columns)` columns.
+[`num_parameters`](@ref PositionVelocityTime.num_parameters)`(bias_columns)` columns.
 """
 calc_design_matrix(sat_positions, ξ, bias_columns::BiasColumns) = calc_design_matrix!(
     Matrix{Float64}(undef, num_observations(sat_positions, bias_columns),
-        num_lsq_params(bias_columns)),
+        num_parameters(bias_columns)),
     sat_positions, ξ, bias_columns)
 
 """
@@ -303,33 +303,33 @@ function factorize_normal_matrix!(normal_matrix, H)
 end
 
 """
-    calc_dop(H, user_pos::ECEF, reference_clock_index = 1) -> DOP
+    calc_dop(H, user_pos::ECEF, reference_clock_column = 1) -> DOP
 
 The dilution of precision of the design matrix `H` ([`calc_design_matrix`](@ref)) at the
 user ECEF position `user_pos`.
 
-`H` has `3 + num_clock_biases + num_ifb` columns (three position partials, one per GNSS
-time system, and one per frequency band beyond the reference). `D = (HᵀH)⁻¹` is the
-parameter covariance in the units/frame of `H`. Because `calc_design_matrix!` builds `H`
-from ECEF unit vectors (the negated receiver→satellite lines of sight), the position block
-of `D` is in ECEF; it is rotated into the local ENU frame at `user_pos` before the
-horizontal/vertical split, so `HDOP`/`VDOP` are taken in the user's tangent plane
-(`PDOP`/`GDOP` are trace-invariant and unaffected by the rotation). `GDOP` spans all
-parameters; `TDOP` reports the clock variance of the reference system, the clock column
-`reference_clock_index` (1…`num_clock_biases`) — see [`PVTSolution`](@ref) — while the
-other systems' clock (inter-system-bias) and the inter-frequency-bias variances enter
-`GDOP` only.
+`H` has `3 + num_clock_biases + num_inter_frequency_biases` columns (three position
+partials, one per GNSS time system, and one per frequency band beyond the reference). `D =
+(HᵀH)⁻¹` is the parameter covariance in the units/frame of `H`. Because
+`calc_design_matrix!` builds `H` from ECEF unit vectors (the negated receiver→satellite
+lines of sight), the position block of `D` is in ECEF; it is rotated into the local ENU
+frame at `user_pos` before the horizontal/vertical split, so `HDOP`/`VDOP` are taken in the
+user's tangent plane (`PDOP`/`GDOP` are trace-invariant and unaffected by the rotation).
+`GDOP` spans all parameters; `TDOP` reports the clock variance of the reference system, the
+clock column `reference_clock_column` (1…`num_clock_biases`) — see [`PVTSolution`](@ref) —
+while the other systems' clock (inter-system-bias) and the inter-frequency-bias variances
+enter `GDOP` only.
 
 A rank-deficient geometry makes `HᵀH` singular (not positive definite, or only to
 within rounding); the factorisation detects this and the function returns the sentinel
 `DOP(-1, …)` instead of erroring.
 """
-calc_dop(H, user_pos::ECEF, reference_clock_index = 1) = calc_dop!(
+calc_dop(H, user_pos::ECEF, reference_clock_column = 1) = calc_dop!(
     Matrix{Float64}(undef, size(H, 2), size(H, 2)), H, user_pos,
-    reference_clock_index)
+    reference_clock_column)
 
 """
-    calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_index = 1) -> DOP
+    calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_column = 1) -> DOP
 
 [`calc_dop`](@ref) with the normal-equations matrix `HᵀH` formed, factorised and
 inverted in `normal_matrix` (`n × n` for the `n` columns of `H`, overwritten), so
@@ -337,7 +337,7 @@ that it allocates nothing. The factorisation is LAPACK's Cholesky `potrf`, follo
 a relative rank test on its pivots, and the inverse is `potri` on that factor — what
 `inv` of a `Cholesky` computes.
 """
-function calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_index = 1)
+function calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_column = 1)
     # HᵀH is symmetric positive definite iff H has full column rank, so a
     # rank-deficient (singular) geometry fails gracefully here instead of throwing —
     # see `factorize_normal_matrix!`. The inverse of an SPD matrix is itself SPD, so
@@ -368,7 +368,8 @@ function calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_index = 1)
     HDOP = sqrt(D_enu[1, 1] + D_enu[2, 2])   # horizontal dop (East² + North²)
     VDOP = sqrt(D_enu[3, 3])                 # vertical dop (Up)
     PDOP = sqrt(D(1, 1) + D(2, 2) + D(3, 3)) # position dop (trace-invariant)
-    TDOP = sqrt(D(3 + reference_clock_index, 3 + reference_clock_index)) # temporal dop (reference system)
+    # temporal dop (reference system)
+    TDOP = sqrt(D(3 + reference_clock_column, 3 + reference_clock_column))
     GDOP = sqrt(sum(i -> D(i, i), 1:n))      # geometrical dop (all parameters)
 
     return DOP(GDOP, PDOP, VDOP, HDOP, TDOP)
@@ -376,7 +377,7 @@ end
 
 """
     estimate_position(sat_positions, ρ, bias_columns::BiasColumns,
-                      prev_ξ = zeros(num_lsq_params(bias_columns))) -> (ξ, residuals)
+                      prev_ξ = zeros(num_parameters(bias_columns))) -> (ξ, residuals)
 
 The user position, receiver clock biases and inter-frequency biases that fit the
 pseudoranges `ρ` by least squares, starting from `prev_ξ`. The algorithm is based on the
@@ -403,7 +404,7 @@ is untouched.
 The allocating form of [`estimate_position!`](@ref), on fresh buffers.
 """
 estimate_position(sat_positions, ρ, bias_columns::BiasColumns,
-    prev_ξ = zeros(num_lsq_params(bias_columns))) = estimate_position!(
+    prev_ξ = zeros(num_parameters(bias_columns))) = estimate_position!(
     LMWorkspace(), Vector{Float64}(undef, satellite_count(sat_positions)),
     sat_positions, ρ, bias_columns, prev_ξ)
 

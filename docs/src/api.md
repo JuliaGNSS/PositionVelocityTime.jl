@@ -184,7 +184,7 @@ The unexported internals the surface above links to, documented for reference:
 PositionVelocityTime.calc_design_matrix!
 PositionVelocityTime.estimate_position
 PositionVelocityTime.estimate_position!
-PositionVelocityTime.num_lsq_params
+PositionVelocityTime.num_parameters
 PositionVelocityTime.num_observations
 PositionVelocityTime.unique_time_systems
 PositionVelocityTime.time_system_index
@@ -208,8 +208,7 @@ The receiver inter-frequency biases and their reference bands (reported per
 [`InterFrequencyBias`](@ref)) are laid out from the constellation × band coverage graph:
 
 ```@docs
-PositionVelocityTime.band_ifb_layout
-PositionVelocityTime.band_ifb_layout!
+PositionVelocityTime.inter_frequency_bias_layout
 ```
 
 ## Trimmed Executables
