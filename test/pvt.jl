@@ -88,14 +88,10 @@ end
 
 # Marks a GPS L1 C/A SatelliteState's decoder unhealthy: the six health bits are the
 # subframe-1 SV health word, and a set MSB (nav data bad) is what `is_sat_healthy`
-# rejects. GNSSDecoder 3 renamed the field `svhealth` -> `sv_health`, as in
-# `fixtures.jl`'s `gps_l1ca_data`.
+# rejects.
 function with_health_bad(state)
     d = state.decoder
-    unhealthy(data) =
-        :sv_health in fieldnames(GNSSDecoder.GPSL1CAData) ?
-        GNSSDecoder.GPSL1CAData(data; sv_health = 0b100000) :
-        GNSSDecoder.GPSL1CAData(data; svhealth = 0b100000)
+    unhealthy(data) = GNSSDecoder.GPSL1CAData(data; sv_health = 0b100000)
     new_decoder = GNSSDecoder.GNSSDecoderState(
         d; raw_data = unhealthy(d.raw_data), data = unhealthy(d.data))
     SatelliteState(;
