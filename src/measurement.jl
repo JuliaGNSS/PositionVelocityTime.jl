@@ -222,10 +222,8 @@ compiles once for every mix.
 - `clock_drift::Float64`: [`calc_satellite_clock_drift`](@ref) at `transmit_time` (s/s).
 - `week::Int`: the absolute week number of `time_system`, with the GPS L1 C/A
   1024-week rollover already resolved against `approximate_year`.
-- `system_start_epoch::TAITime`: the TAI epoch of that system's week 0,
-  which dates the reported fix.
-- `system_start_time::DateTime`: the same origin as a calendar date, for
-  [`day_of_year`](@ref).
+- `system_start_epoch::TAITime`: the TAI epoch of that system's week 0, which dates the
+  reported fix and the day of year of the tropospheric model ([`day_of_year`](@ref)).
 - `time_offsets::NTuple{3,BroadcastTimeOffset}`: this satellite's broadcast offsets
   toward [`SUPPORTED_TIME_SYSTEMS`](@ref), in that order.
 """
@@ -243,7 +241,6 @@ struct SatelliteMeasurement
     clock_drift::Float64
     week::Int
     system_start_epoch::TAITime
-    system_start_time::DateTime
     time_offsets::NTuple{3,BroadcastTimeOffset}
 end
 
@@ -386,7 +383,6 @@ function satellite_measurement(state::SatelliteState, approximate_year::Integer)
         calc_satellite_clock_drift(decoder, transmit_time),
         week,
         system_start_epoch(signal),
-        get_system_start_time(signal),
         broadcast_time_offsets(decoder, week, leap_second_offset),
     )
 end
@@ -416,7 +412,7 @@ The flat row order is group order × within-group order, and it is significant �
 function collect_measurements(groups; approximate_year::Integer = year(now(UTC)))
     measurements = SatelliteMeasurement[]
     # An epoch's satellite count is known before a single row is built, and a row is
-    # ~320 bytes, so reserving the whole vector up front saves the geometric regrowth
+    # ~310 bytes, so reserving the whole vector up front saves the geometric regrowth
     # (five reallocations and copies for a dozen satellites). The reservation is the
     # unfiltered count — an unhealthy satellite leaves a little slack, never a regrowth.
     sizehint!(measurements, sum(group -> length(group.satellites),

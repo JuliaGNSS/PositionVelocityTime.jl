@@ -177,18 +177,14 @@ function tropospheric_delay(elevation, lla, day_of_year;
 end
 
 """
-    day_of_year(system_start_time::DateTime, week, time_of_week) -> Int
+    day_of_year(epoch::TAITime) -> Int
 
-Day of year (1–366) of the GNSS system time given by the absolute `week` and
-`time_of_week` (s) counted from `system_start_time`, that system's week-0 origin as a
-calendar date (`get_system_start_time(system)`, precomputed on every
-[`SatelliteMeasurement`](@ref)) — the seasonal argument of the Niell tropospheric
-mapping (see [`tropospheric_delay`](@ref)). The system time scale's offset from
-UTC (leap seconds, ≤ ~18 s) is negligible for an argument with a one-year period.
+Day of year (1–366) of `epoch` — the seasonal argument of the Niell tropospheric mapping
+(see [`tropospheric_delay`](@ref)). A GNSS time of week dates as
+[`week_start_epoch`](@ref)`(measurement) + time_of_week`, from the start epoch and week
+every [`SatelliteMeasurement`](@ref) carries. The day is read off
+the TAI calendar label, which runs ahead of UTC by the accrued leap seconds (37 s), a
+shift that is negligible for an argument with a one-year period.
 """
-function day_of_year(system_start_time::DateTime, week, time_of_week)
-    t = system_start_time +
-        Millisecond(round(Int, (week * SECONDS_PER_WEEK + time_of_week) * 1000))
-    return dayofyear(t)
-end
+day_of_year(epoch::TAITime) = dayofyear(DateTime(epoch))
 

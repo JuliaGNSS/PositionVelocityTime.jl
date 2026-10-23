@@ -236,13 +236,15 @@ end
     end
 
     @testset "day of year from system week and time of week" begin
-        # GPS week 0 starts 1980-01-06 → doy 6; half a year of weeks later lands
-        # mid-year. The ≤ 18 s GPS−UTC offset is irrelevant at day resolution.
-        doy(system, week, tow) =
-            PositionVelocityTime.day_of_year(get_system_start_time(system), week, tow)
-        @test doy(GPST(), 0, 0.0) == 6
-        @test doy(GPST(), 0, 86400.0 * 10) == 16
-        # GST week 0 starts 1999-08-21 23:59:47 UTC (doy 233)
-        @test doy(GST(), 0, 14.0) == 234
+        # GPS week 0 starts 1980-01-06 → doy 6; ten days later, doy 16.
+        doy(signal, week, tow) = PositionVelocityTime.day_of_year(
+            PositionVelocityTime.system_start_epoch(signal) +
+            (week * PositionVelocityTime.SECONDS_PER_WEEK + tow))
+        @test doy(GPSL1CA(), 0, 0.0) == 6
+        @test doy(GPSL1CA(), 0, 86400.0 * 10) == 16
+        @test doy(GPSL1CA(), 52, 0.0) == 4 # 1981-01-04
+        # GST week 0 starts 1999-08-22T00:00:19 TAI (doy 234), 13 s after midnight UTC:
+        # the day is the TAI label's, at most the 37 leap seconds off the UTC day.
+        @test doy(GalileoE1B(), 0, 14.0) == 234
     end
 end

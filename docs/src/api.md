@@ -171,6 +171,7 @@ PositionVelocityTime.calc_steering_offset
 PositionVelocityTime.broadcast_inter_system_bias
 PositionVelocityTime.get_week
 PositionVelocityTime.system_start_epoch
+PositionVelocityTime.week_start_epoch
 PositionVelocityTime.day_of_year
 PositionVelocityTime.predict_atmospheric_delays
 PositionVelocityTime.predict_atmospheric_delays!

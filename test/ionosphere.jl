@@ -333,11 +333,11 @@ end
     end
 
     @testset "GST week/TOW → day-of-year and UT" begin
-        # 1 week + 12 h past the GST epoch (1999-08-21T23:59:47 UTC) → 1999-08-29
-        # at 11:59:47 (the epoch is 13 s before midnight, so 13 s before noon here).
+        # 1 week + 12 h past the GST epoch (1999-08-22T00:00:19 TAI) → 1999-08-29
+        # at 12:00:19 on the TAI calendar label the date is read off.
         doy, ut = PositionVelocityTime._galileo_doy_and_ut(1, 12 * 3600)
         @test doy == dayofyear(Date(1999, 8, 29))
-        @test ut ≈ 11 + 59 / 60 + 47 / 3600
+        @test ut ≈ 12 + 19 / 3600
     end
 
     @testset "selection and delay from a Galileo decoder" begin
@@ -517,12 +517,14 @@ end
     end
 
     @testset "BDT week/TOW → Modified Julian Date" begin
-        # BDT week 0 starts 2006-01-01, MJD 53736.
-        @test PVT._bdgim_modified_julian_date(0, 0.0) == 53736.0
-        @test PVT._bdgim_modified_julian_date(0, 43200.0) == 53736.5
-        @test PVT._bdgim_modified_julian_date(1, 0.0) == 53743.0
+        # BDT week 0 starts 2006-01-01T00:00:33 TAI, MJD 53736 + 33 s on the TAI label.
+        bdt_start = 53736.0 + 33 / 86_400
+        @test PVT._bdgim_modified_julian_date(0, 0.0) ≈ bdt_start atol = 1e-9
+        @test PVT._bdgim_modified_julian_date(0, 43200.0) ≈ bdt_start + 0.5 atol = 1e-9
+        @test PVT._bdgim_modified_julian_date(1, 0.0) ≈ bdt_start + 7 atol = 1e-9
         # Cross-checked against Dates: MJD is JD − 2400000.5.
-        @test mjd ≈ datetime2julian(DateTime(2023, 6, 21, 12)) - 2400000.5 atol = 1e-9
+        bdt_noon = DateTime(2023, 6, 21, 12, 0, 33)   # on the TAI label
+        @test mjd ≈ datetime2julian(bdt_noon) - 2400000.5 atol = 1e-9
     end
 
     @testset "prediction reference epoch t_p (Eq. 7-15)" begin
@@ -665,9 +667,9 @@ end
         # no worked example for BDGIM. They exist so a refactor that changes a number
         # has to say so out loud.
         vtec = PVT.bdgim_vtec(deg2rad(48), deg2rad(11), mjd, α)
-        @test vtec ≈ 25.9776383593909 rtol = 1e-10
+        @test vtec ≈ 25.96344240190354 rtol = 1e-10
         stec = PVT.bdgim_stec(deg2rad(20), deg2rad(135), lla, mjd, α)
-        @test stec ≈ 60.5472505715464 rtol = 1e-10
+        @test stec ≈ 60.52654918338202 rtol = 1e-10
         @test PVT.ionospheric_delay(
             PVT.BDGIMParameters(α..., week),
             carrier_hz(BeiDouB1C_D()),
@@ -675,7 +677,7 @@ end
             deg2rad(135),
             lla,
             tow,
-        ) ≈ 9.8263262553667 rtol = 1e-10
+        ) ≈ 9.822966588459941 rtol = 1e-10
         # The prediction path on its own: the Fourier amplitudes β_j of Eq. 7-15 at a
         # fixed t_p, which is where the whole of Table 7-12 lands. Pinned unfloored,
         # unlike the VTEC above.

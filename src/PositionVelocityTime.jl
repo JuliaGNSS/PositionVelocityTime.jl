@@ -1501,13 +1501,11 @@ function _solve_pvt!(
         pseudoranges[num_sats+i] = constraint.offset
     end
 
-    # The reference system's week and start epoch date the epoch absolutely: the day of
-    # year feeds the tropospheric mapping's seasonal term here, and week/start epoch
-    # date the reported time after the solve.
-    reference_measurement = measurements[reference_row]
-    week = reference_measurement.week
-    start_time = reference_measurement.system_start_epoch
-    doy = day_of_year(reference_measurement.system_start_time, week, reference_time)
+    # The start of the reference system's week dates the epoch absolutely: the day of year
+    # feeds the tropospheric mapping's seasonal term here, and the reported time is dated
+    # from it after the solve.
+    week_start = week_start_epoch(measurements[reference_row])
+    doy = day_of_year(week_start + reference_time)
 
     # Gauss-Newton converges within its seed's basin, so a spurious far-away root
     # would re-seed itself epoch after epoch. Such roots flag themselves with an
@@ -1695,13 +1693,7 @@ function _solve_pvt!(
         velocity,
         calc_course_over_ground(position, velocity),
         clock_bias * m,
-        # Assumes `start_time.fraction == 0` (true for GPS/Galileo: integer-second
-        # origins).
-        TAITime(
-            week * 7 * 24 * 60 * 60 + floor(Int, corrected_reference_time) +
-            start_time.second,
-            corrected_reference_time - floor(Int, corrected_reference_time),
-        ),
+        week_start + corrected_reference_time,
         user_velocity_and_clock_drift[4] / SPEED_OF_LIGHT,
         dop,
         satellites,
@@ -1722,6 +1714,21 @@ table is consulted, which is also what makes the value safe to derive at precomp
 time.
 """
 system_start_epoch(signal) = TAITime(get_tai_system_start_time(signal))
+
+"""
+    week_start_epoch(signal_or_time_system, week) -> TAITime
+    week_start_epoch(measurement::SatelliteMeasurement) -> TAITime
+
+The TAI epoch at which `week` of a GNSS time system begins: [`system_start_epoch`](@ref)
+plus `week` whole weeks. The shift is a whole number of seconds and so exact, and a time of
+week `t` on that system dates as `week_start_epoch(…) + t` with its full `Float64`
+resolution in the fraction. The measurement form reads the row's own system start epoch
+and week.
+"""
+week_start_epoch(signal_or_time_system, week) =
+    system_start_epoch(signal_or_time_system) + week * SECONDS_PER_WEEK
+week_start_epoch(measurement::SatelliteMeasurement) =
+    measurement.system_start_epoch + measurement.week * SECONDS_PER_WEEK
 
 """
     get_week(decoder::GNSSDecoderState{<:GPSL1CAData}; approximate_year)

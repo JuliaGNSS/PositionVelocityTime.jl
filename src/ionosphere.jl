@@ -708,14 +708,12 @@ function ntcm_g_stec(elevation, azimuth, lla, day_of_year, ut, a_i0, a_i1, a_i2)
 end
 
 # Day of year and universal time (hours) from a Galileo System Time (GST) week
-# number and time of week [s]. The GST epoch is taken from GNSSSignals
-# (`get_system_start_time(GST())` = 1999-08-21T23:59:47 UTC); GST is continuous
-# (offset from UTC by leap seconds, ~18 s), negligible for the day-of-year / UT
-# inputs of NTCM-G.
+# number and time of week [s], read off the TAI calendar label of the epoch, dated from
+# `week_start_epoch` as `day_of_year` dates the tropospheric one. The label runs ahead
+# of UTC by the accrued leap seconds (37 s), 0.01 h of UT, negligible for the day-of-year
+# and local-time inputs of NTCM-G.
 function _galileo_doy_and_ut(week, time_of_week)
-    epoch = get_system_start_time(GST())
-    t = epoch +
-        Millisecond(round(Int, (week * SECONDS_PER_WEEK + time_of_week) * 1000))
+    t = DateTime(week_start_epoch(GST(), week) + time_of_week)
     return dayofyear(t), hour(t) + minute(t) / 60 + second(t) / 3600 + millisecond(t) / 3.6e6
 end
 
@@ -1044,15 +1042,13 @@ function bdgim_stec(elevation, azimuth, lla, mjd, α)
     return bdgim_mapping_function(elevation) * bdgim_vtec(φ_g, λ_g, mjd, α)
 end
 
-# Modified Julian Date of the epoch given by a BDT week number and time of week [s].
+# Modified Julian Date of the epoch given by a BDT week number and time of week [s],
+# counted on the TAI calendar label like the other dates here (see `day_of_year`).
 # BDGIM's only time arguments are the sun's mean longitude (a fraction of an MJD
 # day, Eq. 7-10) and the prediction reference epoch t_p (Eq. 7-15), so what is
-# needed is a date, not a time scale: `get_system_start_time(BDT())` is the UTC
-# calendar label of BDT week 0 (2006-01-01T00:00:00), and adding BDT seconds to it
-# ignores the leap seconds inserted since — ≤ 5 s of error on an argument whose
-# fastest term has a two-hour granularity and a one-day period.
-const _MJD_EPOCH = DateTime(1858, 11, 17)   # MJD 0, by definition
-function _bdgim_modified_julian_date(week, time_of_week)
-    epoch_mjd = Dates.value(get_system_start_time(BDT()) - _MJD_EPOCH) / 86_400_000
-    return epoch_mjd + (week * SECONDS_PER_WEEK + time_of_week) / 86_400
-end
+# needed is a date, not a time scale: the label runs ahead of UTC by the accrued leap
+# seconds (37 s), negligible on an argument whose fastest term has a two-hour
+# granularity and a one-day period.
+const _MJD_EPOCH = TAITime(DateTime(1858, 11, 17))   # MJD 0, as a TAI calendar label
+_bdgim_modified_julian_date(week, time_of_week) =
+    (week_start_epoch(BDT(), week) + time_of_week - _MJD_EPOCH) / 86_400
