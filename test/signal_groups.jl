@@ -62,7 +62,7 @@
     end
 
     @testset "a flat vector of satellite states is refused, with directions" begin
-        # The 5.x input. It is not accepted and not silently converted: the signals a
+        # Not accepted and not silently converted: the signals a
         # pooled vector holds are a runtime property, so any grouping derived from it
         # would be inference-blind — which is the thing groups exist to remove. The
         # error says so and shows what to build instead.
@@ -82,8 +82,7 @@
     end
 
     @testset "groups of bare state vectors are refused, with the same directions" begin
-        # The first thing a 5.x call site is likely to be migrated to: the right keys,
-        # but the vectors not yet wrapped. It must fail at the entry point with the
+        # The right keys, but the vectors not wrapped in groups. It must fail at the entry point with the
         # directions, not with a field error from deep inside the collection pass.
         for input in ((gps = gps, galileo = gal), (gps, gal), (gps = gps_group, galileo = gal))
             @test_throws ArgumentError calc_pvt(input; kw...)

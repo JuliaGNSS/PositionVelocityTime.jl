@@ -1182,18 +1182,18 @@ See [`tropospheric_delay`](@ref).
   the solver behind it compiles once for every constellation mix. Build the groups where
   the satellites are tracked — with Tracking.jl 9.1 or later loaded,
   [`signal_groups`](@ref)`(track_state, decoders)` builds them from a whole `TrackState`.
-  A pooled `Vector{SatelliteState}`, which is what this function took before 6.0, is
-  refused with an error saying what to build instead.
+  A pooled `Vector{SatelliteState}` is refused with an error saying what to build
+  instead.
 
   Each `(signal, PRN)` pair must appear at most once — a receiver produces one
   measurement per signal per satellite, and a duplicate would enter the least-squares
   solve twice. A `Dictionary`-backed group prevents this within itself; two groups that
   share a ranging signal can still collide, and are not checked for.
 
-  **Order is significant**, as vector order was before it: the flat measurement order
-  is group order × within-group order, and it fixes the reference system's tie-break
-  ("most satellites, ties by first appearance"), [`band_ifb_layout`](@ref)'s
-  reference-band tie-break, and the insertion order of `PVTSolution.sats`.
+  **Order is significant**: the flat measurement order is group order × within-group
+  order, and it fixes the reference system's tie-break ("most satellites, ties by first
+  appearance"), [`band_ifb_layout`](@ref)'s reference-band tie-break, and the insertion
+  order of `PVTSolution.sats`.
 - `prev_pvt`: Previous PVT solution used as initial guess (default: origin). A
   previous solution whose own DOP is implausible (`GDOP < 0`, or `PDOP` above
   `MAX_TRUSTED_WARM_START_PDOP` = 50) is not used as a seed and the epoch is
@@ -1724,10 +1724,8 @@ Absolute TAI epoch of a ranging signal's GNSS time-scale origin (week 0, time of
 week 0), from GNSSSignals' `get_tai_system_start_time` — the epoch already
 labelled on the atomic scale (GPS `1980-01-06T00:00:19` TAI, Galileo
 `1999-08-22T00:00:19` TAI, BeiDou `2006-01-01T00:00:33` TAI), so no leap-second
-table is consulted. This used to go through `get_system_start_time` (a UTC
-label) and AstroTime's leap-aware conversion; GNSSSignals 4.1 states the TAI
-labels itself, which is also what makes the value safe to derive at
-precompile time.
+table is consulted, which is also what makes the value safe to derive at precompile
+time.
 """
 system_start_epoch(system) = TAITime(get_tai_system_start_time(system))
 

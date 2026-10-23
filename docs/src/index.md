@@ -93,36 +93,6 @@ satellites for `M` distinct systems — unless a broadcast offset between two of
 The per-system clock offsets are reported as `pvt.inter_system_biases` relative to
 `pvt.reference_system`.
 
-!!! note "Migrating from 5.x"
-
-    `calc_pvt` used to take a flat `AbstractVector{<:SatelliteState}`. Pooling several
-    constellations into one vector made its element type abstract, which turned every
-    per-satellite call inside the solve into a dynamic dispatch — a mixed 14-satellite
-    epoch cost about five times a single-constellation one. Groups fix that at the
-    source, and behind them the solver now works on one flat, parameter-free
-    measurement row and compiles once for every constellation mix.
-
-    There is deliberately no conversion function from the old input: `calc_pvt` refuses
-    a pooled vector with an error saying what to build. A converter would have had to
-    infer the grouping from whatever signals the vector happened to hold, which is a
-    runtime property — so the conversion itself would be inference-blind, reintroducing
-    in one place the dispatch the grouping removes everywhere else. Build the groups
-    where the satellites are tracked, which is the shape `Tracking.jl` and
-    `GNSSReceiver.jl` already carry, and hand the same groups to `calc_pvt`.
-
-    The measurement-model surface moved with it: its per-satellite functions now take
-    the [`PositionVelocityTime.SatelliteMeasurement`](@ref) rows that
-    [`PositionVelocityTime.collect_measurements`](@ref) produces, rather than
-    `SatelliteState`s plus parallel classification vectors. See
-    [The Measurement-Model Surface](@ref).
-
-    `pvt.time` is a [`TAITime`](@ref) rather than an AstroTime `TAIEpoch`, and AstroTime
-    is no longer loaded with this package: `using AstroTime` and `TAIEpoch(pvt.time)`
-    converts it exactly. `position` and `velocity` are `ECEF{Float64}`, and the keys of
-    `inter_system_biases` (and `reference_system`) are
-    [`PositionVelocityTime.SupportedTimeSystem`](@ref)s. These are what let the solver
-    compile into a trimmed executable — see [Trimmed Executables](@ref).
-
 If too few healthy satellites are tracked to solve the constellation — or the geometry
 turns out to be degenerate — [`calc_pvt`](@ref) returns the `prev_pvt` it was given (the
 origin solution by default) rather than throwing, so a receiver can hand it whatever it

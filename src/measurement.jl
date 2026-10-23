@@ -24,7 +24,7 @@ built through Tracking.jl, the same dictionary keys.
 Groups are the unit of type stability: within a group every satellite shares one
 concrete `SatelliteState` type, so the per-satellite calls of
 [`collect_measurements`](@ref) are statically dispatched. Pooling several groups into
-one vector — what `calc_pvt` used to take — is what made them dynamic.
+one vector would make them dynamic.
 
 # Fields
 - `signal::AbstractGNSSSignal`: the ranging signal of every satellite in the group.
@@ -72,21 +72,19 @@ Build one epoch's [`SignalGroups`](@ref) from a receiver's own per-signal state.
 method that does this is defined by Tracking.jl (from Tracking 9.1 on) and takes a
 `Tracking.TrackState` together with that receiver's decoders; see it for the details.
 
-There is deliberately **no** method taking a flat `Vector{SatelliteState}`. Groups are
-not a wrapper around the old input — they are the shape a receiver already has, and
-converting a pooled vector back into them at every epoch would reintroduce, in the
-conversion, exactly the dynamic dispatch the grouping exists to remove. Build the groups
+There is deliberately **no** method taking a flat `Vector{SatelliteState}`: groups are
+the shape a receiver already has, and converting a pooled vector into them at every
+epoch would reintroduce, in the conversion, exactly the dynamic dispatch the grouping
+exists to remove. Build the groups
 where the satellites are tracked, and hand the same groups to [`calc_pvt`](@ref).
 """
 function signal_groups end
 
 # Anything that is not signal groups is refused at the entry point, with directions to
-# what to build: above all the flat vector of satellite states `calc_pvt` took before
-# 6.0, which has no meaningful normalization (the signals it pools are a runtime
-# property, so any grouping derived here would be inference-blind), and the NamedTuple
-# of bare state vectors `(gps = gps_states, …)` a 5.x call site is most likely to be
-# migrated to first, which would otherwise surface as a `FieldError` deep inside the
-# collection pass.
+# what to build, rather than surfacing as a `FieldError` deep inside the collection
+# pass: a flat vector of satellite states has no meaningful normalization (the signals
+# it pools are a runtime property, so any grouping derived here would be
+# inference-blind), nor does a NamedTuple of bare state vectors.
 _normalize_signal_groups(groups) = throw_not_signal_groups(
     "every group must be a `PositionVelocityTime.SignalGroup`, got a `$(typeof(groups))`",
 )
