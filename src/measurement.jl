@@ -421,41 +421,22 @@ function collect_measurements(groups; approximate_year::Integer = year(now(UTC))
     # unfiltered count — an unhealthy satellite leaves a little slack, never a regrowth.
     sizehint!(measurements, sum(group -> length(group.satellites),
         _normalize_signal_groups(groups); init = 0))
-    collect_measurements!(measurements, groups; approximate_year)
+    measurements, collect_measurements!(measurements, groups; approximate_year)
 end
 
 """
     collect_measurements!(measurements::Vector{SatelliteMeasurement}, groups;
                           approximate_year = year(now(UTC)))
-        -> (measurements, ionospheric_correction)
-
-[`collect_measurements`](@ref) into an existing vector: `measurements` is emptied and
-refilled with this epoch's rows. What it held is overwritten.
-
-The returned tuple pairs the (non-`isbits`) vector with a `Union` of coefficient sets,
-which Julia returns boxed: one small allocation per call. A consumer that must not
-allocate calls [`collect_measurement_rows!`](@ref), which returns the ionospheric
-correction alone.
-"""
-collect_measurements!(
-    measurements::Vector{SatelliteMeasurement},
-    groups;
-    approximate_year::Integer = year(now(UTC)),
-) = measurements, collect_measurement_rows!(measurements, groups; approximate_year)
-
-"""
-    collect_measurement_rows!(measurements::Vector{SatelliteMeasurement}, groups;
-                              approximate_year = year(now(UTC)))
         -> ionospheric_correction
 
-[`collect_measurements!`](@ref) without the vector in the result: `measurements` is
-emptied and refilled with this epoch's rows, and only the ionospheric correction is
-returned. That is a `Union` of `isbits` coefficient sets, which Julia returns unboxed, so
-once `measurements` has held as many rows before, this allocates nothing. It is the
-collection pass [`calc_pvt!`](@ref) runs, for a consumer that runs its own estimator over
-the same rows in a loop that must not allocate.
+[`collect_measurements`](@ref) into an existing vector: `measurements` is emptied and
+refilled with this epoch's rows, and only the ionospheric correction is returned. That is
+a `Union` of `isbits` coefficient sets, which Julia returns unboxed, so once
+`measurements` has held as many rows before, this allocates nothing. It is the collection
+pass [`calc_pvt!`](@ref) runs, for a consumer that runs its own estimator over the same
+rows in a loop that must not allocate.
 """
-collect_measurement_rows!(
+collect_measurements!(
     measurements::Vector{SatelliteMeasurement},
     groups;
     approximate_year::Integer = year(now(UTC)),

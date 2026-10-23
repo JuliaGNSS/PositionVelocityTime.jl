@@ -42,7 +42,6 @@ PositionVelocityTime.SatelliteMeasurement
 PositionVelocityTime.BroadcastTimeOffset
 PositionVelocityTime.collect_measurements
 PositionVelocityTime.collect_measurements!
-PositionVelocityTime.collect_measurement_rows!
 PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
 PositionVelocityTime.SupportedTimeSystem
 ```

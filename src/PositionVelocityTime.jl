@@ -1509,7 +1509,7 @@ function _solve_pvt!(
     for (j, measurement) in enumerate(measurements)
         pseudoranges[j] += measurement.transmit_time
     end
-    _, reference_time = calc_pseudoranges!(pseudoranges)
+    reference_time = calc_pseudoranges!(pseudoranges)
     # The clock constraints' known offsets are observations too, after the satellites'.
     resize!(pseudoranges, num_sats + length(constraints))
     for (i, constraint) in enumerate(constraints)

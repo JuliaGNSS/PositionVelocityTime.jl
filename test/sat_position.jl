@@ -75,6 +75,11 @@ end
     # instant, so the same pseudorange.
     pr, _ = PositionVelocityTime.calc_pseudoranges([604803.0, 3.0])
     @test pr[1] ≈ pr[2] atol = 1.0
+
+    # In place, the times become the pseudoranges and only the reference is returned.
+    times = [410000.001, 410000.005]
+    @test PositionVelocityTime.calc_pseudoranges!(times) == 410000.005
+    @test times == first(PositionVelocityTime.calc_pseudoranges([410000.001, 410000.005]))
 end
 
 @testset "Elevation and azimuth follow the GNSS convention" begin
