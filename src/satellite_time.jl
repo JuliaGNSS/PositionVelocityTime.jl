@@ -43,6 +43,15 @@ function calc_pseudoranges!(times)
     return t_ref
 end
 
+"""
+    calc_uncorrected_transmit_time(state::SatelliteState) -> Float64
+
+The satellite's *raw* transmit time, a seconds-of-week count on its own system's scale:
+the decoder's time of week plus the bit, code-phase and carrier-phase fractions, before
+the clock polynomial, relativistic and group-delay corrections that
+[`calc_transmit_time`](@ref) applies. It is the time a RINEX pseudorange is measured
+against, as a RINEX reader applies the broadcast clock correction itself.
+"""
 function calc_uncorrected_transmit_time(state::SatelliteState)
     signal = state.signal
     # Time of week at the navigation-frame reference epoch, from GNSSDecoder (which

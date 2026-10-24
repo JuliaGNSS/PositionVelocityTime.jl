@@ -111,6 +111,7 @@ pseudoranges and the design matrix carry one more row per
 [`calc_pseudorange_rate`](@ref PositionVelocityTime.calc_pseudorange_rate) takes one
 satellite's values. Only
 [`calc_transmit_time`](@ref PositionVelocityTime.calc_transmit_time),
+[`calc_uncorrected_transmit_time`](@ref PositionVelocityTime.calc_uncorrected_transmit_time),
 [`calc_satellite_clock_drift`](@ref PositionVelocityTime.calc_satellite_clock_drift),
 [`get_week`](@ref PositionVelocityTime.get_week),
 [`broadcast_time_offset`](@ref PositionVelocityTime.broadcast_time_offset) and the
@@ -122,6 +123,7 @@ seconds-of-week counts on each satellite's own system unless a function says oth
 PositionVelocityTime.SPEED_OF_LIGHT
 PositionVelocityTime.EARTH_ROTATION_RATE
 PositionVelocityTime.calc_transmit_time
+PositionVelocityTime.calc_uncorrected_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
 PositionVelocityTime.fold_week_crossover
 PositionVelocityTime.calc_pseudoranges
