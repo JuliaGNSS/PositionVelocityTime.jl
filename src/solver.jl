@@ -90,7 +90,7 @@ tropospheric delay with a blind model (see [`tropospheric_delay`](@ref)).
   [`inter_frequency_bias_layout`](@ref)'s reference bands, and orders
   `PVTSolution.satellites`.
 - `prev_pvt`: the previous solution, the warm start (default: the origin). One whose DOP
-  is implausible (`GDOP < 0`, or `PDOP` above `MAX_TRUSTED_WARM_START_PDOP` = 50) is not
+  is implausible (`NaN`, or `PDOP` above `MAX_TRUSTED_WARM_START_PDOP` = 50) is not
   used, so a spurious fix cannot re-seed itself.
 
 # Keyword Arguments
@@ -241,7 +241,7 @@ function _solve_pvt!(
     # impossible DOP, and is not used as a seed.
     distrusted =
         !isnothing(prev_pvt.dop) &&
-        (prev_pvt.dop.GDOP < 0 || prev_pvt.dop.PDOP > MAX_TRUSTED_WARM_START_PDOP)
+        (isnan(prev_pvt.dop.GDOP) || prev_pvt.dop.PDOP > MAX_TRUSTED_WARM_START_PDOP)
 
     # Seed each clock bias from the previous solution, as its reference bias plus its
     # inter-system bias; a system it lacks gets the reference bias, metres off rather than
@@ -304,7 +304,7 @@ function _solve_pvt!(
     end
     position = ECEF(ξ[1], ξ[2], ξ[3])
 
-    # The geometry at the converged position: a rank deficiency (negative GDOP) makes `ξ`
+    # The geometry at the converged position: a rank deficiency (a `NaN` DOP) makes `ξ`
     # meaningless, and an epoch unsolvable. The velocity solve backs this up with its own
     # rank test (see `estimate_velocity`). The constraints count as exact (`dop_columns`).
     dop_bias_columns = dop_columns(layout)
@@ -316,7 +316,7 @@ function _solve_pvt!(
     dop = calc_dop!(view(workspace.normal_matrix, 1:num_dop_params, 1:num_dop_params), H,
         position, layout.clock_group_columns[reference_row])
 
-    dop.GDOP < 0 && return (false, prev_pvt)
+    isnan(dop.GDOP) && return (false, prev_pvt)
 
     # The velocity solve starts from the previous solution where the position solve trusts
     # it, from rest otherwise (see `estimate_velocity` for why one step suffices).

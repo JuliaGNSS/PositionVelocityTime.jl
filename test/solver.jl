@@ -260,6 +260,13 @@ end
     @test maximum(abs, [info.residual for info in values(recovered.satellites)]) ≈
           maximum(abs, [info.residual for info in values(good.satellites)]) rtol = 1e-6
 
+    # A rank-deficient previous geometry, `NaN` DOPs, is not trusted either.
+    rank_deficient = PVTSolution(; position = poisoned.position,
+        clock_bias = good.clock_bias, reference_system = good.reference_system,
+        dop = PositionVelocityTime.DOP(NaN, NaN, NaN, NaN, NaN))
+    @test norm(calc_pvt(signal_group(states), rank_deficient; kwargs...).position -
+               good.position) < 1e-3
+
     # An unsolvable epoch (too few satellites) returns the previous solution exactly
     # as passed, distrusted or not — the gate withholds it from the solve, not from
     # the caller.

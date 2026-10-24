@@ -43,11 +43,11 @@
     @test all(>(0), (dop.GDOP, dop.PDOP, dop.HDOP, dop.VDOP, dop.TDOP))
 
     # Rank-deficient geometry (identical rows) → singular HᵀH → sentinel
-    # DOP(-1, …) returned gracefully, not an exception.
+    # `NaN` DOPs returned gracefully, not an exception.
     H_singular = repeat([1.0 0.0 0.0 1.0], 4)
     dop_singular = PositionVelocityTime.calc_dop(H_singular, user)
-    @test dop_singular.GDOP == -1
-    @test dop_singular.PDOP == -1
+    @test all(isnan, (dop_singular.GDOP, dop_singular.PDOP, dop_singular.HDOP,
+        dop_singular.VDOP, dop_singular.TDOP))
 
     # Multi-GNSS: 3 position + 2 clock columns (3 sats per system). GDOP/HDOP are
     # independent of which clock is the reference; TDOP reports the selected system's

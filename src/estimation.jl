@@ -24,8 +24,8 @@ user position. The position covariance is rotated from ECEF into the local ENU f
 `HDOP`/`VDOP`. `GDOP` spans all parameters; `TDOP` is the variance of the clock column
 `reference_clock_column`, the reference system's (see [`PVTSolution`](@ref)).
 
-A rank-deficient geometry (see `passes_rank_tolerance`) returns `DOP(-1, …)` instead of
-throwing.
+A rank-deficient geometry (see `passes_rank_tolerance`) returns `NaN` for every DOP
+instead of throwing, as [`estimate_velocity`](@ref) does for its state.
 """
 calc_dop(H, user_position::ECEF, reference_clock_column = 1) = calc_dop!(
     Matrix{Float64}(undef, size(H, 2), size(H, 2)), H, user_position,
@@ -39,7 +39,7 @@ overwritten). Allocates nothing.
 """
 function calc_dop!(normal_matrix, H, user_position::ECEF, reference_clock_column = 1)
     n = size(H, 2)
-    factorize_normal_matrix!(normal_matrix, H) || return DOP(-1, -1, -1, -1, -1)
+    factorize_normal_matrix!(normal_matrix, H) || return DOP(NaN, NaN, NaN, NaN, NaN)
     # The inverse, in the upper triangle only; `D(i, j)` reads it symmetrically.
     LAPACK.potri!('U', normal_matrix)
     D(i, j) = i <= j ? normal_matrix[i, j] : normal_matrix[j, i]
