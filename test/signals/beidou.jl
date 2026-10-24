@@ -364,7 +364,7 @@
         # path an `Ω̇` raised by ω̇_e cancels the `−ω̇_e·t_k` it folds into Ω_k, so it
         # produces precisely the auxiliary-frame vector X_GK the ICD's rotations act
         # on. The rotation matrices below are written out from the ICD definitions,
-        # independently of `_rotate_beidou_geo`.
+        # independently of `rotate_beidou_geo`.
         ω_e = 7.2921150e-5
         elements = (; Ω_dot = -5.3e-9, t_0e = Int64(0))
         geo_frame = dnav_decoder(galileo[1]; prn = 3, elements...)

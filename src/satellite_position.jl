@@ -72,7 +72,7 @@ function orbital_elements(data::AbstractBeiDouCNAVData, μ, t_k)
 end
 
 """
-    _rotate_beidou_geo(position, velocity, Ω_dot_e, t_k) -> (; position, velocity)
+    rotate_beidou_geo(position, velocity, Ω_dot_e, t_k) -> (; position, velocity)
 
 Rotate a BeiDou GEO satellite from the auxiliary frame the user algorithm builds
 it in into BDCS (BDS-SIS-ICD-B1I-3.0 §5.2.4.12):
@@ -85,7 +85,7 @@ interval (`Ω_k` without `−ω̇_e·t_k`; see the `is_geo_orbit` branch), tilte
 equator, then turns it into BDCS. The velocity's `Ṙ_z(ω̇_e·t_k)` term, easily dropped, is
 ~3 km/s at GEO radius: the whole velocity.
 """
-function _rotate_beidou_geo(position, velocity, Ω_dot_e, t_k)
+function rotate_beidou_geo(position, velocity, Ω_dot_e, t_k)
     φ = Ω_dot_e * t_k
     sφ, cφ = sincos(φ)
     # Inclination of the auxiliary frame relative to BDCS: −5° (§5.2.4.12).
@@ -213,7 +213,7 @@ function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderSt
         x_position_in_orbital_plane * corrected_argument_of_latitude_dot
 
     # A BeiDou GEO satellite's Ω_k leaves out `−ω_e·t_k`: it is projected into an
-    # inertial frame and turned into ECEF by `_rotate_beidou_geo` (see there).
+    # inertial frame and turned into ECEF by `rotate_beidou_geo` (see there).
     geo = is_geo_orbit(decoder)
     corrected_longitude_of_ascending_node =
         decoded(data.Ω_0) + (el.Ω_dot - (geo ? 0.0 : constants.Ω_dot_e)) *
@@ -266,7 +266,7 @@ function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderSt
         cos(corrected_inclination) *
         corrected_inclination_dot,
     )
-    geo ? _rotate_beidou_geo(position, velocity, constants.Ω_dot_e,
+    geo ? rotate_beidou_geo(position, velocity, constants.Ω_dot_e,
         time_from_ephemeris_reference_epoch) : (position = position, velocity = velocity)
 end
 
