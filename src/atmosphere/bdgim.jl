@@ -50,7 +50,7 @@ const _BDGIM_PERIODS =
 # table (the ICD PDF, printed page 50, read as four overlapping crops so every
 # digit was legible), and the text layer of the independently typeset
 # BDS-SIS-ICD-B2b-1.0 (2020) Table 7-10, which restates the same table.
-# `test/ionosphere.jl` pins row, column and absolute-sum checksums so that a typo
+# `test/atmosphere/bdgim.jl` pins row, column and absolute-sum checksums so that a typo
 # introduced by a later edit fails a test rather than quietly shifting TEC.
 # ---------------------------------------------------------------------------
 const _BDGIM_A0 = (

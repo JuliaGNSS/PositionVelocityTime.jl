@@ -236,7 +236,7 @@ galileo_group_delay_scaling(signal) =
 
 # One method per (message, ranging signal) that can actually occur, and no fallback —
 # the same shape as the GPS and BeiDou methods above, so the whole table can be
-# checked by introspection (see `test/galileo_e5b_e6b.jl`).
+# checked by introspection (see `test/signals/galileo_e5b_e6b.jl`).
 #
 # A range is generated on the band its own data component was decoded from, so the
 # ranging band is fixed by the decoder: I/NAV is decoded on E1-B or E5b-I and can be

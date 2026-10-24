@@ -49,24 +49,75 @@ carrier_hz(system) = ustrip(Hz, get_center_frequency(system))
 # out exactly one method — which is what makes the two equivalent here.
 inferred_return_type(f, types) = only(Base.return_types(f, types))
 
+# Relabels a SatelliteState's decoder PRN. Nothing in the least-squares solve depends on
+# the PRN — it identifies a satellite, as the `satellites`-dict key and for the layout's
+# distinct-satellite count — so this isolates that identity from the measurements.
+function with_prn(state, prn)
+    d = state.decoder
+    new_decoder = GNSSDecoder.GNSSDecoderState(;
+        prn = prn,
+        raw_data = d.raw_data,
+        data = d.data,
+        constants = d.constants,
+        cache = d.cache,
+        num_bits_after_valid_syncro_sequence = d.num_bits_after_valid_syncro_sequence,
+        is_shifted_by_180_degrees = d.is_shifted_by_180_degrees,
+    )
+    SatelliteState(;
+        decoder = new_decoder,
+        signal = state.signal,
+        code_phase = state.code_phase,
+        carrier_doppler = state.carrier_doppler,
+        carrier_phase = state.carrier_phase,
+    )
+end
+
+
+const ONE_CLOCK_COLUMN = PositionVelocityTime.BiasColumns([1], 1, [0], 0)
+
+# The pseudorange at receiver time `t`, as `predict_pseudoranges!` models it: the satellite
+# taken at its transmit time `t_t = t − ρ/c` (found by fixed-point iteration), the receiver
+# at `user_at(t)` with clock bias `bias_at(t)` (m), and the satellite clock offset
+# `sat_clock_at(t_t)` (m) subtracted.
+function modelled_pseudorange(sat_at, sat_clock_at, user_at, bias_at, t)
+    c = PositionVelocityTime.SPEED_OF_LIGHT
+    ρ = 0.0
+    t_t = t
+    for _ in 1:10
+        t_t = t - ρ / c
+        ρ = PositionVelocityTime.predict_pseudoranges!(
+            zeros(1), [sat_at(t_t)], [user_at(t); bias_at(t)], ONE_CLOCK_COLUMN)[1] -
+            sat_clock_at(t_t)
+    end
+    return ρ, t_t
+end
+
+central_difference(f, t, h) = (f(t + h) - f(t - h)) / 2h
+
 include("aqua.jl")
 include("tai_time.jl")
 include("fixtures.jl")
+# One file per source file, in the source's order.
+include("collection.jl")
+include("time_systems.jl")
+include("solution.jl")
+include("bias_layout.jl")
+include("measurement_model.jl")
+include("estimation.jl")
 include("satellite_time.jl")
 include("satellite_position.jl")
-include("signal_groups.jl")
+include("atmosphere/klobuchar.jl")
+include("atmosphere/ntcm_g.jl")
+include("atmosphere/bdgim.jl")
+include("atmosphere/troposphere.jl")
+include("atmosphere/delays.jl")
+include("solver.jl")
+# Across the source files: each supported signal end to end, the allocation-free
+# contract, and a real capture through Tracking.jl.
+include("signals/cnav.jl")
+include("signals/gps_l2c.jl")
+include("signals/galileo_e5a.jl")
+include("signals/galileo_e5b_e6b.jl")
+include("signals/beidou.jl")
 include("allocation_free.jl")
-include("pvt.jl")
-include("pseudorange_rate.jl")
-include("dop.jl")
-include("cnav.jl")
-include("gps_l2c.jl")
-include("galileo_e5a.jl")
-include("galileo_e5b_e6b.jl")
-include("beidou.jl")
-include("inter_frequency_bias.jl")
-include("pvt_iono_tropo.jl")
-include("get_week.jl")
-include("ionosphere.jl")
-include("troposphere.jl")
 include("pvt_integration.jl")
