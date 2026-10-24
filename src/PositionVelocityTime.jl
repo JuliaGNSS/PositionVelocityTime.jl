@@ -26,7 +26,6 @@ export calc_pvt,
     InterFrequencyBias,
     SatelliteState,
     get_lla,
-    get_satellite_info,
     calc_satellite_position,
     calc_satellite_position_and_velocity,
     calc_elevation_and_azimuth
@@ -346,21 +345,6 @@ it reads.
         Dict{SupportedTimeSystem,typeof(1.0m)}()
     inter_frequency_biases::Dict{Symbol,InterFrequencyBias} =
         Dict{Symbol,InterFrequencyBias}()
-end
-
-"""
-    get_satellite_info(pvt_solution::PVTSolution, signal::Symbol, prn::Integer)
-        -> Union{SatelliteInfo,Nothing}
-
-Return the [`SatelliteInfo`](@ref) (position, transmit time and the post-fit
-pseudorange/range-rate residuals) of the
-satellite with the given `prn` on GNSS `signal` (e.g. `:GPSL1CA`, `:GalileoE1B`; see
-`get_signal_id`), or `nothing` if that satellite was not used in the fix. The
-signal tag is required because the same PRN can belong to different constellations or
-be tracked on several signals; see the `satellites` field of [`PVTSolution`](@ref).
-"""
-function get_satellite_info(pvt_solution::PVTSolution, signal::Symbol, prn::Integer)
-    get(pvt_solution.satellites, (signal, Int(prn)), nothing)
 end
 
 """

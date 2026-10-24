@@ -108,12 +108,6 @@ The DOP values are read from the `dop` field of a [`PVTSolution`](@ref), e.g.
 PositionVelocityTime.DOP
 ```
 
-## Utilities
-
-```@docs
-get_satellite_info
-```
-
 ## The Measurement-Model Surface
 
 The pieces [`calc_pvt`](@ref) is assembled from, documented so a consumer that

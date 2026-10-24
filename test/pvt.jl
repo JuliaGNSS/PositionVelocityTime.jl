@@ -171,11 +171,8 @@ end
     @test Set(first(k) for k in keys(pvt.satellites)) == Set([:GPSL1CA, :GalileoE1B])
     @test length(pvt.satellites) ==
           length(gps_only.satellites) + length(gal_only.satellites)
-    let (sig, prn) = first(keys(pvt.satellites))
-        @test get_satellite_info(pvt, sig, prn) === pvt.satellites[(sig, prn)]
-    end
-    # A satellite not used in the fix returns `nothing` rather than throwing.
-    @test get_satellite_info(pvt, :GPSL1CA, 999) === nothing
+    # A satellite not used in the fix has no entry.
+    @test !haskey(pvt.satellites, (:GPSL1CA, 999))
 
     # Per-satellite post-fit residuals are exposed via SatelliteInfo (measured − modelled
     # pseudorange, metres); finite and small for a good fix.
@@ -431,8 +428,8 @@ end
     # other and the used-satellite count would have dropped.
     @test haskey(pvt.satellites, (:GPSL1CA, shared_prn))
     @test haskey(pvt.satellites, (:GalileoE1B, shared_prn))
-    @test get_satellite_info(pvt, :GPSL1CA, shared_prn) !==
-          get_satellite_info(pvt, :GalileoE1B, shared_prn)
+    @test pvt.satellites[(:GPSL1CA, shared_prn)] !==
+          pvt.satellites[(:GalileoE1B, shared_prn)]
     @test length(pvt.satellites) == length(baseline.satellites)
 end
 
