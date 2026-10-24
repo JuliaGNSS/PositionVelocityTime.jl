@@ -328,8 +328,8 @@ end
 
     @testset "Azpar (Eq. 2)" begin
         # |√(a0² + 1633.33·a1² + 4802000·a2² + 3266.67·a0·a2)|, in sfu
-        @test PositionVelocityTime._azpar(HI...) ≈ 244.007 atol = 1e-2
-        @test PositionVelocityTime._azpar(0.0, 0.0, 0.0) == 0.0
+        @test PositionVelocityTime._ntcm_g_azpar(HI...) ≈ 244.007 atol = 1e-2
+        @test PositionVelocityTime._ntcm_g_azpar(0.0, 0.0, 0.0) == 0.0
     end
 
     @testset "GST week/TOW → day-of-year and UT" begin
@@ -389,7 +389,7 @@ end
     α = (35.0, -1.5, 2.25, 0.75, -0.5, 0.25, -0.125, 0.375, -0.625)
     lla = LLA(48.0, 11.0, 550.0)
     week, tow = 911, 302400.0   # BDT week 911, Wednesday noon → 2023-06-21T12:00
-    mjd = PVT._bdgim_modified_julian_date(week, tow)
+    mjd = PVT._beidou_modified_julian_date(week, tow)
 
     # -- Transcription safety -------------------------------------------------
     #
@@ -519,9 +519,9 @@ end
     @testset "BDT week/TOW → Modified Julian Date" begin
         # BDT week 0 starts 2006-01-01T00:00:33 TAI, MJD 53736 + 33 s on the TAI label.
         bdt_start = 53736.0 + 33 / 86_400
-        @test PVT._bdgim_modified_julian_date(0, 0.0) ≈ bdt_start atol = 1e-9
-        @test PVT._bdgim_modified_julian_date(0, 43200.0) ≈ bdt_start + 0.5 atol = 1e-9
-        @test PVT._bdgim_modified_julian_date(1, 0.0) ≈ bdt_start + 7 atol = 1e-9
+        @test PVT._beidou_modified_julian_date(0, 0.0) ≈ bdt_start atol = 1e-9
+        @test PVT._beidou_modified_julian_date(0, 43200.0) ≈ bdt_start + 0.5 atol = 1e-9
+        @test PVT._beidou_modified_julian_date(1, 0.0) ≈ bdt_start + 7 atol = 1e-9
         # Cross-checked against Dates: MJD is JD − 2400000.5.
         bdt_noon = DateTime(2023, 6, 21, 12, 0, 33)   # on the TAI label
         @test mjd ≈ datetime2julian(bdt_noon) - 2400000.5 atol = 1e-9
