@@ -38,11 +38,9 @@ path (BDS-SIS-ICD-B1I-3.0 §5.2.4.7), returned in **seconds**. All angles are in
 **radians**, the ICD's working unit: `φ_u`/`λ_u` are the user geodetic
 latitude/longitude, `elevation`/`azimuth` (the ICD's `E`/`A`) the satellite's.
 `time_of_week` is the BDT second of week (the ICD's `t_E`). `α`/`β` are the 4-element
-coefficient tuples (SI units; their `s·π⁻ⁿ` scale factors make the polynomial argument
-`φ_M/π` — semicircles, exactly like the GPS set).
+coefficient tuples (SI units, per semicircle like the GPS set).
 
-The same eight-coefficient half-cosine idea as [`klobuchar_group_delay`](@ref),
-but not the same algorithm — the ICD replaces IS-GPS-200's fitted
+The half-cosine idea of [`klobuchar_group_delay`](@ref), but the ICD replaces its fitted
 approximations with exact spherical geometry and drops the geomagnetic frame:
 
 - The Earth-central angle to the ionospheric pierce point is the exact
@@ -61,9 +59,7 @@ The 5·10⁻⁹ s night floor and the |t − 50400| < A₄/4 day-time window are
 of the GPS model.
 """
 function beidou_klobuchar_group_delay(φ_u, λ_u, elevation, azimuth, time_of_week, α, β)
-    # Sine of the pierce point's geocentric zenith angle: R/(R+h)·cosE, with the
-    # ICD's constants R = 6378 km (mean Earth radius) and h = 375 km (ionosphere
-    # height). Both the pierce-point geometry and the obliquity flow from it.
+    # Sine of the pierce point's zenith angle, R/(R+h)·cos E (R = 6378 km, h = 375 km).
     sinz = 6378.0 / (6378.0 + 375.0) * cos(elevation)
     # Earth-central angle between user and pierce point (radians), exact
     ψ = π / 2 - elevation - asin(sinz)
@@ -72,15 +68,13 @@ function beidou_klobuchar_group_delay(φ_u, λ_u, elevation, azimuth, time_of_we
     λ_M = λ_u + asin(sin(ψ) * sin(azimuth) / cos(φ_M))
     # Local time at the pierce point (seconds), wrapped to [0, 86400)
     t = mod(time_of_week + λ_M * 43200.0 / π, 86400.0)
-    # Amplitude (s) and period (s) of the cosine model, with the ICD's clamps —
-    # the period is bounded on both sides, unlike the GPS model's floor
+    # Amplitude (s) and period (s) of the cosine model, with the ICD's clamps
     φ = φ_M / π
     A_2 = max(α[1] + φ * (α[2] + φ * (α[3] + φ * α[4])), 0.0)
     A_4 = clamp(β[1] + φ * (β[2] + φ * (β[3] + φ * β[4])), 72000.0, 172800.0)
-    # Vertical delay I′z (s): a true cosine within a quarter period of 14:00 local
-    # time, the night floor outside it
+    # Vertical delay I′z (s): a cosine within a quarter period of 14:00, else the floor
     x = 2π * (t - 50400.0) / A_4
     I_z = abs(t - 50400.0) < A_4 / 4 ? 5.0e-9 + A_2 * cos(x) : 5.0e-9
-    # Slant delay along the B1I path: the exact obliquity, from the same geometry
+    # Slant delay along the B1I path, with the exact obliquity
     return I_z / sqrt(1.0 - sinz^2)
 end

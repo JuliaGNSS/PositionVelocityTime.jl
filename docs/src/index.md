@@ -37,7 +37,7 @@ Pkg.add("PositionVelocityTime")
 
 ## Quick Start
 
-Decoded data and code phase of a satellite must be combined in the [`SatelliteState`](@ref) struct:
+A satellite's decoder and code phase are combined in a [`SatelliteState`](@ref):
 
 ```julia
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
@@ -55,9 +55,8 @@ satellite_state = SatelliteState(
 `code_phase` is in chips and `carrier_phase` in radians, matching `Tracking`'s
 `get_code_phase` and `get_carrier_phase`.
 
-With Tracking.jl 9.1 or later loaded, you can pass a `Tracking.TrackedSat` directly — `tracked_satellite` is what
-`Tracking.get_sat_state` returns for a tracked satellite, and the code phase, carrier
-Doppler, and carrier phase are read off it:
+With Tracking.jl 9.1 or later loaded, a `Tracking.TrackedSat` (what
+`Tracking.get_sat_state` returns) supplies the code phase, carrier Doppler and phase:
 
 ```julia
 using Tracking
@@ -77,34 +76,25 @@ lla = get_lla(pvt)  # latitude, longitude, altitude
 ```
 
 Each group holds the satellites tracked on one signal, as a `Dictionary` keyed by PRN or
-as a plain vector. A single group needs no NamedTuple around it —
-`calc_pvt(SignalGroup(GPSL1CA(), gps_satellite_states))` is a complete one-constellation solve.
-With Tracking.jl 9.1 or later loaded, a whole `TrackState` and its decoders become groups in one call:
+a plain vector; a single group needs no `NamedTuple` around it. With Tracking.jl 9.1 or
+later loaded, a whole `TrackState` and its decoders become groups in one call:
 
 ```julia
 using Tracking
 pvt = calc_pvt(PositionVelocityTime.signal_groups(track_state, decoders))
 ```
 
-Satellites from different constellations may be combined this way. Because each GNSS
-references its broadcasts to its own system time, [`calc_pvt`](@ref) estimates one
-receiver clock bias per GNSS time system, so a combined fix needs at least `3 + M`
-satellites for `M` distinct systems — unless a broadcast offset between two of them
-(GGTO, BGTO) ties their clocks together, which brings a mixed fix down to 4 satellites.
-The per-system clock offsets are reported as `pvt.inter_system_biases` relative to
-`pvt.reference_system`.
-
-If too few healthy satellites are tracked to solve the constellation — or the geometry
-turns out to be degenerate — [`calc_pvt`](@ref) returns the `prev_pvt` it was given (the
-origin solution by default) rather than throwing, so a receiver can hand it whatever it
-currently tracks each epoch and carry the last solution forward.
+Satellites from different constellations may be combined this way, with one receiver
+clock bias per time system, reported as `pvt.inter_system_biases` relative to
+`pvt.reference_system`; how many satellites that takes is in
+[`PositionVelocityTime.decide_bias_layout`](@ref). An epoch that cannot be solved returns
+the `prev_pvt` [`calc_pvt`](@ref) was given rather than throwing.
 
 ### Solving without allocating
 
-`calc_pvt` builds a new solution, containers and all, every epoch. A receiver solving a
-steady stream of epochs can instead hand [`calc_pvt!`](@ref) the previous solution as
-the one to reuse, and a [`PVTWorkspace`](@ref) for its scratch; once both have held an
-epoch of that size, a solve allocates nothing:
+A receiver solving a stream of epochs can hand [`calc_pvt!`](@ref) the solution to reuse
+and a [`PVTWorkspace`](@ref); once both have held an epoch of that size, a solve allocates
+nothing:
 
 ```julia
 pvt = PVTSolution()
@@ -114,10 +104,4 @@ for groups in epochs
 end
 ```
 
-A [`PVTSolution`](@ref) is immutable, so `calc_pvt!` returns the new fix; what it reuses
-are the `satellites` and bias containers of its first argument, which the returned solution
-takes over. That argument is the only thing overwritten — `prev_pvt` is only read, so
-passing a different solution there keeps it intact — and it is spent by the call: keep
-the returned solution, and `copy(pvt)` any solution you want to keep beyond the next
-call. An epoch that cannot be solved returns `prev_pvt`, the answer `calc_pvt` would
-have returned.
+Keep the returned solution; [`calc_pvt!`](@ref) says what it reuses and overwrites.

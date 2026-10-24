@@ -2,28 +2,22 @@
     LevenbergMarquardt
 
 A trim-safe stand-in for the part of LsqFit.jl that `PositionVelocityTime.estimate_position`
-uses: LsqFit's `curve_fit` with an in-place model and Jacobian, as [`curve_fit!`](@ref) on a
-reusable [`LMWorkspace`](@ref), with the same arguments after the workspace and the `param`
-/ `resid` fields of its result.
+uses: LsqFit's in-place `curve_fit`, as [`curve_fit!`](@ref) on a reusable
+[`LMWorkspace`](@ref), with LsqFit's arguments after the workspace and the `param` /
+`resid` fields of its result.
 
-LsqFit keeps the model and Jacobian in abstractly typed fields of NLSolversBase's
-`OnceDifferentiable`, so every call through them is a dynamic dispatch, and
-`curve_fit` formats caught `MethodError`s and can print a trace — all of which rules
-the solve out of a `juliac --trim=safe` build. Here the functions are type
-parameters and there is no trace, bounds, timer or error formatting.
+LsqFit calls the model and Jacobian through abstractly typed fields of NLSolversBase's
+`OnceDifferentiable` and formats caught `MethodError`s, which a `juliac --trim=safe` build
+rejects. Here the functions are type parameters, with no trace, bounds, timer or error
+formatting.
 
 The algorithm is LsqFit's `levenberg_marquardt` (after Kanzow, Yamashita & Fukushima
-2004) step for step: the same damped normal equations with the `DtD` diagonal
-floored at `1e-6`, the same geodesic-acceleration correction when `avv!` is given,
-the same step-quality ratio deciding acceptance and trust-region updates, and the
-same gradient and relative step-size stopping rules, with the Jacobian evaluated
-lazily just as LsqFit's cache does — so it lands on the same iterates, to rounding (the
-damped normal equations are solved by Cholesky rather than LU; see [`curve_fit!`](@ref)).
-Running it on a reusable workspace means a fit allocates nothing.
+2004) step for step, down to its lazily refreshed Jacobian, so it lands on the same
+iterates to rounding (the damped normal equations are solved by Cholesky rather than LU).
+On a reusable workspace a fit allocates nothing.
 
-Kept as a self-contained module, with LsqFit's interface, so that once LsqFit can be
-trimmed it can be dropped in favour of `using LsqFit: curve_fit` (on a fresh workspace,
-`curve_fit!(LMWorkspace(), args...)` is exactly that call).
+Once LsqFit can be trimmed, this module can be dropped for `using LsqFit: curve_fit`:
+`curve_fit!(LMWorkspace(), args...)` is that call.
 """
 module LevenbergMarquardt
 
@@ -34,7 +28,7 @@ using LinearAlgebra: LAPACK, mul!, norm
 
 The part of `LsqFit.LsqFitResult` that is used: the fitted parameters `param`, the
 residual `resid = model(xdata, param) − ydata` at them, and whether the iteration
-`converged` (rather than running out of iterations).
+`converged` before running out of iterations.
 """
 struct LMResult
     param::Vector{Float64}
@@ -45,13 +39,9 @@ end
 """
     LMWorkspace()
 
-The scratch storage of one [`curve_fit!`](@ref) — every vector and matrix of the
-iteration, so that repeated fits reuse them instead of allocating their own. Buffers
-grow to the largest problem seen and are then reused; a fit never shrinks them.
-
-The matrices are kept at their largest size and used through views of the leading
-`m × n` block, because a `Matrix` cannot be resized in place. The vectors are resized
-to the current problem, which within the capacity they already have does not allocate.
+The scratch storage of [`curve_fit!`](@ref): every vector and matrix of the iteration,
+grown to the largest problem seen and reused. The matrices, which cannot be resized in
+place, are used through views of their leading `m × n` block.
 """
 mutable struct LMWorkspace
     x::Vector{Float64}
@@ -90,23 +80,19 @@ grown(matrix::Matrix{Float64}, rows, cols) =
     curve_fit!(workspace::LMWorkspace, model!, jacobian!, xdata, ydata, p0; kwargs...)
         -> LMResult
 
-Fit `model!(out, xdata, p)` to `ydata` by least squares, starting from `p0`, with
-`jacobian!(J, xdata, p)` its Jacobian in `p` — LsqFit's in-place `curve_fit`
-(`inplace = true` is the only form provided), on the buffers of `workspace`,
-allocating nothing once they have grown to the problem's size. `avv!(dir_deriv, p, v)`
-enables geodesic acceleration. Like LsqFit, throws an `ArgumentError` if `ydata` holds
-non-finite values.
+Fit `model!(out, xdata, p)` to `ydata` by least squares from `p0`, with
+`jacobian!(J, xdata, p)` its Jacobian (handed a view, not a `Matrix`) — LsqFit's in-place
+`curve_fit` on the buffers of `workspace`. Allocates nothing once they have grown.
+`avv!(dir_deriv, p, v)` enables geodesic acceleration. Throws an `ArgumentError` for
+non-finite `ydata`, as LsqFit does.
 
-The keyword arguments are LsqFit's, with its defaults: `inplace = true`,
+The keywords and their defaults are LsqFit's: `inplace = true` (the only form provided),
 `avv! = nothing`, `lambda = 10.0`, `x_tol = 1e-8`, `g_tol = 1e-12`, `maxIter = 1000`,
 `min_step_quality = 1e-3`, `good_step_quality = 0.75`, `lambda_increase = 10.0` and
 `lambda_decrease = 0.1`.
 
-The result's `param` and `resid` **are** the workspace's `x` and `f` buffers: they are
-overwritten by the next fit on the same workspace, so copy them to keep them. `p0` may itself be `workspace.x` (a fit restarted from the previous
-one's solution).
-
-`jacobian!` is handed a view of the workspace's Jacobian matrix, not a `Matrix`.
+The result's `param` and `resid` **are** the workspace's `x` and `f`, overwritten by the
+next fit; `p0` may itself be `workspace.x`.
 """
 function curve_fit!(
     workspace::LMWorkspace,
@@ -154,8 +140,7 @@ function curve_fit!(
 
     f = residual!(resize!(workspace.f, m), x)
     jacobian!(J, xdata, x)
-    # LsqFit's Jacobian is cached against the point it was last evaluated at and only
-    # refreshed at the top of an iteration whose `x` has moved (an accepted step).
+    # As LsqFit's cache: refreshed only at the top of an iteration whose `x` has moved.
     J_is_current = true
     residual = sum(abs2, f)
 
@@ -187,13 +172,10 @@ function curve_fit!(
         end
         mul!(rhs, transpose(J), f)
         rhs .*= -1
-        # The damped normal matrix is symmetric positive definite — `JᵀJ` is positive
-        # semidefinite and the damping adds a positive diagonal — so it is factorised
-        # once, by Cholesky, and that factor serves both the step and the geodesic
-        # correction below. (LsqFit solves the step with a general `\`, which allocates
-        # an LU factorisation per iteration; the two agree to rounding.) A factorisation
-        # that fails anyway — a Jacobian so ill-conditioned that the damping is lost in
-        # rounding — is treated as a rejected step: damp harder and try again.
+        # The damped normal matrix is positive definite, so one Cholesky factor serves the
+        # step and the geodesic correction (LsqFit's `\` allocates an LU per iteration;
+        # the two agree to rounding). Should it fail anyway — the damping lost in
+        # rounding — the step counts as rejected: damp harder and try again.
         _, info = LAPACK.potrf!('U', JJ)
         if info != 0
             λ = min(lambda_increase * λ, MAX_LAMBDA)
@@ -214,8 +196,7 @@ function curve_fit!(
             delta_x .= v .+ a
         end
 
-        # The residual the linearised model predicts for the step, against the one the
-        # step actually achieves.
+        # The residual the linearised model predicts for the step, and the one it achieves.
         mul!(Jdelta, J, delta_x)
         Jdelta .+= f
         predicted_residual = sum(abs2, Jdelta)
@@ -237,8 +218,7 @@ function curve_fit!(
         end
         iteration += 1
 
-        # As in LsqFit, the gradient pairs the (not yet refreshed) Jacobian of this
-        # iteration with the residual after its step.
+        # As in LsqFit: this iteration's Jacobian with the residual after its step.
         mul!(gradient, transpose(J), f)
         converged =
             norm(gradient, Inf) < g_tol || norm(delta_x) < x_tol * (x_tol + norm(x))

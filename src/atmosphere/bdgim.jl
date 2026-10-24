@@ -1,18 +1,9 @@
-# ===========================================================================
-#  BDGIM — BeiDou Global Ionospheric delay correction Model
-#  (BDS-SIS-ICD-B1C-1.0 §7.8, Eq. 7-6 … 7-17 and Tables 7-10/7-11/7-12; the
-#   same model appears verbatim as BDS-SIS-ICD-B2a-1.0 §7.8 Eq. 7-6 … 7-17 and
-#   BDS-SIS-ICD-B2b-1.0 §7.7 Eq. 7-5 … 7-16, where the equation and table
-#   numbers are each one lower.) Equation numbers below are the B1C ones.
-#
-#  A modified spherical-harmonics VTEC model: nine broadcast coefficients α_1…α_9
-#  weight nine normalised Legendre harmonics of the ionospheric pierce point's
-#  *solar-fixed geomagnetic* coordinates, on top of a purely predictive part A_0
-#  built from 17 further harmonics whose amplitudes are 12-period Fourier series
-#  with coefficients fixed in the ICD (not broadcast). VTEC is mapped to the line
-#  of sight by a single-layer obliquity factor. Returns TECU; the metre conversion
-#  lives in `ionospheric_delay`.
-# ===========================================================================
+# BDGIM, the BeiDou Global Ionospheric delay correction Model (BDS-SIS-ICD-B1C-1.0 §7.8;
+# the same in BDS-SIS-ICD-B2a-1.0 §7.8 and, with equation and table numbers one lower,
+# BDS-SIS-ICD-B2b-1.0 §7.7). Equation numbers are the B1C ones. Nine broadcast α_i weight
+# normalised harmonics of the pierce point's solar-fixed geomagnetic coordinates, on top
+# of a predictive part A_0 of 17 harmonics whose amplitudes are Fourier series fixed in
+# the ICD. Returns TECU.
 
 # Suggested parameter values, BDS-SIS-ICD-B1C-1.0 §7.8.2 (the paragraph after
 # Eq. 7-17). Re and H_ion in km — only their ratio enters, so the unit is free.
@@ -26,10 +17,8 @@ const _BDGIM_POLE_LON = -72.58 / 180 * π    # north magnetic pole geographic lo
 const _BDGIM_NM =
     ((0, 0), (1, 0), (1, 1), (1, -1), (2, 0), (2, 1), (2, -1), (2, 2), (2, -2))
 
-# Degree/order (n_j, m_j) of the seventeen harmonics of the predictive part,
-# read from the header row of Table 7-12. (Eq. 7-14 says "Table 7-11", which
-# lists only the nine broadcast pairs — an ICD cross-reference slip; the j-indexed
-# pairs exist only in Table 7-12's header.)
+# Degree/order (n_j, m_j) of the seventeen predictive harmonics, from Table 7-12's header
+# row (Eq. 7-14's "Table 7-11" is an ICD slip: that table lists only the broadcast pairs).
 const _BDGIM_NM_PREDICTED = (
     (3, 0), (3, 1), (3, -1), (3, 2), (3, -2), (3, 3), (3, -3),   # degree 3
     (4, 0), (4, 1), (4, -1), (4, 2), (4, -2),                    # degree 4
@@ -40,19 +29,13 @@ const _BDGIM_NM_PREDICTED = (
 const _BDGIM_PERIODS =
     (1.0, 0.5, 0.33, 14.6, 27.0, 121.6, 182.51, 365.25, 4028.71, 2014.35, 1342.90, 1007.18)
 
-# ---------------------------------------------------------------------------
-# Table 7-12, the non-broadcast coefficients [TECU]: the constant row a_{0,j}
-# and the twelve (a_{k,j}, b_{k,j}) pairs, each 17 entries wide (j = 1…17).
+# Table 7-12, the non-broadcast coefficients [TECU]: the constant row a_{0,j} and the
+# twelve (a_{k,j}, b_{k,j}) pairs, 17 entries each.
 #
-# TRANSCRIPTION, DOUBLE-CHECKED. Text extraction mangles the ICD's tables, so
-# this table was taken three ways and the three agreed entry for entry: the text
-# layer of BDS-SIS-ICD-B1C-1.0 Table 7-12, the *rendered page image* of that same
-# table (the ICD PDF, printed page 50, read as four overlapping crops so every
-# digit was legible), and the text layer of the independently typeset
-# BDS-SIS-ICD-B2b-1.0 (2020) Table 7-10, which restates the same table.
-# `test/atmosphere/bdgim.jl` pins row, column and absolute-sum checksums so that a typo
-# introduced by a later edit fails a test rather than quietly shifting TEC.
-# ---------------------------------------------------------------------------
+# Transcribed three ways, which agreed entry for entry: the text layer of
+# BDS-SIS-ICD-B1C-1.0 Table 7-12, the rendered page image of it (printed page 50), and the
+# text layer of the independently typeset BDS-SIS-ICD-B2b-1.0 (2020) Table 7-10.
+# `test/atmosphere/bdgim.jl` pins row, column and absolute-sum checksums against later typos.
 const _BDGIM_A0 = (
     -0.61, -1.31, -2.0, -0.03, 0.15, -0.48, -0.4, 2.28, -0.16, -0.21, -0.1, -0.13, 0.21,
     0.68, 1.06, 0.0, -0.12,
@@ -114,15 +97,12 @@ const _BDGIM_B = (
 """
     _bdgim_legendre(n, m, x) -> Float64
 
-Classic, un-normalised associated Legendre function `P_{n,m}(x)` (Eq. 7-13),
-evaluated by the ICD's own recursion rather than by a closed form, so the code
-reads against the document: the sectoral seed `P_{n,n} = (2n−1)!!·(1−x²)^(n/2)`,
-the one-step case `P_{m+1,m} = x·(2m+1)·P_{m,m}`, and the degree recursion
-`P_{n,m} = [(2n−1)·x·P_{n−1,m} − (n+m−1)·P_{n−2,m}] / (n−m)`. `n ≥ m ≥ 0`; the
-model needs no degree above 5.
+Un-normalised associated Legendre function `P_{n,m}(x)` (Eq. 7-13), by the ICD's
+recursion: `P_{n,n} = (2n−1)!!·(1−x²)^(n/2)`, `P_{m+1,m} = x·(2m+1)·P_{m,m}`, and
+`P_{n,m} = [(2n−1)·x·P_{n−1,m} − (n+m−1)·P_{n−2,m}] / (n−m)`, for `5 ≥ n ≥ m ≥ 0`.
 """
 function _bdgim_legendre(n::Int, m::Int, x)
-    # (2m−1)!! = (2m−1)(2m−3)…1, an empty product (= 1) at m = 0, so P_{0,0} = 1.
+    # (2m−1)!!, an empty product at m = 0.
     double_factorial = 1.0
     for i in 1:m
         double_factorial *= 2i - 1
@@ -137,8 +117,8 @@ function _bdgim_legendre(n::Int, m::Int, x)
     return p_cur
 end
 
-# Normalisation N_{n,m} of Eq. 7-12: √[(n−m)!·(2n+1)·(2 − δ_{0,m}) / (n+m)!], with
-# δ_{0,m} = 1 for m = 0 and 0 otherwise. Max degree 5 keeps (n+m)! ≤ 10! exact in Int.
+# Normalisation N_{n,m} of Eq. 7-12: √[(n−m)!·(2n+1)·(2 − δ_{0,m}) / (n+m)!]. Degree ≤ 5
+# keeps (n+m)! exact in `Int`.
 _bdgim_normalisation(n::Int, m::Int) =
     sqrt(factorial(n - m) * (2n + 1) * (m == 0 ? 1 : 2) / factorial(n + m))
 
@@ -153,14 +133,13 @@ end
 """
     _bdgim_pierce_point(φ_u, λ_u, elevation, azimuth) -> (φ_g, λ_g)
 
-Geographic latitude/longitude [rad] of the Earth projection of the ionospheric
-pierce point (Eq. 7-7 and 7-8), for a user at geodetic `φ_u`/`λ_u` [rad] seeing a
-satellite at `elevation`/`azimuth` [rad]. The Earth-central angle is
-`ψ = π/2 − E − arcsin(Re/(Re+H_ion)·cos E)` at the ICD's shell height.
+Geographic latitude/longitude [rad] of the pierce point's Earth projection (Eq. 7-7 and
+7-8), for a user at geodetic `φ_u`/`λ_u` seeing a satellite at `elevation`/`azimuth`,
+all in radians.
 """
 function _bdgim_pierce_point(φ_u, λ_u, elevation, azimuth)
     ψ = π / 2 - elevation - asin(_BDGIM_RE / (_BDGIM_RE + _BDGIM_HION) * cos(elevation))
-    # Clamp only against a rounding ulp past ±1; the argument is a unit dot product.
+    # Clamped against a rounding ulp past ±1.
     φ_g = asin(
         clamp(
             sin(φ_u) * cos(ψ) + cos(φ_u) * sin(ψ) * cos(azimuth),
@@ -168,13 +147,10 @@ function _bdgim_pierce_point(φ_u, λ_u, elevation, azimuth)
             1.0,
         ),
     )
-    # Eq. 7-8 writes a single-argument arctan of a quotient. Taken literally that
-    # folds the longitude offset into (−π/2, π/2), which is wrong whenever the
-    # denominator is negative — the pierce point is then on the far side of the
-    # pole from the user. The printed numerator and denominator are exactly the
-    # textbook great-circle destination pair (cos φ_g · sin Δλ, cos φ_g · cos Δλ)
-    # up to the positive factor cos φ_g, so the two-argument `atan(y, x)` of the
-    # pair as printed recovers the full-circle longitude the model needs.
+    # Eq. 7-8 prints a one-argument arctan of a quotient, which folds the offset into
+    # (−π/2, π/2) and is wrong when the pierce point is beyond the pole. The quotient's
+    # terms are the great-circle pair (cos φ_g·sin Δλ, cos φ_g·cos Δλ) up to a positive
+    # factor, so the two-argument `atan` of them gives the full circle.
     λ_g = λ_u + atan(
         sin(ψ) * sin(azimuth) * cos(φ_u),
         cos(ψ) - sin(φ_u) * sin(φ_g),
@@ -185,14 +161,11 @@ end
 """
     _bdgim_solar_geomagnetic(φ_g, λ_g, mjd) -> (φ′, λ′)
 
-Latitude/longitude [rad] of the pierce point in the solar-fixed geomagnetic frame
-(Eq. 7-9 and 7-10), from its geographic `φ_g`/`λ_g` [rad] and the Modified Julian
-Date `mjd` of the epoch. The pole is the ICD's fixed one (80.27°N, 72.58°W), and
-the sun's mean geographic longitude is `S_lon = π·(1 − 2·(t − ⌊t⌋))` — the
-sub-solar meridian sweeping west once per MJD day, from 180°E at MJD midnight
-through Greenwich at 12:00 UT (⌊t⌋ being MJD midnight, and `int()` in the ICD).
-
-Only the longitude is referred to the sun; `φ′ = φ_m` (Eq. 7-10).
+Latitude/longitude [rad] of the pierce point in the solar-fixed geomagnetic frame (Eq. 7-9
+and 7-10), from its geographic `φ_g`/`λ_g` [rad] and the Modified Julian Date `mjd`. The
+pole is the ICD's (80.27°N, 72.58°W); the sun's mean longitude is
+`S_lon = π·(1 − 2·(t − ⌊t⌋))`, 180°E at MJD midnight. Only the longitude is referred to
+the sun: `φ′ = φ_m`.
 """
 function _bdgim_solar_geomagnetic(φ_g, λ_g, mjd)
     Δλ = λ_g - _BDGIM_POLE_LON
@@ -204,17 +177,13 @@ function _bdgim_solar_geomagnetic(φ_g, λ_g, mjd)
             1.0,
         ),
     )
-    # As in Eq. 7-8, the quotient's two-argument arctan is the intended one: the
-    # geomagnetic longitude runs over the full circle, and the printed pair is the
-    # textbook (sin λ_m, cos λ_m) pair up to a positive scale, so `atan(y, x)` of
-    # it as printed is exact.
+    # The two-argument arctan, as in `_bdgim_pierce_point`.
     λ_m = atan(
         cos(φ_g) * sin(Δλ) * cos(_BDGIM_POLE_LAT),
         sin(_BDGIM_POLE_LAT) * sin(φ_m) - sin(φ_g),
     )
     s_lon = π * (1 - 2 * (mjd - floor(mjd)))
-    # The subtracted term is the same Eq. 7-9 longitude evaluated at the sun's own
-    # position (φ_g = 0, λ_g = S_lon), written out.
+    # Minus the Eq. 7-9 longitude of the sun itself (φ_g = 0, λ_g = S_lon).
     λ′ = λ_m - atan(
         sin(s_lon - _BDGIM_POLE_LON),
         sin(_BDGIM_POLE_LAT) * cos(s_lon - _BDGIM_POLE_LON),
@@ -225,13 +194,9 @@ end
 """
     _bdgim_reference_epoch(mjd) -> Float64
 
-The prediction reference epoch `t_p` (Eq. 7-15) for an epoch at Modified Julian
-Date `mjd`: the odd hour (01:00, 03:00, …, 23:00) of that day nearest the epoch,
-returned in days (MJD). The odd hours are two hours apart and span the whole day,
-so the nearest one is always within an hour and always on the same day — no wrap
-is needed. `t_p` therefore steps in two-hour blocks, which quantises the
-prediction *amplitudes* β_j; VTEC itself still varies continuously in between,
-because the solar-fixed longitude λ′ tracks the true epoch rather than `t_p`.
+The prediction reference epoch `t_p` (Eq. 7-15), in days (MJD): the odd hour of the
+day nearest `mjd`, which is always on the same day. Only the amplitudes β_j step every two
+hours; VTEC stays continuous, as λ′ follows the true epoch.
 """
 function _bdgim_reference_epoch(mjd)
     day = floor(mjd)
@@ -242,15 +207,13 @@ end
 """
     _bdgim_prediction_amplitudes(t_p) -> NTuple{17,Float64}
 
-The seventeen prediction amplitudes `β_j` (Eq. 7-15) at reference epoch `t_p`
-(days, MJD): `β_j = a_{0,j} + Σ_{k=1}^{12} [a_{k,j}·cos(ω_k·t_p) + b_{k,j}·sin(ω_k·t_p)]`
-with `ω_k = 2π/T_k` and the non-broadcast coefficients of Table 7-12. `t_p` is an
-absolute MJD, so the series is a continuous function of it — no day-of-year or
-epoch wrap enters, and the ~4028.71-day term is what carries the solar cycle.
+The seventeen prediction amplitudes `β_j` (Eq. 7-15) at `t_p` (days, MJD):
+`β_j = a_{0,j} + Σ_{k=1}^{12} [a_{k,j}·cos(ω_k·t_p) + b_{k,j}·sin(ω_k·t_p)]` with
+`ω_k = 2π/T_k` and the coefficients of Table 7-12. The ~4028.71-day term carries the solar
+cycle.
 """
 function _bdgim_prediction_amplitudes(t_p)
-    # The twelve (sin, cos) pairs do not depend on j, so they are formed once and
-    # shared by all seventeen amplitudes rather than recomputed 17 times.
+    # The twelve (sin, cos) pairs are shared by all seventeen amplitudes.
     trig = ntuple(k -> sincos(2π / _BDGIM_PERIODS[k] * t_p), Val(12))
     return ntuple(Val(17)) do j
         β = _BDGIM_A0[j]
@@ -265,32 +228,25 @@ end
 """
     bdgim_vtec(φ_g, λ_g, mjd, α) -> Float64
 
-Vertical TEC in TECU at the ionospheric pierce point whose geographic
-latitude/longitude are `φ_g`/`λ_g` (radians), at Modified Julian Date `mjd`, from
-the nine broadcast BDGIM coefficients `α` (a 9-tuple, TECU). Implements
-`VTEC = A_0 + Σ_{i=1}^{9} α_i·A_i` (Eq. 7-16) with the broadcast harmonics `A_i`
-of Eq. 7-11 and the predictive part `A_0` of Eq. 7-14/7-15.
+Vertical TEC in TECU at the pierce point `φ_g`/`λ_g` (geographic, radians) at Modified
+Julian Date `mjd`, from the nine broadcast coefficients `α` (TECU):
+`VTEC = A_0 + Σ α_i·A_i` (Eq. 7-16, with Eq. 7-11 and 7-14/7-15).
 
-The result is floored at zero. That floor is *not* in the ICD, which prescribes no
-handling of a non-positive VTEC; but a negative vertical electron content is
-unphysical and would enter [`ionospheric_delay`](@ref) as a group *advance*, so it
-is clamped exactly as `ntcm_g_vtec` clamps its own product. It is
-reachable rather than theoretical: A_0 spans degrees 3-5 only and so has no level
-of its own — it is a ±10-15 TECU structure term, negative over much of the globe —
-and a broadcast set too small to lift it (an all-zero α is a legal message) leaves
-the sum below zero.
+Floored at zero, as `ntcm_g_vtec` is, although the ICD prescribes no floor: a negative
+VTEC would enter [`ionospheric_delay`](@ref) as an advance. It is reachable: A_0 (degrees
+3–5 only) is a ±10–15 TECU term with no level of its own, negative over much of the globe,
+and a small broadcast set (an all-zero α is legal) does not lift it.
 """
 function bdgim_vtec(φ_g, λ_g, mjd, α)
     φ′, λ′ = _bdgim_solar_geomagnetic(φ_g, λ_g, mjd)
     sinφ′ = sin(φ′)
-    # A_0, the predictive part: seventeen harmonics weighted by the Fourier
-    # amplitudes β_j at the nearest odd hour (Eq. 7-14).
+    # A_0, the predictive part (Eq. 7-14).
     β = _bdgim_prediction_amplitudes(_bdgim_reference_epoch(mjd))
     a_0 = sum(
         β[j] * _bdgim_harmonic(_BDGIM_NM_PREDICTED[j]..., sinφ′, λ′) for
         j in eachindex(β)
     )
-    # The broadcast part: nine harmonics weighted by the decoded α_i (Eq. 7-11).
+    # The broadcast part (Eq. 7-11).
     broadcast_part = sum(
         α[i] * _bdgim_harmonic(_BDGIM_NM[i]..., sinφ′, λ′) for i in eachindex(α)
     )
@@ -300,10 +256,8 @@ end
 """
     bdgim_mapping_function(elevation) -> Float64
 
-BDGIM's single-layer obliquity factor `M_F` (Eq. 7-17), converting vertical to
-slant TEC for a satellite at `elevation` (radians):
-`1/√(1 − (Re/(Re+H_ion)·cos E)²)`. It is 1 at the zenith and grows to ~2.95 at the
-horizon.
+BDGIM's single-layer obliquity factor `M_F` (Eq. 7-17) at `elevation` (radians):
+`1/√(1 − (Re/(Re+H_ion)·cos E)²)`, from 1 at the zenith to ~2.95 at the horizon.
 """
 bdgim_mapping_function(elevation) =
     1 / sqrt(1 - (_BDGIM_RE / (_BDGIM_RE + _BDGIM_HION) * cos(elevation))^2)
@@ -311,25 +265,17 @@ bdgim_mapping_function(elevation) =
 """
     bdgim_stec(elevation, azimuth, lla, mjd, α) -> Float64
 
-Slant TEC in TECU along the user→satellite line of sight using BDGIM, for the
-satellite `elevation`/`azimuth` (radians) seen from the user geodetic position
-`lla` (a `Geodesy.LLA`), at Modified Julian Date `mjd`, with the nine broadcast
-coefficients `α` (a 9-tuple, TECU). This is `M_F · VTEC` — steps (1) through (5)
-of BDS-SIS-ICD-B1C-1.0 §7.8.2; step (6), the metre conversion, is
-[`ionospheric_delay`](@ref).
+Slant TEC in TECU, `M_F · VTEC`, along the line of sight at `elevation`/`azimuth`
+(radians) from `lla` (a `Geodesy.LLA`) at Modified Julian Date `mjd`, from the broadcast
+`α`: steps (1)–(5) of §7.8.2, step (6) being [`ionospheric_delay`](@ref).
 """
 function bdgim_stec(elevation, azimuth, lla, mjd, α)
     φ_g, λ_g = _bdgim_pierce_point(deg2rad(lla.lat), deg2rad(lla.lon), elevation, azimuth)
     return bdgim_mapping_function(elevation) * bdgim_vtec(φ_g, λ_g, mjd, α)
 end
 
-# Modified Julian Date of the epoch given by a BDT week number and time of week [s],
-# counted on the TAI calendar label like the other dates here (see `day_of_year`).
-# BDGIM's only time arguments are the sun's mean longitude (a fraction of an MJD
-# day, Eq. 7-10) and the prediction reference epoch t_p (Eq. 7-15), so what is
-# needed is a date, not a time scale: the label runs ahead of UTC by the accrued leap
-# seconds (37 s), negligible on an argument whose fastest term has a two-hour
-# granularity and a one-day period.
+# Modified Julian Date of a BDT week and time of week [s], read off the TAI calendar label
+# as `day_of_year` is; its 37 s lead on UTC is negligible for a date.
 const _MJD_EPOCH = TAITime(DateTime(1858, 11, 17))   # MJD 0, as a TAI calendar label
 _beidou_modified_julian_date(week, time_of_week) =
     (week_start_epoch(BDT(), week) + time_of_week - _MJD_EPOCH) / 86_400

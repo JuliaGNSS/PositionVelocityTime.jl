@@ -1,19 +1,14 @@
 """
     TAITimes
 
-A minimal, trim-safe TAI epoch — [`TAITime`](@ref) — standing in
-for AstroTime.jl's `TAIEpoch` as the type of `PositionVelocityTime.PVTSolution`'s `time`.
+A minimal, trim-safe TAI epoch, [`TAITime`](@ref), standing in for AstroTime.jl's
+`TAIEpoch` as the type of `PositionVelocityTime.PVTSolution`'s `time`.
 
-Loading AstroTime runs `__init__` code that a `juliac --trim=safe` build cannot
-verify (it registers `Dates` format tokens and, through EarthOrientation and
-RemoteFiles, looks for data files and download tools), so the package cannot depend
-on it and still be trimmed. `TAITime` stores an epoch the way `TAIEpoch` does —
-whole TAI seconds since J2000 (`2000-01-01T12:00:00` TAI) plus a fraction — so the
-two convert exactly: with AstroTime loaded, `TAIEpoch(t)` and `TAITime(epoch)` are
-provided by a package extension.
-
-Kept as a self-contained module so that once AstroTime can be trimmed, it can be
-dropped in favour of `TAIEpoch` again.
+AstroTime's `__init__` cannot be verified by a `juliac --trim=safe` build (it registers
+`Dates` format tokens and, through EarthOrientation and RemoteFiles, looks for data files
+and download tools). `TAITime` stores an epoch as `TAIEpoch` does, so the two convert
+exactly; with AstroTime loaded, a package extension provides `TAIEpoch(t)` and
+`TAITime(epoch)`. Once AstroTime can be trimmed, this module can be dropped for it.
 """
 module TAITimes
 
@@ -29,9 +24,8 @@ const J2000 = DateTime(2000, 1, 1, 12)
     TAITime(datetime::Dates.DateTime)
 
 An epoch on International Atomic Time (TAI): `second` whole seconds after J2000
-(`2000-01-01T12:00:00` TAI) plus `fraction ∈ [0, 1)` of a second — the layout of
-AstroTime's `TAIEpoch`, so the two convert without loss. A `fraction` outside
-`[0, 1)` is normalised into it.
+(`2000-01-01T12:00:00` TAI) plus `fraction ∈ [0, 1)` of a second, AstroTime's `TAIEpoch`
+layout. A `fraction` outside `[0, 1)` is normalised into it.
 
 `TAITime(datetime)` reads a `DateTime` as a TAI calendar label (millisecond
 resolution); `Dates.DateTime(t)` gives the TAI calendar label back, rounded to the

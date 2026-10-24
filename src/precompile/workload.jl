@@ -1,40 +1,24 @@
-# Precompile workload (PrecompileTools). The first `calc_pvt` of a session costs
-# 4.7 s of compilation on a workstation and three to four times that on an
-# embedded ARM host, and a live receiver pays it at the moment it has its first
-# four ephemerides — the position fix it has been waiting a minute for arrives
-# seconds late while every tracking loop sits unattended (GNSSReceiver.jl#107).
+# Precompile workload (PrecompileTools). The first `calc_pvt` of a session costs 4.7 s of
+# compilation on a workstation and three to four times that on an embedded ARM host, paid
+# by a live receiver just as its first fix is due (GNSSReceiver.jl#107).
 #
-# What is specialised on the navigation-data type is the *collection* pass
-# (`collect_measurements`): the decoder accessors, the propagator, the clock
-# polynomial and the broadcast time offsets. The solver behind the flat
-# `SatelliteMeasurement` row is one body shared by every data type and every
-# constellation mix, so it is compiled by the first solve here and reused by all
-# the others — which is what lets this workload be a list of data types rather
-# than a list of their combinations.
+# Only the collection pass specialises on the navigation-data type; the solver behind the
+# row is compiled once (see collection.jl). So the workload is one solve per data type
+# (GPS LNAV, CNAV on L5I and L2CM, CNAV-2, Galileo I/NAV and F/NAV), plus once each the
+# paths a data type does not vary: warm start, corrections disabled, a `Vector`-backed
+# group and a mixed constellation.
 #
-# So: one solve per type this package dispatches on — GPS LNAV (`GPSL1CAData`),
-# GPS CNAV on both its signals (`GPSCNAVData` on L5I and L2CM), GPS CNAV-2
-# (`GPSL1C_DData`) and Galileo I/NAV and F/NAV (`GalileoINAVData`,
-# `GalileoE5aData`) — plus, once, the solver paths a data type does not vary:
-# warm start, corrections disabled, a `Vector`-backed group and a two-group
-# mixed constellation.
-#
-# The satellites are the test suite's own fixtures (`test/fixtures.jl`): decoder
-# states captured over Aachen on 2021-05-31 with the code phases, carrier
-# Dopplers and phases observed alongside them. Only GPS L1 C/A and Galileo E1B
-# were recorded, so the other data types are expressed from those — see
-# `_precompile_states`. Every configuration below solves to the fixture's own
-# position, which is what makes this a real solve rather than a shape.
+# The satellites are the test fixtures (`test/fixtures.jl`, Aachen, 2021-05-31), recorded
+# on GPS L1 C/A and Galileo E1B only; the other data types are expressed from them (see
+# `_precompile_states`), and every configuration solves to the fixture's position.
 using PrecompileTools: @setup_workload, @compile_workload
 
-# Quasi-Keplerian reference values of the CNAV user algorithm; the broadcast
-# fields are deltas off these (IS-GPS-200N, mirrored in `orbital_elements`).
+# The CNAV reference values (IS-GPS-200N, as in `orbital_elements`).
 const _PRECOMPILE_A_REF = 26_559_710.0
 const _PRECOMPILE_Ω_DOT_REF = -2.6e-9 * π
 
-# GPS LNAV ephemeris → the quasi-Keplerian CNAV / CNAV-2 form. The LNAV fields are
-# `Union{Nothing,…}` until decoded; `something` narrows them to their value, which
-# keeps these keyword calls statically dispatched in the trim check (`test/trim`).
+# GPS LNAV ephemeris → the quasi-Keplerian CNAV / CNAV-2 form. `something` narrows the
+# fields, keeping these keyword calls static for the trim check (`test/trim`).
 _precompile_modern_nav(T, d; extra...) = T(;
     t_0e = something(d.t_0e),
     ΔA = something(d.sqrt_A)^2 - _PRECOMPILE_A_REF,
@@ -119,16 +103,12 @@ _precompile_fnav(d) = GNSSDecoder.GalileoE5aData(;
 """
     _precompile_states(signal, table, make_data, source_signal)
 
-The fixture satellites as [`SatelliteState`](@ref)s on `signal`, with their
-navigation data converted by `make_data`.
-
-The observables were recorded on `source_signal` (GPS L1 C/A or Galileo E1B).
-Expressing them on another signal of the same satellite has to preserve the
-transmit epoch, which [`calc_uncorrected_transmit_time`](@ref) builds as `TOW + n_bits/data_rate + (code_phase reduced to one data symbol)/chip_rate`. So the
-sub-TOW offset is converted as a whole: taken off the source signal, then split
-again into whole data symbols and a code phase in the target's own units.
-Scaling the two terms independently would be wrong — a signal whose data symbol
-is shorter has to carry part of the code phase in its bit count instead.
+The fixture satellites as [`SatelliteState`](@ref)s on `signal`, their navigation data
+converted by `make_data`. The observables, recorded on `source_signal`, are re-expressed
+on `signal` preserving the transmit epoch (`TOW + n_bits/data_rate + code_phase/chip_rate`,
+see `calc_uncorrected_transmit_time`): the sub-TOW offset is converted as a whole, then
+split into the target's data symbols and code phase, since a shorter symbol carries part
+of the code phase in its bit count.
 """
 function _precompile_states(signal, table, make_data, source_signal)
     map(table) do s
@@ -187,10 +167,7 @@ end
         )
             calc_pvt(signal_group; approximate_year = 2021)
         end
-        # The paths that do not vary with the navigation-data type, compiled once on
-        # GPS L1 C/A and shared from there: the warm-start branch of the least-squares
-        # solve, the correction-free branch, the `Vector`-backed group, and the
-        # multi-group shape of a mixed-constellation epoch.
+        # The paths that do not vary with the data type, compiled once on GPS L1 C/A.
         l1ca_group = group(GPSL1CA(), l1ca)
         pvt = calc_pvt(l1ca_group; approximate_year = 2021)
         calc_pvt(l1ca_group, pvt; approximate_year = 2021)
@@ -204,8 +181,7 @@ end
         mixed = (gps = l1ca_group, galileo = group(GalileoE1B(), e1b))
         mixed_pvt = calc_pvt(mixed; approximate_year = 2021)
         calc_pvt(mixed, mixed_pvt; approximate_year = 2021)
-        # The in-place entry point shares the solver compiled above; only its own thin
-        # wrapper and the solution copy of an unsolvable epoch are new.
+        # The in-place entry point; only its wrapper and the unsolvable-epoch copy are new.
         workspace = PVTWorkspace()
         in_place = calc_pvt!(PVTSolution(), workspace, mixed, mixed_pvt;
             approximate_year = 2021)

@@ -1,10 +1,6 @@
-# ===========================================================================
-#  NTCM-G — Galileo single-frequency ionospheric model
-#  (European GNSS (Galileo) NTCM-G Ionospheric Model Description, Issue 1.0,
-#   May 2022). Driven by the broadcast Effective Ionisation Level coefficients
-#   a_i0, a_i1, a_i2. Returns slant TEC (TECU); equation numbers below refer to
-#   that document.
-# ===========================================================================
+# NTCM-G, the Galileo single-frequency ionospheric model, driven by the broadcast
+# a_i0…a_i2 and returning TECU. Equation numbers refer to the European GNSS (Galileo)
+# NTCM-G Ionospheric Model Description, Issue 1.0, May 2022.
 
 # NTCM-G model coefficients k1..k12 (Table 3)
 const _NTCM_G_K = (
@@ -32,14 +28,12 @@ function _ntcm_g_azpar(a_i0, a_i1, a_i2)
     return sqrt(max(radicand, 0.0))
 end
 
-# Ionospheric pierce point geographic latitude/longitude [rad] (Eq. 24-26),
-# given user geodetic lat/lon and satellite elevation/azimuth [rad].
+# Pierce-point geographic latitude/longitude [rad] (Eq. 24-26); all angles in radians.
 function _ntcm_g_pierce_point(φ_u, λ_u, elevation, azimuth)
     ψ = π / 2 - elevation -
         asin(_NTCM_G_RE / (_NTCM_G_RE + _NTCM_G_HI) * cos(elevation))
-    # Clamp to asin's domain: the φ_pp argument is a unit dot-product that can
-    # overshoot ±1 by a rounding ulp, and the λ_pp argument genuinely diverges as
-    # the pierce point approaches a pole (cos(φ_pp) → 0).
+    # Clamped to asin's domain: φ_pp's argument can overshoot ±1 by an ulp, and λ_pp's
+    # diverges as the pierce point nears a pole.
     φ_pp = asin(clamp(sin(φ_u) * cos(ψ) + cos(φ_u) * sin(ψ) * cos(azimuth), -1.0, 1.0))
     λ_pp = λ_u + asin(clamp(sin(ψ) * sin(azimuth) / cos(φ_pp), -1.0, 1.0))
     return φ_pp, λ_pp
@@ -115,10 +109,9 @@ end
 """
     ntcm_g_stec(elevation, azimuth, lla, day_of_year, ut, a_i0, a_i1, a_i2) -> Float64
 
-Slant TEC in TECU along the user→satellite line of sight using NTCM-G, for the
-satellite `elevation`/`azimuth` (radians) seen from the user geodetic position
-`lla` (a `Geodesy.LLA`), on `day_of_year`, at universal time `ut` (hours), and the
-broadcast Galileo Effective Ionisation Level coefficients `a_i0`/`a_i1`/`a_i2`.
+Slant TEC in TECU along the line of sight at `elevation`/`azimuth` (radians) from `lla`
+(a `Geodesy.LLA`), on `day_of_year` at universal time `ut` (hours), from the broadcast
+`a_i0`/`a_i1`/`a_i2`.
 """
 function ntcm_g_stec(elevation, azimuth, lla, day_of_year, ut, a_i0, a_i1, a_i2)
     φ_pp, λ_pp =
@@ -127,11 +120,8 @@ function ntcm_g_stec(elevation, azimuth, lla, day_of_year, ut, a_i0, a_i1, a_i2)
     return _ntcm_g_mapping_function(elevation) * vtec
 end
 
-# Day of year and universal time (hours) from a Galileo System Time (GST) week
-# number and time of week [s], read off the TAI calendar label of the epoch, dated from
-# `week_start_epoch` as `day_of_year` dates the tropospheric one. The label runs ahead
-# of UTC by the accrued leap seconds (37 s), 0.01 h of UT, negligible for the day-of-year
-# and local-time inputs of NTCM-G.
+# Day of year and universal time (hours) of a GST week and time of week [s], read off the
+# TAI calendar label as `day_of_year` is; its 37 s lead on UTC is negligible here.
 function _galileo_doy_and_ut(week, time_of_week)
     t = DateTime(week_start_epoch(GST(), week) + time_of_week)
     return dayofyear(t), hour(t) + minute(t) / 60 + second(t) / 3600 + millisecond(t) / 3.6e6

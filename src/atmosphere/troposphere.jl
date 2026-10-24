@@ -1,43 +1,28 @@
-# ===========================================================================
-#  Tropospheric correction — Saastamoinen zenith delays × Niell mapping functions
+# Tropospheric correction: non-dispersive, and "blind" — a function of the user position
+# and a standard atmosphere, with no broadcast coefficients. Two parts:
 #
-#  The tropospheric delay is non-dispersive — the same on every GNSS frequency.
-#  Unlike the ionosphere there are no broadcast coefficients: the delay is a
-#  "blind" function of the user position and a standard atmosphere, mapped to the
-#  line of sight by the satellite elevation. The model has two independent parts:
+#  1. Zenith delays: Saastamoinen's hydrostatic and wet delays from a standard
+#     atmosphere, as in RTKLIB's `tropmodel` (reused by GNSS-SDR and PocketSDR), at 70 %
+#     relative humidity by default.
+#  2. Mapping: the Niell functions (as in RTKLIB's `tropmapf`/`nmf` and Orekit's
+#     `NiellMappingFunctionModel`). Unlike `tropmodel`'s flat-slab 1/cos(z), they account
+#     for Earth curvature and ray bending, stay finite at the horizon and do not
+#     over-predict low (1/cos(z) is +14 % ≈ +3 m at 5°; see #62).
 #
-#   1. Zenith delays: the Saastamoinen hydrostatic and wet zenith delays driven by
-#      a standard atmosphere, exactly as in RTKLIB's `tropmodel` (which GNSS-SDR
-#      and PocketSDR reuse for single-point positioning), with the relative
-#      humidity defaulting to 70 %.
-#   2. Obliquity mapping: the Niell mapping functions (Niell 1996, as in RTKLIB's
-#      `tropmapf`/`nmf` used for PPP, and Orekit's `NiellMappingFunctionModel`) —
-#      a continued fraction in sin(elevation) with separate hydrostatic and wet
-#      coefficients interpolated over latitude, a seasonal term, and a height
-#      correction. Unlike the flat-slab 1/cos(z) mapping RTKLIB's `tropmodel`
-#      itself uses, it accounts for Earth curvature and ray bending, so it stays
-#      finite at the horizon and does not over-predict at low elevation
-#      (+14 % ≈ +3 m at 5° for 1/cos(z); see #62).
+# Saastamoinen's −B·tan²(z) + δR slant term (Orekit's `ModifiedSaastamoinenModel`) is
+# left out: it corrects the 1/cos(z) mapping the Niell functions replace, so it would
+# double-count, and it inverts the delay's sign below ≈ 1.9°.
 #
-#  Saastamoinen's own −B·tan²(z) + δR slant correction (carried by Orekit's
-#  `ModifiedSaastamoinenModel`) is deliberately NOT included: it is the 1972
-#  curvature/bending fix *to the 1/cos(z) mapping*, superseded by the mapping
-#  function — adding both would double-count, and the tan² term inverts the sign
-#  of the delay below ≈ 1.9° elevation, forcing Orekit's low-elevation clamp.
-#
-#  Reference: A. E. Niell (1996), "Global mapping functions for the atmosphere
-#  delay at radio wavelengths", J. Geophys. Res. 101(B2), 3227–3246. The original
-#  paper has typos in eqs. (4)–(5); the coefficients below are the corrected
-#  Table 3/4 values, identical in RTKLIB (`rtkcmn.c`) and Orekit.
-# ===========================================================================
+# Reference: A. E. Niell (1996), "Global mapping functions for the atmosphere delay at
+# radio wavelengths", J. Geophys. Res. 101(B2), 3227–3246. The coefficients are the
+# corrected Table 3/4 values (the paper's eqs. (4)–(5) have typos), as in RTKLIB
+# (`rtkcmn.c`) and Orekit.
 
 const _DEFAULT_RELATIVE_HUMIDITY = 0.7  # GNSS-SDR / RTKLIB default
 
-# Niell hydrostatic coefficients: averages and seasonal amplitudes at latitudes
-# 15°, 30°, 45°, 60°, 75° (linearly interpolated in |latitude|, constant outside).
-# The coefficient on `day_of_year` is
-# `average − amplitude·cos(2π(day_of_year−28)/365.25)`, phase-shifted half a year in the
-# southern hemisphere.
+# Niell hydrostatic coefficients: averages and seasonal amplitudes at latitudes 15°, 30°,
+# 45°, 60°, 75°. A coefficient is `average − amplitude·cos(2π(day_of_year−28)/365.25)`,
+# half a year later in the southern hemisphere.
 const _NMF_HYDROSTATIC_AVERAGE = (
     a = (1.2769934e-3, 1.2683230e-3, 1.2465397e-3, 1.2196049e-3, 1.2045996e-3),
     b = (2.9153695e-3, 2.9152299e-3, 2.9288445e-3, 2.9022565e-3, 2.9024912e-3),
@@ -48,30 +33,24 @@ const _NMF_HYDROSTATIC_AMPLITUDE = (
     b = (0.0, 2.1414979e-5, 3.0160779e-5, 7.2562722e-5, 11.723375e-5),
     c = (0.0, 9.0128400e-5, 4.3497037e-5, 84.795348e-5, 170.37206e-5),
 )
-# Niell wet coefficients: latitude-dependent only — the wet delay's short
-# correlation time makes a seasonal average meaningless (Niell 1996, §4).
+# Niell wet coefficients: latitude-dependent only (Niell 1996, §4).
 const _NMF_WET = (
     a = (5.8021897e-4, 5.6794847e-4, 5.8118019e-4, 5.9727542e-4, 6.1641693e-4),
     b = (1.4275268e-3, 1.5138625e-3, 1.4572752e-3, 1.5007428e-3, 1.7599082e-3),
     c = (4.3472961e-2, 4.6729510e-2, 4.3908931e-2, 4.4626982e-2, 5.4736038e-2),
 )
-# Height-correction coefficients (Niell 1996 eq. 6): the hydrostatic mapping
-# refers to sea level, and the correction `(1/sin E − m_ht(E)) · height[km]`
-# accounts for the atmosphere column below a raised site.
+# Height-correction coefficients (Niell 1996 eq. 6): the hydrostatic mapping refers to sea
+# level, corrected by `(1/sin E − m_ht(E)) · height[km]`.
 const _NMF_HEIGHT = (a = 2.53e-5, b = 5.49e-3, c = 1.14e-3)
 
-# Lowest elevation the *height-correction term* is evaluated at. Its leading
-# 1/sin(E) is the same flat-slab form the continued fractions replace, so the term
-# diverges at the horizon (and is 0·∞ = NaN there at height 0) even though the
-# mapping functions themselves stay finite; below this bound the term is frozen at
-# its value here. The freeze is harmless — the term is ≈ 7 cm per km of site height
-# at the bound — and the value coincides with the ≈ 3° lower validity limit of the
-# mapping-function literature (Niell 1996, VMF3, IERS Conventions 2010 ch. 9) and
-# with Orekit's `DEFAULT_LOW_ELEVATION_THRESHOLD`.
+# Lowest elevation the height correction is evaluated at: its 1/sin(E) diverges at the
+# horizon (NaN at height 0), so below this it is frozen, ≈ 7 cm per km of height. The
+# bound is the ≈ 3° validity limit of the mapping-function literature (Niell 1996, VMF3,
+# IERS Conventions 2010 ch. 9) and Orekit's `DEFAULT_LOW_ELEVATION_THRESHOLD`.
 const _HEIGHT_CORRECTION_MIN_ELEVATION = 0.05  # rad ≈ 2.87°
 
-# Piecewise-linear interpolation of a Niell coefficient over |latitude| in degrees,
-# with nodes at 15°, 30°, 45°, 60°, 75° and held constant outside (RTKLIB `interpc`).
+# Linear interpolation of a Niell coefficient over |latitude| (degrees), constant outside
+# 15°…75° (RTKLIB `interpc`).
 function _interpolate_nmf_coefficient(values::NTuple{5,Float64}, abs_latitude_deg)
     x = abs_latitude_deg / 15.0
     i = floor(Int, x)
@@ -81,8 +60,7 @@ function _interpolate_nmf_coefficient(values::NTuple{5,Float64}, abs_latitude_de
     return values[i] * (1.0 - w) + values[i+1] * w
 end
 
-# Normalised Marini continued fraction (Herring normalisation): exactly 1 at
-# zenith, finite at the horizon (sin E = 0), strictly decreasing in elevation.
+# Normalised Marini continued fraction (Herring): 1 at zenith, finite at the horizon.
 function _marini_mapping(sin_el, a, b, c)
     return (1.0 + a / (1.0 + b / (1.0 + c))) /
            (sin_el + a / (sin_el + b / (sin_el + c)))
@@ -91,15 +69,10 @@ end
 """
     niell_mapping_functions(latitude, height, elevation, day_of_year) -> (hydrostatic, wet)
 
-The Niell (1996) hydrostatic and wet mapping functions: dimensionless factors that
-map the zenith tropospheric delays to a satellite at `elevation` (radians).
-`latitude` is in radians, `height` is the site's ellipsoidal height in metres (it
-enters the hydrostatic height correction; RTKLIB likewise substitutes the
-ellipsoidal height for the orthometric one), and `day_of_year` drives the
-hydrostatic seasonal term (phase-shifted half a year in the southern
-hemisphere). Elevations below the horizon are evaluated at the horizon, where both
-factors are finite (≈ 37 hydrostatic, ≈ 57 wet); both decrease strictly to exactly
-1 at zenith.
+The Niell (1996) hydrostatic and wet mapping functions at `elevation` (radians), for
+`latitude` (radians), the site's ellipsoidal `height` (metres; used for the orthometric
+one, as in RTKLIB) and `day_of_year`. Below the horizon they are evaluated at it, where
+both are finite (≈ 37 hydrostatic, ≈ 57 wet); both fall to 1 at zenith.
 """
 function niell_mapping_functions(latitude, height, elevation, day_of_year)
     el = max(elevation, 0.0)
@@ -129,11 +102,9 @@ end
 """
     saastamoinen_zenith_delays(latitude, height, relative_humidity) -> (hydrostatic, wet)
 
-Saastamoinen zenith hydrostatic and wet tropospheric delays in metres, from a
-standard atmosphere (15 °C at sea level) evaluated at the geodetic `latitude`
-(radians) and `height` (metres, clamped below at 0). `relative_humidity` (0…1) feeds the
-water-vapour partial pressure of the wet term. The formulas are those of RTKLIB's
-`tropmodel` at zenith.
+Saastamoinen zenith hydrostatic and wet delays in metres, from a standard atmosphere
+(15 °C at sea level) at geodetic `latitude` (radians) and `height` (metres, clamped at 0),
+with `relative_humidity` (0…1) for the wet term: RTKLIB's `tropmodel` at zenith.
 """
 function saastamoinen_zenith_delays(latitude, height, relative_humidity)
     hgt = max(height, 0.0)
@@ -152,19 +123,11 @@ end
 """
     tropospheric_delay(elevation, lla, day_of_year; relative_humidity = 0.7) -> Float64
 
-Slant tropospheric group delay in metres for a satellite at `elevation` (radians)
-seen from the user geodetic position `lla` (a `Geodesy.LLA`): the Saastamoinen
-zenith delays (see [`saastamoinen_zenith_delays`](@ref)) mapped to the line of
-sight by the Niell mapping functions (see [`niell_mapping_functions`](@ref)),
-whose seasonal term is driven by `day_of_year`. The delay is
-non-dispersive (frequency independent). `relative_humidity` (0…1) is used for the wet
-component. The delay is finite and monotone in elevation all the
-way down to the horizon (≈ 90 m for a grazing ray at sea level); elevations below
-the horizon reuse the horizon value. Returns `0.0` when the user height is outside
-the model's valid range (−100 m … 10 km).
-
-The geometry is taken precomputed so a whole-epoch correction shares the user
-geodetic conversion and the elevation with [`ionospheric_delay`](@ref).
+Slant tropospheric delay in metres at `elevation` (radians) from `lla` (a
+`Geodesy.LLA`), the geometry [`ionospheric_delay`](@ref) takes too: the
+[`saastamoinen_zenith_delays`](@ref) mapped by the [`niell_mapping_functions`](@ref).
+Finite and monotone down to the horizon (≈ 90 m at sea level), and the horizon value
+below it; `0.0` outside the valid heights, −100 m … 10 km.
 """
 function tropospheric_delay(elevation, lla, day_of_year;
     relative_humidity = _DEFAULT_RELATIVE_HUMIDITY)
@@ -181,12 +144,9 @@ end
 """
     day_of_year(epoch::TAITime) -> Int
 
-Day of year (1–366) of `epoch` — the seasonal argument of the Niell tropospheric mapping
-(see [`tropospheric_delay`](@ref)). A GNSS time of week dates as
-[`week_start_epoch`](@ref)`(measurement) + time_of_week`, from the start epoch and week
-every [`SatelliteMeasurement`](@ref) carries. The day is read off
-the TAI calendar label, which runs ahead of UTC by the accrued leap seconds (37 s), a
-shift that is negligible for an argument with a one-year period.
+Day of year (1–366) of `epoch`, the seasonal argument of [`tropospheric_delay`](@ref);
+date a time of week as [`week_start_epoch`](@ref)`(measurement) + time_of_week`. Read off
+the TAI calendar label, whose 37 s lead on UTC is negligible here.
 """
 day_of_year(epoch::TAITime) = dayofyear(DateTime(epoch))
 

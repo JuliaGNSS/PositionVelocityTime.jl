@@ -6,24 +6,14 @@
                                time_of_week, day_of_year, enable_tropospheric_correction)
         -> Vector{Float64}
 
-Per-satellite ionospheric + tropospheric delay (metres), to be subtracted from the
-pseudoranges, seen from `user_position` (ECEF, metres: an `ECEF`, an `SVector{3}`, or any
-vector whose first three elements are the position, such as a least-squares state vector
-`[x, y, z, tc₁, …]`). `model` carries the constellation-wide ionospheric parameters from
-[`select_ionospheric_parameters`](@ref) (`IonosphericModel(nothing)` skips the
-ionosphere); the troposphere uses the blind Saastamoinen zenith delays mapped by the
-Niell mapping functions, whose seasonal term takes `day_of_year` (see
-[`tropospheric_delay`](@ref)), unless `enable_tropospheric_correction` is `false`.
+Per-satellite ionospheric plus tropospheric delay (m), to subtract from the pseudoranges,
+seen from `user_position` (ECEF, m; any vector whose first three elements are the
+position, a state vector `[x, y, z, tc₁, …]` included). `model` holds the ionospheric
+parameters ([`select_ionospheric_parameters`](@ref); `IonosphericModel(nothing)` skips the
+ionosphere), and `day_of_year` feeds [`tropospheric_delay`](@ref).
 
-A single corrected solve is enough: the delays depend on position only through the
-satellite elevation/azimuth (and, for the troposphere, the user height), and
-∂delay/∂position is negligible over the metre-level position uncertainty (a 15 m
-shift moves the elevation by ~1e-5°), so delays predicted at a nearby position are
-accurate to well under a millimetre — no iterate-to-convergence needed. The user
-geodetic coordinates and the ENU transform depend only on the user position, so they
-are computed once and reused across satellites.
-
-The allocating form of [`predict_atmospheric_delays!`](@ref).
+Delays predicted at a nearby position are good enough: a 15 m shift moves the elevation by
+~1e-5°, well under a millimetre of delay, so one corrected solve needs no iteration.
 """
 predict_atmospheric_delays(user_position, measurements, model, time_of_week,
     day_of_year, enable_tropospheric_correction) = predict_atmospheric_delays!(
@@ -36,7 +26,7 @@ predict_atmospheric_delays(user_position, measurements, model, time_of_week,
                                 enable_tropospheric_correction)
         -> delays
 
-[`predict_atmospheric_delays`](@ref) into `delays` (resized to the satellite count).
+[`predict_atmospheric_delays`](@ref) into `delays`, resized to the satellite count.
 Allocates nothing.
 """
 function predict_atmospheric_delays!(
@@ -48,9 +38,8 @@ function predict_atmospheric_delays!(
     day_of_year,
     enable_tropospheric_correction,
 )
-    # The per-satellite loop specialises once per ionospheric model, behind this barrier:
-    # the field is a five-member `Union`, one more than Julia splits by itself, so the
-    # split is spelled out.
+    # A barrier that specialises the loop per model: Julia splits a `Union` of at most four
+    # members by itself, and this one has five.
     predict(parameters) = _predict_atmospheric_delays!(delays, user_position, measurements,
         parameters, time_of_week, day_of_year, enable_tropospheric_correction)
     parameters = model.parameters
