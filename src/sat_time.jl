@@ -2,10 +2,12 @@
     fold_week_crossover(t) -> Float64
 
 Fold a difference of two seconds-of-week counts modulo the week, into
-`(-302400, 302400]`: near a week rollover the two operands sit on opposite
-sides of the wrap and their raw difference is off by ±604800 s. Every time
-difference in this package — and in a consumer differencing transmit times —
-must pass through this.
+`(-302400, 302400]`: at a week crossover (IS-GPS-200's term) the two operands sit
+on opposite sides of the week boundary and their raw difference is off by ±604800 s.
+Every difference of two such counts within a week of each other — between transmit times,
+or of a time against its ephemeris or clock reference epoch, here and in a consumer — must
+pass through this. A difference across whole weeks must not:
+[`calc_steering_offset`](@ref) adds the weeks since its reference week back explicitly.
 """
 function fold_week_crossover(t)
     half_week = SECONDS_PER_WEEK / 2
@@ -60,8 +62,8 @@ end
 function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, signal, t)
     Δtr = calc_relativistic_correction(decoder, t)
     data = decoder.data
-    # Folded modulo the week like every other time difference here: near a week
-    # rollover `t` and `t_0c` sit on opposite sides of the wrap, and the raw
+    # Folded modulo the week like every other time difference here: at a week
+    # crossover `t` and `t_0c` sit on opposite sides of the boundary, and the raw
     # difference of ±604800 s puts ~a_f1·604800 ≈ microseconds (kilometres of
     # range) into a polynomial whose real argument is seconds.
     Δt_from_reference = fold_week_crossover(t - decoded(data.t_0c))
