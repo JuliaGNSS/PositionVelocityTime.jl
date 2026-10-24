@@ -1,15 +1,16 @@
 # PositionVelocityTime.jl
 
-Calculates position, velocity, and time from GNSS satellite measurements.
+Calculates position, velocity and time from GNSS satellite measurements.
 
 ## Features
 
-- Estimation of user position, velocity, and time
-- Satellite position and velocity calculation from orbital parameters: the
-  directly-broadcast Keplerian ephemerides (GPS LNAV, Galileo I/NAV and F/NAV,
-  BeiDou D1/D2), the quasi-Keplerian ones (GPS CNAV/CNAV-2, BeiDou B-CNAV1/2/3),
-  and the BeiDou GEO reference frame
-- Dilution of Precision (DOP) computation
+- Estimation of user position, velocity and time, with the receiver clock bias and drift
+- Satellite position and velocity from the broadcast ephemerides: the directly broadcast
+  Keplerian ones (GPS LNAV, Galileo I/NAV and F/NAV, BeiDou D1/D2), the quasi-Keplerian
+  ones (GPS CNAV/CNAV-2, BeiDou B-CNAV1/2/3), and the BeiDou GEO reference frame
+- Dilution of precision (GDOP, PDOP, HDOP, VDOP, TDOP)
+- Ionospheric (NTCM-G, BDGIM, Klobuchar) and tropospheric (Saastamoinen with the Niell
+  mapping functions) corrections from the navigation data alone
 - Support for GPS (L1 C/A, L2C, L5, L1C), Galileo (E1B, E5a, E5b) and BeiDou
   (B1I, B3I, B1C, B2a, B2b), including combined multi-GNSS solutions. Each
   measurement is one satellite-band pseudorange; the group-delay/ISC correction is
@@ -42,7 +43,7 @@ Decoded data and code phase of a satellite must be combined in the [`SatelliteSt
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
 
 gpsl1 = GPSL1CA()
-sat_state = SatelliteState(
+satellite_state = SatelliteState(
     decoder = decoder,
     signal = gpsl1,
     code_phase = code_phase,
@@ -54,13 +55,13 @@ sat_state = SatelliteState(
 `code_phase` is in chips and `carrier_phase` in radians, matching `Tracking`'s
 `get_code_phase` and `get_carrier_phase`.
 
-With Tracking.jl 9.1 or later loaded, you can pass a `Tracking.TrackedSat` directly — `tracked_sat` is what
+With Tracking.jl 9.1 or later loaded, you can pass a `Tracking.TrackedSat` directly — `tracked_satellite` is what
 `Tracking.get_sat_state` returns for a tracked satellite, and the code phase, carrier
 Doppler, and carrier phase are read off it:
 
 ```julia
 using Tracking
-sat_state = SatelliteState(decoder, gpsl1, tracked_sat)
+satellite_state = SatelliteState(decoder, gpsl1, tracked_satellite)
 ```
 
 Group the satellites by their ranging signal and compute the PVT solution:
@@ -69,15 +70,15 @@ Group the satellites by their ranging signal and compute the PVT solution:
 using PositionVelocityTime: SignalGroup
 
 pvt = calc_pvt((
-    gps = SignalGroup(GPSL1CA(), gps_sat_states),
-    galileo = SignalGroup(GalileoE1B(), galileo_sat_states),
+    gps = SignalGroup(GPSL1CA(), gps_satellite_states),
+    galileo = SignalGroup(GalileoE1B(), galileo_satellite_states),
 ))
 lla = get_lla(pvt)  # latitude, longitude, altitude
 ```
 
 Each group holds the satellites tracked on one signal, as a `Dictionary` keyed by PRN or
 as a plain vector. A single group needs no NamedTuple around it —
-`calc_pvt(SignalGroup(GPSL1CA(), gps_sat_states))` is a complete one-constellation solve.
+`calc_pvt(SignalGroup(GPSL1CA(), gps_satellite_states))` is a complete one-constellation solve.
 With Tracking.jl 9.1 or later loaded, a whole `TrackState` and its decoders become groups in one call:
 
 ```julia

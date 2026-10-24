@@ -1,17 +1,18 @@
-
 # PositionVelocityTime.jl
 
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://JuliaGNSS.github.io/PositionVelocityTime.jl/stable/)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://JuliaGNSS.github.io/PositionVelocityTime.jl/dev/)
 
-Calculates position and time by using GNSS data
+Calculates position, velocity and time from GNSS satellite measurements.
 
 ## Features
-* Estimation of user position, velocity and time
-* Calculates satellite position and velocity
-* Precision estimation (GDOP)
+* Estimation of user position, velocity and time, with the receiver clock bias and drift
+* Satellite position and velocity from the broadcast ephemerides
+* Dilution of precision (GDOP, PDOP, HDOP, VDOP, TDOP)
+* Ionospheric (NTCM-G, BDGIM, Klobuchar) and tropospheric (Saastamoinen with the Niell
+  mapping functions) corrections from the navigation data alone
 * GPS (L1 C/A, L2C, L5, L1C), Galileo (E1B, E5a, E5b) and BeiDou (B1I, B3I, B1C,
-  B2a, B2b), combined in one multi-GNSS solution
+  B2a, B2b), combined in one multi-GNSS, multi-band solution
 
 ## Preparing
 
@@ -21,12 +22,12 @@ julia> ]
 pkg> add PositionVelocityTime
 ```
 
-Decoded data and code phase of satellite must be combined in the provided `SatelliteState` struct. 
+The decoded data and the code phase of a satellite are combined in a `SatelliteState`:
 ```julia
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
 # decode satellite
 gpsl1 = GPSL1CA()
-sat_state = SatelliteState(
+satellite_state = SatelliteState(
     decoder = decoder,
     signal = gpsl1,
     code_phase = code_phase,
@@ -34,41 +35,46 @@ sat_state = SatelliteState(
     carrier_phase = carrier_phase # optional, in radians
 )
 ```
-The declaration of `carrier_phase` is optional due to its small effect on the user position.
+The `carrier_phase` is optional, as its effect on the user position is small.
 `code_phase` is in chips and `carrier_phase` in radians, matching `Tracking`'s
 `get_code_phase` and `get_carrier_phase`.
 
-With Tracking.jl 9.1 or later loaded, a `Tracking.TrackedSat` can be passed to `SatelliteState` instead of
-`code_phase`, `carrier_doppler` and `carrier_phase` — `tracked_sat` below is what
-`Tracking.get_sat_state` returns for a tracked satellite:
+With Tracking.jl 9.1 or later loaded, a `Tracking.TrackedSat` can be passed to
+`SatelliteState` instead of `code_phase`, `carrier_doppler` and `carrier_phase` —
+`tracked_satellite` below is what `Tracking.get_sat_state` returns for a tracked satellite:
 ```julia
 using Tracking
 # track and decode satellite
-sat_state = SatelliteState(decoder, gpsl1, tracked_sat)
+satellite_state = SatelliteState(decoder, gpsl1, tracked_satellite)
 ```
 
 ## Usage
 
-### User position calculation
+### Position, velocity and time
 Satellite states are handed over grouped by their ranging signal, one
 `PositionVelocityTime.SignalGroup` per signal:
 ```julia
 using PositionVelocityTime: SignalGroup
 
-calc_pvt((
-    gps = SignalGroup(GPSL1CA(), gps_sat_states),
-    galileo = SignalGroup(GalileoE1B(), galileo_sat_states),
+pvt = calc_pvt((
+    gps = SignalGroup(GPSL1CA(), gps_satellite_states),
+    galileo = SignalGroup(GalileoE1B(), galileo_satellite_states),
 ))
+lla = get_lla(pvt)  # latitude, longitude, altitude
 ```
-provides a complete position calculation. A single group can be passed on its own, and
-with Tracking.jl 9.1 or later loaded `PositionVelocityTime.signal_groups(track_state, decoders)` builds
-a whole epoch's groups from a `TrackState`. Grouping is what keeps the solve type-stable
-across constellations.
+A single group can be passed on its own, and with Tracking.jl 9.1 or later loaded
+`PositionVelocityTime.signal_groups(track_state, decoders)` builds a whole epoch's groups
+from a `TrackState`. Grouping is what keeps the solve type-stable across constellations.
 
-A fix needs at least 4 healthy, fully decoded
-satellites (more for a multi-GNSS or multi-band set); when the epoch cannot be solved,
-the previous solution is returned unchanged instead of an error, so a receiver can pass
-whatever it currently tracks.
+Besides `position`, `velocity` and `time`, the solution reports the receiver `clock_bias`
+(m) and `clock_drift` (m/s), the `dop`, the per-satellite residuals in `satellites`, and,
+for a multi-GNSS or multi-band fix, the `inter_system_biases` relative to the
+`reference_system` and the `inter_frequency_biases`.
+
+A fix needs at least 4 healthy, fully decoded satellites (more for a multi-GNSS or
+multi-band set, unless a broadcast time offset such as Galileo's GGTO ties two systems'
+clocks together); when the epoch cannot be solved, the previous solution is returned
+unchanged instead of an error, so a receiver can pass whatever it currently tracks.
 
 To solve epoch after epoch without allocating, use `calc_pvt!`, which reuses the
 containers of the solution passed as its first argument and a `PVTWorkspace` for the
