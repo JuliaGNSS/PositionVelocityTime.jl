@@ -57,12 +57,12 @@ function calc_dop!(normal_matrix, H, user_position::ECEF, reference_clock_column
         D(1, 3), D(2, 3), D(3, 3))
     D_enu = R * D_position * R'
 
-    HDOP = sqrt(D_enu[1, 1] + D_enu[2, 2])   # horizontal dop (East² + North²)
-    VDOP = sqrt(D_enu[3, 3])                 # vertical dop (Up)
-    PDOP = sqrt(D(1, 1) + D(2, 2) + D(3, 3)) # position dop (trace-invariant)
-    # temporal dop (reference system)
+    HDOP = sqrt(D_enu[1, 1] + D_enu[2, 2])   # horizontal DOP (East² + North²)
+    VDOP = sqrt(D_enu[3, 3])                 # vertical DOP (Up)
+    PDOP = sqrt(D(1, 1) + D(2, 2) + D(3, 3)) # position DOP (trace-invariant)
+    # time DOP (reference system)
     TDOP = sqrt(D(3 + reference_clock_column, 3 + reference_clock_column))
-    GDOP = sqrt(sum(i -> D(i, i), 1:n))      # geometrical dop (all parameters)
+    GDOP = sqrt(sum(i -> D(i, i), 1:n))      # geometric DOP (all parameters)
 
     return DOP(GDOP, PDOP, VDOP, HDOP, TDOP)
 end
