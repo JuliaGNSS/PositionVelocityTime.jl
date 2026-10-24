@@ -14,6 +14,43 @@ function fold_week_crossover(t)
     t + (t > half_week ? -2 * half_week : (t < -half_week ? 2 * half_week : 0.0))
 end
 
+"""
+    calc_pseudoranges(times) -> (pseudoranges, reference_time)
+
+The pseudoranges (m) of transmit `times` received at one instant: how far each trails the
+latest of them, `reference_time`, in metres and folded across a week crossover
+([`fold_week_crossover`](@ref)). The common reference cancels into the receiver clock
+biases, which then date `reference_time`. The times must be on one count, as
+[`calc_leap_second_corrections`](@ref) puts them.
+"""
+function calc_pseudoranges(times)
+    pseudoranges = collect(Float64, times)
+    reference_time = calc_pseudoranges!(pseudoranges)
+    pseudoranges, reference_time
+end
+
+"""
+    calc_pseudoranges!(times) -> reference_time
+
+[`calc_pseudoranges`](@ref) in place: `times` is overwritten with the pseudoranges, and only
+the reference time is returned. Allocates nothing.
+"""
+function calc_pseudoranges!(times)
+    t_ref = maximum(times)
+    # Folded modulo the week, like every other time difference in this package: the
+    # inputs are seconds-of-week counts, and a week crossover does not pass through all
+    # of them at once. Within one constellation it sweeps through the transmit-time
+    # spread (tens of milliseconds, once a week); in a mixed solve the scale alignment
+    # (`calc_leap_second_corrections`) widens the straddle to the full defined offset — a
+    # BeiDou time reads `SOW + 14` on the GPS count, which exceeds 604800 for the first
+    # 14 s of every GPS week while the GPS times have already wrapped. Unfolded, every
+    # difference across the crossover is off by a week — 1.8e14 m.
+    for j in eachindex(times)
+        times[j] = fold_week_crossover(t_ref - times[j]) * SPEED_OF_LIGHT
+    end
+    return t_ref
+end
+
 function calc_uncorrected_transmit_time(state::SatelliteState)
     signal = state.signal
     # Time of week at the navigation-frame reference epoch, from GNSSDecoder's own

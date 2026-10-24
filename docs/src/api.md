@@ -142,6 +142,8 @@ PositionVelocityTime.EARTH_ROTATION_RATE
 PositionVelocityTime.calc_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
 PositionVelocityTime.fold_week_crossover
+PositionVelocityTime.calc_pseudoranges
+PositionVelocityTime.calc_pseudoranges!
 PositionVelocityTime.BiasColumns
 PositionVelocityTime.ClockConstraint
 PositionVelocityTime.decide_bias_layout
