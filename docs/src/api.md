@@ -57,6 +57,7 @@ PositionVelocityTime.empty_keeping_capacity!
 
 ```@docs
 get_lla
+PositionVelocityTime.calc_course_over_ground
 calc_satellite_position
 calc_satellite_position_and_velocity
 calc_elevation_and_azimuth
@@ -153,7 +154,6 @@ PositionVelocityTime.day_of_year
 PositionVelocityTime.predict_atmospheric_delays
 PositionVelocityTime.predict_atmospheric_delays!
 PositionVelocityTime.IonosphericModel
-PositionVelocityTime.calc_course_over_ground
 ```
 
 The unexported internals the surface above links to, documented for reference:
