@@ -254,12 +254,12 @@ function bdgim_vtec(φ_g, λ_g, modified_julian_date, α)
 end
 
 """
-    bdgim_mapping_function(elevation) -> Float64
+    _bdgim_mapping_function(elevation) -> Float64
 
 BDGIM's single-layer obliquity factor `M_F` (Eq. 7-17) at `elevation` (radians):
 `1/√(1 − (Re/(Re+H_ion)·cos E)²)`, from 1 at the zenith to ~2.95 at the horizon.
 """
-bdgim_mapping_function(elevation) =
+_bdgim_mapping_function(elevation) =
     1 / sqrt(1 - (_BDGIM_RE / (_BDGIM_RE + _BDGIM_HION) * cos(elevation))^2)
 
 """
@@ -271,7 +271,8 @@ steps (1)–(5) of §7.8.2, step (6) being [`ionospheric_delay`](@ref).
 """
 function bdgim_stec(elevation, azimuth, lla, modified_julian_date, α)
     φ_g, λ_g = _bdgim_pierce_point(deg2rad(lla.lat), deg2rad(lla.lon), elevation, azimuth)
-    return bdgim_mapping_function(elevation) * bdgim_vtec(φ_g, λ_g, modified_julian_date, α)
+    vtec = bdgim_vtec(φ_g, λ_g, modified_julian_date, α)
+    return _bdgim_mapping_function(elevation) * vtec
 end
 
 # Modified Julian Date of a BDT week and time of week [s], read off the TAI calendar label

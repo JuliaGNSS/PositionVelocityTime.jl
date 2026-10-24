@@ -193,12 +193,12 @@
     end
 
     @testset "mapping function (Eq. 7-17)" begin
-        @test PVT.bdgim_mapping_function(π / 2) == 1.0            # exactly 1 at zenith
+        @test PVT._bdgim_mapping_function(π / 2) == 1.0            # exactly 1 at zenith
         for el in deg2rad.((0, 5, 10, 30, 60, 89))
-            @test PVT.bdgim_mapping_function(el) ≥ 1.0
+            @test PVT._bdgim_mapping_function(el) ≥ 1.0
         end
         # Monotonically increasing towards the horizon, to ~2.95 at 0° elevation.
-        mfs = PVT.bdgim_mapping_function.(deg2rad.((90, 60, 30, 10, 5, 0)))
+        mfs = PVT._bdgim_mapping_function.(deg2rad.((90, 60, 30, 10, 5, 0)))
         @test issorted(mfs)
         @test mfs[end] ≈ 1 / sqrt(1 - (6378 / 6778)^2)
         @test mfs[end] ≈ 2.9547 atol = 1e-4
@@ -219,7 +219,7 @@
             vtec = PVT.bdgim_vtec(φ_g, λ_g, mjd, α)
             stec = PVT.bdgim_stec(el, az, lla, mjd, α)
             @test stec ≥ vtec                                   # M_F ≥ 1
-            @test stec ≈ PVT.bdgim_mapping_function(el) * vtec rtol = 1e-12
+            @test stec ≈ PVT._bdgim_mapping_function(el) * vtec rtol = 1e-12
         end
     end
 
