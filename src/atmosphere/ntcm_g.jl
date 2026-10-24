@@ -50,16 +50,16 @@ function _ntcm_g_mapping_function(elevation)
 end
 
 """
-    ntcm_g_vtec(φ_pp, λ_pp, day_of_year, ut, azpar) -> Float64
+    ntcm_g_vtec(φ_pp, λ_pp, day_of_year, universal_time, azpar) -> Float64
 
 Vertical TEC in TECU at the ionospheric pierce point (geographic latitude/longitude
-`φ_pp`/`λ_pp` in radians) on `day_of_year`, at universal time `ut` in hours, and
-Effective Ionisation Level `azpar` in solar flux units. Implements the NTCM-G model
+`φ_pp`/`λ_pp` in radians) on `day_of_year`, at `universal_time` in hours, and Effective
+Ionisation Level `azpar` in solar flux units. Implements the NTCM-G model
 `VTEC = F1·F2·F3·F4·F5` (Eq. 3-15).
 """
-function ntcm_g_vtec(φ_pp, λ_pp, day_of_year, ut, azpar)
+function ntcm_g_vtec(φ_pp, λ_pp, day_of_year, universal_time, azpar)
     k = _NTCM_G_K
-    lt = ut + rad2deg(λ_pp) / 15                      # local time [h] (Eq. 27)
+    lt = universal_time + rad2deg(λ_pp) / 15          # local time [h] (Eq. 27)
     δ = _ntcm_g_sun_declination(day_of_year)
 
     # Solar zenith angle dependence (Eq. 29-30)
@@ -107,16 +107,19 @@ function ntcm_g_vtec(φ_pp, λ_pp, day_of_year, ut, azpar)
 end
 
 """
-    ntcm_g_stec(elevation, azimuth, lla, day_of_year, ut, a_i0, a_i1, a_i2) -> Float64
+    ntcm_g_stec(elevation, azimuth, lla, day_of_year, universal_time, a_i0, a_i1, a_i2)
+        -> Float64
 
 Slant TEC in TECU along the line of sight at `elevation`/`azimuth` (radians) from `lla`
-(a `Geodesy.LLA`), on `day_of_year` at universal time `ut` (hours), from the broadcast
+(a `Geodesy.LLA`), on `day_of_year` at `universal_time` (hours), from the broadcast
 `a_i0`/`a_i1`/`a_i2`.
 """
-function ntcm_g_stec(elevation, azimuth, lla, day_of_year, ut, a_i0, a_i1, a_i2)
+function ntcm_g_stec(elevation, azimuth, lla, day_of_year, universal_time,
+    a_i0, a_i1, a_i2)
     φ_pp, λ_pp =
         _ntcm_g_pierce_point(deg2rad(lla.lat), deg2rad(lla.lon), elevation, azimuth)
-    vtec = ntcm_g_vtec(φ_pp, λ_pp, day_of_year, ut, _ntcm_g_azpar(a_i0, a_i1, a_i2))
+    azpar = _ntcm_g_azpar(a_i0, a_i1, a_i2)
+    vtec = ntcm_g_vtec(φ_pp, λ_pp, day_of_year, universal_time, azpar)
     return _ntcm_g_mapping_function(elevation) * vtec
 end
 

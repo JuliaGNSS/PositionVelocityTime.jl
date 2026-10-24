@@ -226,10 +226,10 @@ function _bdgim_prediction_amplitudes(t_p)
 end
 
 """
-    bdgim_vtec(φ_g, λ_g, mjd, α) -> Float64
+    bdgim_vtec(φ_g, λ_g, modified_julian_date, α) -> Float64
 
 Vertical TEC in TECU at the pierce point `φ_g`/`λ_g` (geographic, radians) at Modified
-Julian Date `mjd`, from the nine broadcast coefficients `α` (TECU):
+Julian Date `modified_julian_date`, from the nine broadcast coefficients `α` (TECU):
 `VTEC = A_0 + Σ α_i·A_i` (Eq. 7-16, with Eq. 7-11 and 7-14/7-15).
 
 Floored at zero, as `ntcm_g_vtec` is, although the ICD prescribes no floor: a negative
@@ -237,11 +237,11 @@ VTEC would enter [`ionospheric_delay`](@ref) as an advance. It is reachable: A_0
 3–5 only) is a ±10–15 TECU term with no level of its own, negative over much of the globe,
 and a small broadcast set (an all-zero α is legal) does not lift it.
 """
-function bdgim_vtec(φ_g, λ_g, mjd, α)
-    φ′, λ′ = _bdgim_solar_geomagnetic(φ_g, λ_g, mjd)
+function bdgim_vtec(φ_g, λ_g, modified_julian_date, α)
+    φ′, λ′ = _bdgim_solar_geomagnetic(φ_g, λ_g, modified_julian_date)
     sinφ′ = sin(φ′)
     # A_0, the predictive part (Eq. 7-14).
-    β = _bdgim_prediction_amplitudes(_bdgim_reference_epoch(mjd))
+    β = _bdgim_prediction_amplitudes(_bdgim_reference_epoch(modified_julian_date))
     a_0 = sum(
         β[j] * _bdgim_harmonic(_BDGIM_NM_PREDICTED[j]..., sinφ′, λ′) for
         j in eachindex(β)
@@ -263,15 +263,15 @@ bdgim_mapping_function(elevation) =
     1 / sqrt(1 - (_BDGIM_RE / (_BDGIM_RE + _BDGIM_HION) * cos(elevation))^2)
 
 """
-    bdgim_stec(elevation, azimuth, lla, mjd, α) -> Float64
+    bdgim_stec(elevation, azimuth, lla, modified_julian_date, α) -> Float64
 
 Slant TEC in TECU, `M_F · VTEC`, along the line of sight at `elevation`/`azimuth`
-(radians) from `lla` (a `Geodesy.LLA`) at Modified Julian Date `mjd`, from the broadcast
-`α`: steps (1)–(5) of §7.8.2, step (6) being [`ionospheric_delay`](@ref).
+(radians) from `lla` (a `Geodesy.LLA`) at `modified_julian_date`, from the broadcast `α`:
+steps (1)–(5) of §7.8.2, step (6) being [`ionospheric_delay`](@ref).
 """
-function bdgim_stec(elevation, azimuth, lla, mjd, α)
+function bdgim_stec(elevation, azimuth, lla, modified_julian_date, α)
     φ_g, λ_g = _bdgim_pierce_point(deg2rad(lla.lat), deg2rad(lla.lon), elevation, azimuth)
-    return bdgim_mapping_function(elevation) * bdgim_vtec(φ_g, λ_g, mjd, α)
+    return bdgim_mapping_function(elevation) * bdgim_vtec(φ_g, λ_g, modified_julian_date, α)
 end
 
 # Modified Julian Date of a BDT week and time of week [s], read off the TAI calendar label
