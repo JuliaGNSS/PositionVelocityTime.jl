@@ -957,7 +957,8 @@ no usable offset toward it (see [`time_offset_available`](@ref)).
 function broadcast_inter_system_bias(row::SatelliteMeasurement, target::SupportedTimeSystem)
     row.time_system === target && return 0.0
     -SPEED_OF_LIGHT *
-    calc_steering_offset(row.time_offsets[time_offset_index(target)], row.transmit_time)
+    calc_steering_offset(row.broadcast_time_offsets[time_offset_index(target)],
+        row.transmit_time)
 end
 
 """

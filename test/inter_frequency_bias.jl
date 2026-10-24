@@ -186,7 +186,7 @@
         # a GPS-only constellation — so stand-in rows carrying those suffice.
         decide = PositionVelocityTime.decide_bias_layout
         gate(prns, bands) = decide([
-            (; time_system = GPST(), band_id = band, prn = prn, time_offsets = ())
+            (; time_system = GPST(), band_id = band, prn = prn, broadcast_time_offsets = ())
             for (prn, band) in zip(prns, bands)
         ])
 

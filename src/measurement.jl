@@ -112,8 +112,8 @@ end
     PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
 
 The GNSS time systems this package solves with: `(GPST(), GST(), BDT())`. Each
-[`SatelliteMeasurement`](@ref)'s `time_offsets` tuple holds its broadcast offsets toward
-these, in this order, so an offset toward a system is a tuple index rather than a
+[`SatelliteMeasurement`](@ref)'s `broadcast_time_offsets` tuple holds its broadcast offsets
+toward these, in this order, so an offset toward a system is a tuple index rather than a
 dictionary lookup.
 """
 const SUPPORTED_TIME_SYSTEMS = (GPST(), GST(), BDT())
@@ -131,7 +131,7 @@ offset's index — is split into statically dispatched branches instead of being
 dynamic dispatch, which a `juliac --trim` build rejects. The row it types stays one
 concrete type, so the solver still compiles once for every constellation mix. A time
 system GNSSSignals adds later has to be added to `SUPPORTED_TIME_SYSTEMS` anyway (the
-`time_offsets` tuple is indexed by it), and this follows.
+`broadcast_time_offsets` tuple is indexed by it), and this follows.
 """
 const SupportedTimeSystem = Union{map(typeof, SUPPORTED_TIME_SYSTEMS)...}
 
@@ -225,8 +225,8 @@ compiles once for every mix.
   1024-week rollover already resolved against `approximate_year`.
 - `system_start_epoch::TAITime`: the TAI epoch of that system's week 0, which dates the
   reported fix and the day of year of the tropospheric model ([`day_of_year`](@ref)).
-- `time_offsets::NTuple{3,BroadcastTimeOffset}`: this satellite's broadcast offsets
-  toward [`SUPPORTED_TIME_SYSTEMS`](@ref), in that order.
+- `broadcast_time_offsets::NTuple{3,BroadcastTimeOffset}`: this satellite's broadcast
+  offsets toward [`SUPPORTED_TIME_SYSTEMS`](@ref), in that order.
 """
 struct SatelliteMeasurement
     prn::Int
@@ -242,7 +242,7 @@ struct SatelliteMeasurement
     satellite_clock_drift::Float64
     week::Int
     system_start_epoch::TAITime
-    time_offsets::NTuple{3,BroadcastTimeOffset}
+    broadcast_time_offsets::NTuple{3,BroadcastTimeOffset}
 end
 
 """
@@ -258,8 +258,8 @@ Time that is Galileo's GGTO and BeiDou's BGTO; toward Galileo System Time it is
 BeiDou's BGTO variant and the GGTO GPS itself broadcasts on CNAV/CNAV-2.
 
 The measurement form reads the flag [`collect_measurements`](@ref) already flattened
-into `measurement.time_offsets` (equivalently `measurement.time_offsets[i].available`),
-and is `false` for any `target` outside [`SUPPORTED_TIME_SYSTEMS`](@ref), which no
+into `measurement.broadcast_time_offsets` (equivalently
+`measurement.broadcast_time_offsets[i].available`), and is `false` for any `target` outside [`SUPPORTED_TIME_SYSTEMS`](@ref), which no
 message broadcasts an offset toward.
 
 The decoder form is the underlying predicate, and delegates to GNSSDecoder's
@@ -276,7 +276,7 @@ function time_offset_available(
     target::GNSSSignals.TimeSystem,
 )
     index = time_offset_index(target)
-    isnothing(index) ? false : measurement.time_offsets[index].available
+    isnothing(index) ? false : measurement.broadcast_time_offsets[index].available
 end
 
 time_offset_available(
