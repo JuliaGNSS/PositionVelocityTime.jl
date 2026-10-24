@@ -125,7 +125,7 @@ end
 
 Slant tropospheric delay in metres at `elevation` (radians) from `lla` (a
 `Geodesy.LLA`), the geometry [`ionospheric_delay`](@ref) takes too: the
-[`saastamoinen_zenith_delays`](@ref) mapped by the [`niell_mapping_functions`](@ref).
+`saastamoinen_zenith_delays` mapped by the `niell_mapping_functions`.
 Finite and monotone down to the horizon (≈ 90 m at sea level), and the horizon value
 below it; `0.0` outside the valid heights, −100 m … 10 km.
 """

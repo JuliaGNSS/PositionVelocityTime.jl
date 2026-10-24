@@ -71,12 +71,8 @@ Applied by [`calc_pvt`](@ref); documented for reference and diagnostics.
 PositionVelocityTime.select_ionospheric_parameters
 PositionVelocityTime.ionospheric_delay
 PositionVelocityTime.tropospheric_delay
-PositionVelocityTime.saastamoinen_zenith_delays
-PositionVelocityTime.niell_mapping_functions
 PositionVelocityTime.KlobucharParameters
-PositionVelocityTime.klobuchar_group_delay
 PositionVelocityTime.BeiDouKlobucharParameters
-PositionVelocityTime.beidou_klobuchar_group_delay
 PositionVelocityTime.NTCMGParameters
 PositionVelocityTime.BDGIMParameters
 PositionVelocityTime.get_klobuchar_parameters
@@ -129,6 +125,7 @@ PositionVelocityTime.fold_week_crossover
 PositionVelocityTime.calc_pseudoranges
 PositionVelocityTime.calc_pseudoranges!
 PositionVelocityTime.BiasColumns
+PositionVelocityTime.num_parameters
 PositionVelocityTime.ClockConstraint
 PositionVelocityTime.decide_bias_layout
 PositionVelocityTime.decide_bias_layout!
@@ -136,13 +133,13 @@ PositionVelocityTime.BiasLayout
 PositionVelocityTime.fit_columns
 PositionVelocityTime.dop_columns
 PositionVelocityTime.select_reference_system
+PositionVelocityTime.time_system_index
 PositionVelocityTime.predict_pseudoranges!
 PositionVelocityTime.calc_design_matrix
+PositionVelocityTime.calc_design_matrix!
 PositionVelocityTime.calc_dop
 PositionVelocityTime.calc_dop!
 PositionVelocityTime.calc_pseudorange_rate
-PositionVelocityTime.estimate_velocity
-PositionVelocityTime.estimate_velocity!
 PositionVelocityTime.leap_second_offset_to_gpst
 PositionVelocityTime.calc_leap_second_corrections
 PositionVelocityTime.time_offset_available
@@ -161,13 +158,12 @@ PositionVelocityTime.IonosphericModel
 The unexported internals the surface above links to, documented for reference:
 
 ```@docs
-PositionVelocityTime.calc_design_matrix!
 PositionVelocityTime.estimate_position
 PositionVelocityTime.estimate_position!
-PositionVelocityTime.num_parameters
+PositionVelocityTime.estimate_velocity
+PositionVelocityTime.estimate_velocity!
 PositionVelocityTime.num_observations
 PositionVelocityTime.unique_time_systems
-PositionVelocityTime.time_system_index
 ```
 
 ## Multi-GNSS Classification

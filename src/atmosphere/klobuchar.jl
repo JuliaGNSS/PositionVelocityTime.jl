@@ -40,7 +40,7 @@ latitude/longitude, `elevation`/`azimuth` (the ICD's `E`/`A`) the satellite's.
 `time_of_week` is the BDT second of week (the ICD's `t_E`). `α`/`β` are the 4-element
 coefficient tuples (SI units, per semicircle like the GPS set).
 
-The half-cosine idea of [`klobuchar_group_delay`](@ref), but the ICD replaces its fitted
+The half-cosine idea of `klobuchar_group_delay`, but the ICD replaces its fitted
 approximations with exact spherical geometry and drops the geomagnetic frame:
 
 - The Earth-central angle to the ionospheric pierce point is the exact

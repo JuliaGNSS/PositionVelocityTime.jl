@@ -29,7 +29,7 @@ end
 The eight coefficients of BeiDou's Klobuchar variant, decoded from the legacy D1/D2
 message (B1I/B3I), in BDS-SIS-ICD-B1I-3.0 §5.2.4.7 SI units (seconds and seconds·π⁻ⁿ,
 per semicircle like the GPS set). A type of its own because the ICD prescribes a
-different algorithm ([`beidou_klobuchar_group_delay`](@ref)), with the delay defined at
+different algorithm (`beidou_klobuchar_group_delay`), with the delay defined at
 B1I (1561.098 MHz) rather than L1.
 """
 struct BeiDouKlobucharParameters
