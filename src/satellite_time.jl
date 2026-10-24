@@ -382,5 +382,4 @@ function calc_transmit_time(state::SatelliteState)
 end
 
 # `time_offset_available` and `calc_steering_offset` — the two functions that read a
-# decoder's broadcast time offsets — live in `measurement.jl`, next to the
-# `BroadcastTimeOffset` row they flatten those offsets into.
+# decoder's broadcast time offsets — live in `time_systems.jl`.

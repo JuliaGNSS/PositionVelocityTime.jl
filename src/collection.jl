@@ -9,6 +9,38 @@
 # constellations the epoch mixes.
 
 """
+    SatelliteState{CP<:Real,D<:GNSSDecoderState,S<:AbstractGNSSSignal}
+
+Combines the GNSS decoder state with code and carrier phase measurements for a single satellite.
+
+# Fields
+- `decoder::GNSSDecoderState`: GNSS decoder state containing decoded navigation data
+- `signal::AbstractGNSSSignal`: the ranging signal the code phase and carrier Doppler
+  were measured on (e.g., `GPSL1CA()`, `GalileoE1C()`). It may be a dataless pilot,
+  whose navigation data `decoder` decoded from the data component of the same band.
+- `code_phase::CP`: Code phase measurement in chips
+- `carrier_doppler`: Carrier Doppler frequency in Hz
+- `carrier_phase::CP`: Carrier phase measurement in radians, matching
+  `Tracking.get_carrier_phase` (default: `0.0`)
+
+# Constructors
+    SatelliteState(; decoder, signal, code_phase, carrier_doppler, carrier_phase=0.0)
+    SatelliteState(decoder, signal, tracked_satellite)
+
+The second constructor extracts code phase, carrier Doppler, and carrier phase from
+`tracked_satellite`, a `Tracking.TrackedSat`. Tracking.jl defines it (from
+Tracking 9.1 on), so it is available once `Tracking` is loaded; this package does not
+depend on Tracking.
+"""
+@kwdef struct SatelliteState{CP<:Real,D<:GNSSDecoder.GNSSDecoderState,S<:AbstractGNSSSignal}
+    decoder::D
+    signal::S
+    code_phase::CP
+    carrier_doppler::typeof(1.0Hz)
+    carrier_phase::CP = 0.0
+end
+
+"""
     PositionVelocityTime.SignalGroup(signal, satellites)
 
 A per-epoch measurement snapshot of the satellites tracked on one ranging `signal`.
@@ -243,121 +275,6 @@ struct SatelliteMeasurement
     week::Int
     system_start_epoch::TAITime
     broadcast_time_offsets::NTuple{3,BroadcastTimeOffset}
-end
-
-"""
-    time_offset_available(measurement::SatelliteMeasurement, target) -> Bool
-    time_offset_available(decoder::GNSSDecoderState, target) -> Bool
-
-Whether a usable broadcast offset from this satellite's own GNSS time system to
-`target` is available. Such an offset lets that constellation's measurements be
-expressed on the target system's clock, which makes a fix possible when the geometry
-is too weak to estimate an independent clock bias for it — see
-[`decide_bias_layout`](@ref), which ties the two clocks together this way. Toward GPS
-Time that is Galileo's GGTO and BeiDou's BGTO; toward Galileo System Time it is
-BeiDou's BGTO variant and the GGTO GPS itself broadcasts on CNAV/CNAV-2.
-
-The measurement form reads the flag [`collect_measurements`](@ref) already flattened
-into `measurement.broadcast_time_offsets` (equivalently
-`measurement.broadcast_time_offsets[i].available`), and is `false` for any `target` outside [`SUPPORTED_TIME_SYSTEMS`](@ref), which no
-message broadcasts an offset toward.
-
-The decoder form is the underlying predicate, and delegates to GNSSDecoder's
-`get_time_offset`, which screens every way a signal can fail to have one: it
-broadcasts none toward `target` (GPS L1 C/A and Galileo E6-B broadcast none at all),
-it does but has not decoded one yet, the decoded one names a different target system,
-the ICD's "not available" sentinel is set (a `GNSS_ID` of 0; Galileo's all-ones GGTO),
-or — on Galileo — the reference week has not arrived yet, since word type 10 can be
-decoded before the week number is. Always `false` when `target` is the decoder's own
-system: the offset from a scale to itself is not a broadcast quantity.
-"""
-function time_offset_available(
-    measurement::SatelliteMeasurement,
-    target::GNSSSignals.TimeSystem,
-)
-    index = time_offset_index(target)
-    isnothing(index) ? false : measurement.broadcast_time_offsets[index].available
-end
-
-time_offset_available(
-    decoder::GNSSDecoder.GNSSDecoderState,
-    target::GNSSSignals.TimeSystem,
-) = !isnothing(get_time_offset(decoder, target))
-
-"""
-    calc_steering_offset(offset::BroadcastTimeOffset, t) -> Float64
-
-The broadcast *steering* offset between a constellation's time scale and the target
-scale `offset` was built against, in seconds, evaluated at the own-scale time of week
-`t`. Subtract it to convert a transmit time to the target system's time. Only defined
-where `offset.available` (see [`time_offset_available`](@ref)).
-
-Tens of nanoseconds: it is the residual between two atomic scales, not the whole
-difference between their counts. GNSSDecoder's `GNSSTimeOffset.A_0` folds in the
-*defined* whole-second offset as well — so that `t_target = t_own − Δt` holds for the
-seconds — and `offset.leap_second_offset_to_target` takes that part back out, because
-[`calc_leap_second_corrections`](@ref) has already applied it to the transmit times before
-they were differenced. Both sides are the same [`leap_second_offset_to_gpst`](@ref)
-expression, so the two halves compose exactly rather than approximately.
-
-!!! note "The subtraction costs about seven digits of the residual"
-
-    Recovering a ~1e-8 s residual by subtracting 14 s from a `Float64` leaves roughly
-    1.8e-15 s of rounding — one ULP at 14. That is 0.5 µm of range, so it is
-    irrelevant to a fix, but it is why the tests here compare the steering term with
-    an explicit tolerance rather than the default `≈`.
-"""
-function calc_steering_offset(offset::BroadcastTimeOffset, t)
-    # A `NaN` `t_0` marks a message that carries no reference epoch at all (BeiDou
-    # D1/D2); there the polynomial argument is the time of week itself. Where it is
-    # present, `week_term` already carries `SECONDS_PER_WEEK * (own week − WN_0)`.
-    Δτ = isnan(offset.t_0) ? t : t - offset.t_0 + offset.week_term
-    offset.A_0 + offset.A_1 * Δτ + offset.A_2 * Δτ^2 -
-    offset.leap_second_offset_to_target
-end
-
-# The broadcast offsets toward every supported time system, flattened. `map` over the
-# heterogeneous `SUPPORTED_TIME_SYSTEMS` tuple specialises per element, so each
-# `get_time_offset` call is statically dispatched on both the decoder and the target.
-function broadcast_time_offsets(decoder, week, own_leap_second_offset)
-    map(SUPPORTED_TIME_SYSTEMS) do target
-        offset = get_time_offset(decoder, target)
-        isnothing(offset) && return NO_TIME_OFFSET
-        BroadcastTimeOffset(
-            true,
-            offset.A_0,
-            offset.A_1,
-            offset.A_2,
-            isnothing(offset.t_0) ? NaN : Float64(offset.t_0),
-            isnothing(offset.WN_0) ? 0.0 : SECONDS_PER_WEEK * (week - offset.WN_0),
-            own_leap_second_offset - leap_second_offset_to_gpst(target),
-        )
-    end
-end
-
-"""
-    broadcast_time_offset(decoder, target; approximate_year = year(now(UTC)))
-        -> BroadcastTimeOffset
-
-The single [`BroadcastTimeOffset`](@ref) from `decoder`'s own GNSS time system toward
-`target`, as [`collect_measurements`](@ref) flattens it onto every
-[`SatelliteMeasurement`](@ref) — the standalone form, for a consumer evaluating a
-broadcast time offset outside a fix. Unavailable (`available == false`) for a `target`
-outside [`SUPPORTED_TIME_SYSTEMS`](@ref), and for any message that carries no such
-offset (see [`time_offset_available`](@ref)).
-"""
-function broadcast_time_offset(
-    decoder::GNSSDecoder.GNSSDecoderState,
-    target::GNSSSignals.TimeSystem;
-    approximate_year::Integer = year(now(UTC)),
-)
-    index = time_offset_index(target)
-    isnothing(index) && return NO_TIME_OFFSET
-    broadcast_time_offsets(
-        decoder,
-        get_week(decoder; approximate_year),
-        leap_second_offset_to_gpst(get_time_system(decoder)),
-    )[index]
 end
 
 # One satellite state → one flat row. Every decoder- and signal-typed call of the
