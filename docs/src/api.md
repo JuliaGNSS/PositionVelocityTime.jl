@@ -98,10 +98,17 @@ own estimator over the same measurement model, such as a navigation filter. They
 unexported; bind them with `using PositionVelocityTime: collect_measurements, …`.
 
 The surface is specified on the flat row: a consumer first calls
-[`PositionVelocityTime.collect_measurements`](@ref), and every function below that takes
-per-satellite input takes those
-`Vector{`[`PositionVelocityTime.SatelliteMeasurement`](@ref)`}` rows and returns one value
-per row, in order. Only
+[`PositionVelocityTime.collect_measurements`](@ref), and every per-satellite input and
+output below follows the order of those
+`Vector{`[`PositionVelocityTime.SatelliteMeasurement`](@ref)`}` rows. The functions that
+read several fields of a row take the rows themselves (the bias layout, the leap-second
+corrections, the velocity solve, the atmospheric delays). The others take
+arrays drawn from them, one entry per row: the transmit times, the satellite positions
+(a `3 × N` matrix or a vector of `SVector{3}`s) and the pseudoranges, where the
+pseudoranges and the design matrix carry one more row per
+[`ClockConstraint`](@ref PositionVelocityTime.ClockConstraint) after the satellites'.
+[`calc_pseudorange_rate`](@ref PositionVelocityTime.calc_pseudorange_rate) takes one
+satellite's values. Only
 [`calc_transmit_time`](@ref PositionVelocityTime.calc_transmit_time),
 [`calc_satellite_clock_drift`](@ref PositionVelocityTime.calc_satellite_clock_drift),
 [`get_week`](@ref PositionVelocityTime.get_week),
