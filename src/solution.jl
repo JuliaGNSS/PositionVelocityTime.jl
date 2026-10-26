@@ -75,6 +75,29 @@ struct InterFrequencyBias
 end
 
 """
+    BroadcastInterSystemBias
+
+An inter-system bias a [`PVTSolution`](@ref) took from a broadcast GNSS time offset (GGTO,
+BGTO) rather than estimated, where the satellites could not separate the two receiver
+clocks (see [`decide_bias_layout`](@ref)). It carries whatever error the broadcast has,
+and each one fixes an unknown: a fix estimates `3 + (1 + length(inter_system_biases)) +
+length(inter_frequency_biases) − length(applied_broadcast_inter_system_biases)` parameters.
+
+# Fields
+- `system::SupportedTimeSystem`: the time system whose broadcast offset was used.
+- `target::SupportedTimeSystem`: the time system the offset is toward.
+- `value::typeof(1.0m)`: the bias of `system` against `target`, as
+  [`broadcast_inter_system_bias`](@ref) evaluates it. The solution meets it: the
+  inter-system bias of `system` minus that of `target`, the reference system's counting as
+  zero, equals it to rounding.
+"""
+struct BroadcastInterSystemBias
+    system::SupportedTimeSystem
+    target::SupportedTimeSystem
+    value::typeof(1.0m)
+end
+
+"""
     PVTSolution
 
 Complete Position, Velocity, and Time solution from GNSS measurements.
@@ -134,6 +157,10 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   [`ifb_layout`](@ref)), so a disconnected constellation can in principle yield
   several references. Empty for a single-band solution. A solution then needs
   `n ≥ 3 + M + B` satellites for `M` time systems and `B` extra bands.
+- `applied_broadcast_inter_system_biases::Vector{BroadcastInterSystemBias}`: the
+  inter-system biases taken from a broadcast time offset rather than estimated, one per
+  pair of clocks it tied (see [`BroadcastInterSystemBias`](@ref)). Empty whenever the
+  satellites separate every clock, the usual case.
 
 Immutable: a solution's fields cannot be reassigned once it is built. The allocation-free
 [`calc_pvt!`](@ref) returns a new solution too; what it reuses are the `satellites`,
@@ -157,6 +184,8 @@ it reads.
         Dictionary{SupportedTimeSystem,typeof(1.0m)}()
     inter_frequency_biases::Dictionary{Symbol,InterFrequencyBias} =
         Dictionary{Symbol,InterFrequencyBias}()
+    applied_broadcast_inter_system_biases::Vector{BroadcastInterSystemBias} =
+        BroadcastInterSystemBias[]
 end
 
 """
@@ -199,6 +228,7 @@ Base.copy(pvt::PVTSolution) = PVTSolution(
     pvt.reference_system,
     copy(pvt.inter_system_biases),
     copy(pvt.inter_frequency_biases),
+    copy(pvt.applied_broadcast_inter_system_biases),
 )
 
 # A copy of `source` in the containers of `solution`. `source` itself where the two
@@ -208,10 +238,14 @@ function copy_into(solution::PVTSolution, source::PVTSolution)
     solution.satellites === source.satellites &&
         solution.inter_system_biases === source.inter_system_biases &&
         solution.inter_frequency_biases === source.inter_frequency_biases &&
+        solution.applied_broadcast_inter_system_biases ===
+        source.applied_broadcast_inter_system_biases &&
         return source
     copy_container!(solution.satellites, source.satellites)
     copy_container!(solution.inter_system_biases, source.inter_system_biases)
     copy_container!(solution.inter_frequency_biases, source.inter_frequency_biases)
+    copy_container!(solution.applied_broadcast_inter_system_biases,
+        source.applied_broadcast_inter_system_biases)
     PVTSolution(
         source.position,
         source.velocity,
@@ -224,6 +258,7 @@ function copy_into(solution::PVTSolution, source::PVTSolution)
         source.reference_system,
         solution.inter_system_biases,
         solution.inter_frequency_biases,
+        solution.applied_broadcast_inter_system_biases,
     )
 end
 
@@ -235,6 +270,8 @@ function copy_container!(destination::Dictionary, source::Dictionary)
     end
     destination
 end
+copy_container!(destination::Vector, source::Vector) =
+    destination === source ? destination : copy!(destination, source)
 
 """
     empty_keeping_capacity!(dict::Dictionary) -> dict
@@ -244,9 +281,11 @@ Empty a `Dictionary` without giving up its storage, so refilling it with as many
 as before allocates nothing. `empty!(::Dictionary)` hands the dictionary a fresh, minimal
 hash table instead, which a refill then reallocates and regrows.
 
-The [`PVTSolution`](@ref) form empties all three of a solution's containers that way —
-`satellites`, `inter_system_biases` and `inter_frequency_biases` — for a consumer that
-builds its own solutions into the containers of one it keeps, as [`calc_pvt!`](@ref) does.
+The [`PVTSolution`](@ref) form empties all four of a solution's containers that way —
+`satellites`, `inter_system_biases`, `inter_frequency_biases` and
+`applied_broadcast_inter_system_biases` (the `Vector` by `empty!`, which keeps its
+capacity) — for a consumer that builds its own solutions into the containers of one it
+keeps, as [`calc_pvt!`](@ref) does.
 """
 function empty_keeping_capacity! end
 
@@ -271,6 +310,7 @@ function empty_keeping_capacity!(solution::PVTSolution)
     empty_keeping_capacity!(solution.satellites)
     empty_keeping_capacity!(solution.inter_system_biases)
     empty_keeping_capacity!(solution.inter_frequency_biases)
+    empty!(solution.applied_broadcast_inter_system_biases)
     solution
 end
 

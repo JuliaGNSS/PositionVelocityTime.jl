@@ -111,6 +111,8 @@ end
     # reported as clock_bias, with Galileo's offset relative to it.
     @test pvt.reference_system == GPST()
     @test Set(keys(pvt.inter_system_biases)) == Set([GST()])
+    # Enough satellites to separate the clocks: no broadcast offset is taken as given.
+    @test isempty(pvt.applied_broadcast_inter_system_biases)
 
     # The combined fix agrees with each single-system fix and with the
     # GPS-anchored time scale.

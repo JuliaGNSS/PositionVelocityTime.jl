@@ -767,6 +767,11 @@
         # than an estimate from the geometry: four satellites leave exactly the clock
         # difference unobservable, so the fit meets the constraint exactly.
         @test ustrip(m, constrained.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
+        # And the solution says so.
+        bgto = only(constrained.applied_broadcast_inter_system_biases)
+        @test (bgto.system, bgto.target) == (BDT(), GPST())
+        @test ustrip(m, bgto.value) ≈ -C * Δ atol = 1e-2
+        @test bgto.value ≈ constrained.inter_system_biases[BDT()] atol = 1e-6m
 
         # Without the BGTO the same four satellites are unsolvable — no constraint is
         # available and the independent layout cannot be paid for — and `calc_pvt`
@@ -813,6 +818,8 @@
         mixed_pvt = calc_pvt(mixed; kw...)
         @test norm(mixed_pvt.position - user) < 5e-2
         @test ustrip(m, mixed_pvt.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
+        @test mixed_pvt.applied_broadcast_inter_system_biases ==
+              [BroadcastInterSystemBias(BDT(), GPST(), constraint.value * m)]
 
         # The constraint goes to the system with the fewest satellites, wherever it
         # appears: with a second Galileo satellite, BeiDou's single one is the least

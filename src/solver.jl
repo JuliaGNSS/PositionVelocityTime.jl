@@ -201,8 +201,9 @@ end
 ```
 
 **`solution` is the output argument, and the only thing overwritten**: the returned
-solution takes over its `satellites`, `inter_system_biases` and `inter_frequency_biases`
-containers, which are emptied and refilled with this epoch's values. `solution` itself
+solution takes over its `satellites`, `inter_system_biases`, `inter_frequency_biases` and
+`applied_broadcast_inter_system_biases` containers, which are emptied and refilled with
+this epoch's values. `solution` itself
 is therefore spent — its own fields still describe the epoch it was computed for, but
 its containers now hold the new one — so use the returned solution from here on, and
 keep a [`copy`](@ref Base.copy(::PVTSolution)) of `solution` if you need it after the
@@ -456,6 +457,14 @@ function _solve_pvt!(
             InterFrequencyBias(ξ[3+num_clock_biases+i] * m, reference_bands[i]))
     end
 
+    # The inter-system biases the fit took from a broadcast offset, by time system.
+    applied_biases = empty!(solution.applied_broadcast_inter_system_biases)
+    for constraint in constraints
+        push!(applied_biases, BroadcastInterSystemBias(
+            clock_systems[constraint.column], clock_systems[constraint.target_column],
+            constraint.value * m))
+    end
+
     return true,
     PVTSolution(
         position,
@@ -469,5 +478,6 @@ function _solve_pvt!(
         reference_system,
         inter_system_biases,
         inter_frequency_biases,
+        applied_biases,
     )
 end
