@@ -41,7 +41,6 @@ PositionVelocityTime.signal_groups
 PositionVelocityTime.SatelliteMeasurement
 PositionVelocityTime.collect_measurements
 PositionVelocityTime.collect_measurements!
-PositionVelocityTime.collect_measurement_rows!
 PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
 PositionVelocityTime.SupportedTimeSystem
 ```

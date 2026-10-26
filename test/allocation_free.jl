@@ -307,14 +307,14 @@ end
     @testset "the measurements are collected without allocating" begin
         groups = (gps = l1ca, galileo = e1b)
         measurements = PositionVelocityTime.SatelliteMeasurement[]
-        parameters = PositionVelocityTime.collect_measurement_rows!(
+        parameters = PositionVelocityTime.collect_measurements!(
             measurements, groups; approximate_year = 2021)
         expected_measurements, expected_parameters =
             PositionVelocityTime.collect_measurements(groups; approximate_year = 2021)
         @test measurements == expected_measurements
         @test parameters == expected_parameters
         collect_into!(measurements, groups) = @allocated(
-            PositionVelocityTime.collect_measurement_rows!(measurements, groups;
+            PositionVelocityTime.collect_measurements!(measurements, groups;
                 approximate_year = 2021))
         collect_into!(measurements, groups)
         @test collect_into!(measurements, groups) == 0
