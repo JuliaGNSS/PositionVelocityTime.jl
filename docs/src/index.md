@@ -1,15 +1,16 @@
 # PositionVelocityTime.jl
 
-Calculates position, velocity, and time from GNSS satellite measurements.
+Calculates position, velocity and time from GNSS satellite measurements.
 
 ## Features
 
-- Estimation of user position, velocity, and time
-- Satellite position and velocity calculation from orbital parameters: the
-  directly-broadcast Keplerian ephemerides (GPS LNAV, Galileo I/NAV and F/NAV,
-  BeiDou D1/D2), the quasi-Keplerian ones (GPS CNAV/CNAV-2, BeiDou B-CNAV1/2/3),
-  and the BeiDou GEO reference frame
-- Dilution of Precision (DOP) computation
+- Estimation of user position, velocity and time, with the receiver clock bias and drift
+- Satellite position and velocity from the broadcast ephemerides: the directly broadcast
+  Keplerian ones (GPS LNAV, Galileo I/NAV and F/NAV, BeiDou D1/D2), the quasi-Keplerian
+  ones (GPS CNAV/CNAV-2, BeiDou B-CNAV1/2/3), and the BeiDou GEO reference frame
+- Dilution of precision (GDOP, PDOP, HDOP, VDOP, TDOP)
+- Ionospheric (NTCM-G, BDGIM, Klobuchar) and tropospheric (Saastamoinen with the Niell
+  mapping functions) corrections from the navigation data alone
 - Support for GPS (L1 C/A, L2C, L5, L1C), Galileo (E1B, E5a, E5b) and BeiDou
   (B1I, B3I, B1C, B2a, B2b), including combined multi-GNSS solutions. Each
   measurement is one satellite-band pseudorange; the group-delay/ISC correction is
@@ -36,7 +37,7 @@ Pkg.add("PositionVelocityTime")
 
 ## Quick Start
 
-Decoded data and code phase of a satellite must be combined in the [`SatelliteState`](@ref) struct:
+A satellite's decoder and code phase are combined in a [`SatelliteState`](@ref):
 
 ```julia
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
@@ -54,9 +55,8 @@ sat_state = SatelliteState(
 `code_phase` is in chips and `carrier_phase` in radians, matching `Tracking`'s
 `get_code_phase` and `get_carrier_phase`.
 
-With Tracking.jl 9.1 or later loaded, you can pass a `Tracking.TrackedSat` directly — `tracked_sat` is what
-`Tracking.get_sat_state` returns for a tracked satellite, and the code phase, carrier
-Doppler, and carrier phase are read off it:
+With Tracking.jl loaded, a `Tracking.TrackedSat` (what
+`Tracking.get_sat_state` returns) supplies the code phase, carrier Doppler and phase:
 
 ```julia
 using Tracking
@@ -76,64 +76,27 @@ lla = get_lla(pvt)  # latitude, longitude, altitude
 ```
 
 Each group holds the satellites tracked on one signal, as a `Dictionary` keyed by PRN or
-as a plain vector. A single group needs no NamedTuple around it —
-`calc_pvt(SignalGroup(GPSL1CA(), gps_sat_states))` is a complete one-constellation solve.
-With Tracking.jl 9.1 or later loaded, a whole `TrackState` and its decoders become groups in one call:
+a plain vector; a single group needs no `NamedTuple` around it. With Tracking.jl loaded,
+a whole `TrackState` and its decoders become groups in one call:
 
 ```julia
 using Tracking
 pvt = calc_pvt(PositionVelocityTime.signal_groups(track_state, decoders))
 ```
 
-Satellites from different constellations may be combined this way. Because each GNSS
-references its broadcasts to its own system time, [`calc_pvt`](@ref) estimates one
-receiver clock bias per GNSS time system, so a combined fix needs at least `3 + M`
-satellites for `M` distinct systems — unless a broadcast offset between two of them
-(GGTO, BGTO) ties their clocks together, which brings a mixed fix down to 4 satellites.
-The per-system clock offsets are reported as `pvt.inter_system_biases` relative to
-`pvt.reference_system`.
-
-!!! note "Migrating from 5.x"
-
-    `calc_pvt` used to take a flat `AbstractVector{<:SatelliteState}`. Pooling several
-    constellations into one vector made its element type abstract, which turned every
-    per-satellite call inside the solve into a dynamic dispatch — a mixed 14-satellite
-    epoch cost about five times a single-constellation one. Groups fix that at the
-    source, and behind them the solver now works on one flat, parameter-free
-    measurement row and compiles once for every constellation mix.
-
-    There is deliberately no conversion function from the old input: `calc_pvt` refuses
-    a pooled vector with an error saying what to build. A converter would have had to
-    infer the grouping from whatever signals the vector happened to hold, which is a
-    runtime property — so the conversion itself would be inference-blind, reintroducing
-    in one place the dispatch the grouping removes everywhere else. Build the groups
-    where the satellites are tracked, which is the shape `Tracking.jl` and
-    `GNSSReceiver.jl` already carry, and hand the same groups to `calc_pvt`.
-
-    The measurement-model surface moved with it: its per-satellite functions now take
-    the [`PositionVelocityTime.SatelliteMeasurement`](@ref) rows that
-    [`PositionVelocityTime.collect_measurements`](@ref) produces, rather than
-    `SatelliteState`s plus parallel classification vectors. See
-    [The Measurement-Model Surface](@ref).
-
-    `pvt.time` is a `TAITime` rather than an AstroTime `TAIEpoch`, and AstroTime
-    is no longer loaded with this package: `using AstroTime` and `TAIEpoch(pvt.time)`
-    converts it exactly. `position` and `velocity` are `ECEF{Float64}`, and the keys of
-    `inter_system_biases` (and `reference_system`) are
-    [`PositionVelocityTime.SupportedTimeSystem`](@ref)s. These are what let the solver
-    compile into a trimmed executable — see [Trimmed Executables](@ref).
-
-If too few healthy satellites are tracked to solve the constellation — or the geometry
-turns out to be degenerate — [`calc_pvt`](@ref) returns the `prev_pvt` it was given (the
-origin solution by default) rather than throwing, so a receiver can hand it whatever it
-currently tracks each epoch and carry the last solution forward.
+Satellites from different constellations may be combined this way. One receiver clock
+bias is estimated per time system, reported as `pvt.inter_system_biases` relative to
+`pvt.reference_system`, so a fix over `M` time systems needs `3 + M` satellites, unless a
+broadcast offset between two systems (Galileo's GGTO, BeiDou's BGTO) ties their clocks,
+which brings a mixed fix down to 4. An epoch that cannot be solved returns the `prev_pvt`
+[`calc_pvt`](@ref) was given rather than throwing, so a receiver can hand over whatever it
+tracks.
 
 ### Solving without allocating
 
-`calc_pvt` builds a new solution, containers and all, every epoch. A receiver solving a
-steady stream of epochs can instead hand [`calc_pvt!`](@ref) the previous solution as
-the one to reuse, and a [`PVTWorkspace`](@ref) for its scratch; once both have held an
-epoch of that size, a solve allocates nothing:
+A receiver solving a stream of epochs can hand [`calc_pvt!`](@ref) the solution to reuse
+and a [`PVTWorkspace`](@ref); once both have held an epoch of that size, a solve allocates
+nothing:
 
 ```julia
 pvt = PVTSolution()
@@ -143,10 +106,4 @@ for groups in epochs
 end
 ```
 
-A [`PVTSolution`](@ref) is immutable, so `calc_pvt!` returns the new fix; what it reuses
-are the `satellites` and bias containers of its first argument, which the returned solution
-takes over. That argument is the only thing overwritten — `prev_pvt` is only read, so
-passing a different solution there keeps it intact — and it is spent by the call: keep
-the returned solution, and `copy(pvt)` any solution you want to keep beyond the next
-call. An epoch that cannot be solved returns `prev_pvt`, the answer `calc_pvt` would
-have returned.
+Keep the returned solution; [`calc_pvt!`](@ref) says what it reuses and overwrites.

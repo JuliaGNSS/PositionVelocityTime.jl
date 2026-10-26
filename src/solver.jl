@@ -1,28 +1,19 @@
 # `calc_pvt` and `calc_pvt!`: the collection pass, then the solve behind it.
 
-# PDOP above which a previous solution is distrusted as a warm-start seed and
-# discarded (see the gate at the top of `calc_pvt`). Genuine geometries this
-# side of useless stay well under it — a PDOP of 20 is already an unusable fix —
-# while the spurious far-away roots the gate exists to catch show hundreds (the
-# observed incident: 587). Discarding a fix that honestly earned a high DOP is
-# harmless — the cold solve lands in the same place — so the exact value only
-# sets how often that happens.
+# PDOP above which a previous solution is not trusted as a warm-start seed. A PDOP of 20 is
+# already an unusable fix, while the spurious far-away roots this catches show hundreds
+# (the observed incident: 587); a genuine high-DOP fix discarded only costs a cold start.
 const MAX_TRUSTED_WARM_START_PDOP = 50.0
 
 """
     PVTWorkspace()
 
-The reusable scratch storage of [`calc_pvt!`](@ref): the measurements, the bias layout,
-the pseudoranges and their corrections, the least-squares buffers, the design and
-normal-equations matrices, the velocity solve's design rows and the residuals. Every
-buffer grows to the largest epoch it has seen and is reused from then on; its contents
-after a solve are not part of any interface.
+The reusable buffers of [`calc_pvt!`](@ref), in the order the solve uses them. Each grows
+to the largest epoch seen; their contents are not part of any interface.
 
-Satellite positions are kept as a `Vector{SVector{3,Float64}}` — a fixed-size quantity
-per satellite, in a vector that is resized in place. The least-squares state, whose
-length `3 + M + B` depends on the epoch's time systems and bands, is a plain vector
-instead of a static one, so the solver compiles once rather than once per layout; the
-matrices sized by it are kept at their largest and used through views.
+The least-squares state, whose length depends on the epoch's systems and bands, is a plain
+vector rather than a static one, so the solver compiles once rather than once per layout;
+the matrices sized by it are kept at their largest and used through views.
 """
 mutable struct PVTWorkspace
     measurements::Vector{SatelliteMeasurement}
@@ -62,52 +53,23 @@ PVTWorkspace() = PVTWorkspace(
              enable_ionospheric_correction::Bool = true,
              enable_tropospheric_correction::Bool = true) -> PVTSolution
 
-Calculate Position, Velocity, and Time (PVT) from GNSS satellite measurements.
+Calculate position, velocity and time from GNSS satellite measurements.
 
-Satellites from different GNSS and frequency bands may be combined. Because each
-constellation references its broadcasts to its own system time, one receiver clock
-bias is estimated per GNSS time system; and because the receiver's RF chain delays
-each band differently, one receiver inter-frequency bias is estimated per frequency
-band beyond a reference band (shared across constellations on that band; see
-`get_band_id`). The state vector is therefore
-`[x, y, z, tc₁, …, tc_M, ifb₁, …, ifb_B]` for `M` distinct time systems and `B`
-extra bands. Position and time are found by least squares; velocity and clock drift
-are solved from carrier Doppler.
+Satellites of several GNSS and frequency bands may be combined. One receiver clock bias is
+estimated per time system and one inter-frequency bias per band beyond a reference band,
+so the state is `[x, y, z, tc₁, …, tc_M, ifb₁, …, ifb_B]`; where the satellites cannot
+separate two clocks, a broadcast time offset ties them (see
+[`decide_bias_layout`](@ref), which also gives the satellites a fix needs). Position and
+time are found by least squares, velocity and clock drift from carrier Doppler.
 
-A solution requires `n ≥ 3 + M + B` healthy satellite measurements (each system needs at
-least one satellite, and a system contributing a single satellite spends it entirely
-on that system's clock bias), of which `3 + M` must come from *distinct* satellites: a
-satellite tracked on several bands supplies one line of sight, and its extra
-measurements constrain the inter-frequency biases rather than the geometry. When either
-condition fails, constellations whose messages carry a broadcast offset to another
-tracked system — Galileo's GGTO (Galileo–GPS Time Offset), BeiDou's BGTO (BDT–GNSS
-Time Offset, toward GPS or Galileo), or the GGTO GPS itself broadcasts on CNAV/CNAV-2
-— have their clock tied to that system's by the broadcast offset, a constraint the fit
-meets exactly, which makes a 4-satellite mixed fix possible (see
-[`decide_bias_layout`](@ref)). Estimating an independent bias is preferred whenever the
-geometry allows it, since it avoids the broadcast offset's own error.
-
-Unless disabled via `enable_ionospheric_correction`, the ionospheric delay is
-corrected automatically using only the coefficients decoded from the navigation
-messages. A single model is chosen for the whole solve and applied to every
-satellite, preferring the more accurate global TEC models: NTCM-G if Galileo
-Effective Ionisation Level coefficients have been decoded, else BDGIM if a BDS-3
-B-CNAV (B1C/B2a/B2b) coefficient set has, else the GPS Klobuchar model, else
-BeiDou's own Klobuchar variant from its legacy B1I/B3I message, else no
-correction. See
-[`select_ionospheric_parameters`](@ref) and [`ionospheric_delay`](@ref).
-
-Unless disabled via `enable_tropospheric_correction`, the tropospheric delay is
-corrected with a blind model (no broadcast coefficients needed): Saastamoinen
-zenith delays mapped to the line of sight by the Niell mapping functions.
-See [`tropospheric_delay`](@ref).
+The ionospheric delay is corrected from the navigation messages' own coefficients, with one
+model for the whole solve (see [`select_ionospheric_parameters`](@ref)), and the
+tropospheric delay with a blind model (see [`tropospheric_delay`](@ref)).
 
 # Arguments
 - `groups`: this epoch's measurements, as signal groups: a `NamedTuple` of
-  [`SignalGroup`](@ref)s, one per ranging signal, each holding that signal's
-  [`SatelliteState`](@ref)s. A bare `Tuple` of groups is accepted (and numbered
-  `group1`, `group2`, …), as is a single `SignalGroup` (which becomes the `:default`
-  group), so a one-constellation solve stays a one-liner:
+  [`SignalGroup`](@ref)s, one per ranging signal. A bare `Tuple` of groups (numbered
+  `group1`, `group2`, …) or a single `SignalGroup` (the `:default` group) also does:
 
   ```julia
   using PositionVelocityTime: SignalGroup
@@ -116,54 +78,33 @@ See [`tropospheric_delay`](@ref).
             galileo = SignalGroup(GalileoE1B(), galileo_states)))
   ```
 
-  Grouping is what makes the solve type-stable: within a group every satellite shares
-  one concrete state type, so [`collect_measurements`](@ref) dispatches statically, and
-  the solver behind it compiles once for every constellation mix. Build the groups where
-  the satellites are tracked — with Tracking.jl 9.1 or later loaded,
-  [`signal_groups`](@ref)`(track_state, decoders)` builds them from a whole `TrackState`.
-  A pooled `Vector{SatelliteState}`, which is what this function took before 6.0, is
-  refused with an error saying what to build instead.
+  Grouping keeps the solve type-stable (see [`SignalGroup`](@ref)); a pooled
+  `Vector{SatelliteState}` is refused, and [`signal_groups`](@ref) builds the groups from a
+  Tracking.jl `TrackState`.
 
-  Each `(signal, PRN)` pair must appear at most once — a receiver produces one
-  measurement per signal per satellite, and a duplicate would enter the least-squares
-  solve twice. A `Dictionary`-backed group prevents this within itself; two groups that
-  share a ranging signal can still collide, and are not checked for.
+  Each `(signal, PRN)` pair must appear at most once, or it enters the fit twice; two
+  groups sharing a ranging signal are not checked for collisions.
 
-  **Order is significant**, as vector order was before it: the flat measurement order
-  is group order × within-group order, and it fixes the reference system's tie-break
-  ("most satellites, ties by first appearance"), [`ifb_layout`](@ref)'s
-  reference-band tie-break, and the insertion order of `PVTSolution.satellites`.
-- `prev_pvt`: Previous PVT solution used as initial guess (default: origin). A
-  previous solution whose own DOP is implausible (`NaN`, or `PDOP` above
-  `MAX_TRUSTED_WARM_START_PDOP` = 50) is not used as a seed and the epoch is
-  solved from cold, so one spurious fix cannot re-seed itself epoch after epoch.
+  **Order is significant**: the measurements are in group order × within-group order,
+  which breaks the ties of the reference system ("most satellites, first appearance") and
+  of [`ifb_layout`](@ref)'s reference bands, and orders
+  `PVTSolution.satellites`.
+- `prev_pvt`: the previous solution, the warm start (default: the origin). One whose DOP
+  is implausible (`NaN`, or `PDOP` above `MAX_TRUSTED_WARM_START_PDOP` = 50) is not
+  used, so a spurious fix cannot re-seed itself.
 
 # Keyword Arguments
-- `approximate_year`: Calendar year of the observation, used to resolve the
-  GPS L1 C/A 1024-week rollover ambiguity (legacy LNAV broadcasts only a
-  10-bit week number, so the receiver needs external information to
-  determine which 1024-week cycle the recording is in). Anything within
-  ±9 years of the actual observation date works. Defaults to the current
-  UTC year, which is correct for live signals; for processing archived
-  recordings, pass the rough year of the recording.
-- `enable_ionospheric_correction`: when `true` (default), apply the automatic
-  ionospheric correction described above. Set to `false` to skip it entirely
-  and solve from the raw pseudoranges (e.g. for diagnostics or when an external
-  correction is applied elsewhere).
-- `enable_tropospheric_correction`: when `true` (default), apply the Saastamoinen
-  tropospheric correction. Set to `false` to skip it.
+- `approximate_year`: the calendar year of the observation, within ±9 years, which
+  resolves the GPS L1 C/A 1024-week rollover (see GNSSDecoder's `get_week`). The default,
+  the current year, suits live signals; pass the rough year of an archived recording.
+- `enable_ionospheric_correction`: `false` skips the ionospheric correction.
+- `enable_tropospheric_correction`: `false` skips the tropospheric correction.
 
 # Returns
-A new [`PVTSolution`](@ref) containing position, velocity, time, DOP values, and
-satellite information; `prev_pvt` is never modified. [`calc_pvt!`](@ref) is the same
-solve reusing the containers of a solution passed to it, without allocating. Returns `prev_pvt` if the epoch cannot be solved: too few healthy
-satellites to solve the constellation (including the GGTO fallback and the
-distinct-satellite condition — a satellite tracked on several bands supplies one line of
-sight, so measurements alone are not enough), a geometry whose solved design matrix is
-rank deficient (reported as a `NaN` DOP). None of these throw, so a receiver can pass
-whatever it currently tracks each epoch and carry `prev_pvt` forward. Distrust of
-`prev_pvt` (see above) affects only the seed: an unsolvable epoch still returns
-`prev_pvt` exactly as passed.
+A new [`PVTSolution`](@ref); `prev_pvt` is never modified. An epoch that cannot be solved
+— too few healthy satellites (see [`decide_bias_layout`](@ref)) or a rank-deficient
+geometry — returns `prev_pvt` as passed, without throwing, so a receiver can hand over
+whatever it tracks and carry the last fix forward.
 """
 function calc_pvt(
     groups,
@@ -172,8 +113,7 @@ function calc_pvt(
     enable_ionospheric_correction::Bool = true,
     enable_tropospheric_correction::Bool = true,
 )
-    # A fresh solution lends the solve its (empty) containers; on an unsolvable epoch the
-    # solver hands `prev_pvt` itself back.
+    # A fresh solution lends the solve its containers.
     _, solution = _calc_pvt!(PVTSolution(), PVTWorkspace(), groups, prev_pvt,
         approximate_year, enable_ionospheric_correction, enable_tropospheric_correction)
     solution
@@ -185,12 +125,9 @@ end
               enable_ionospheric_correction::Bool = true,
               enable_tropospheric_correction::Bool = true) -> PVTSolution
 
-[`calc_pvt`](@ref), reusing the containers of `solution` and the buffers of `workspace`,
-so that a steady stream of epochs is solved without allocating. The solve is the same —
-same arguments, same keywords, same numbers — and so is the result it returns.
-
-[`PVTSolution`](@ref) is immutable, so the fix is a new solution, returned; keep the
-return value:
+[`calc_pvt`](@ref) — the same solve and result — reusing the containers of `solution`
+and the buffers of `workspace`, so a stream of epochs is solved without allocating. The
+fix is a new, immutable [`PVTSolution`](@ref); keep the return value:
 
 ```julia
 pvt = PVTSolution()
@@ -200,30 +137,20 @@ for groups in epochs
 end
 ```
 
-**`solution` is the output argument, and the only thing overwritten**: the returned
-solution takes over its `satellites`, `inter_system_biases`, `inter_frequency_biases` and
-`applied_broadcast_inter_system_biases` containers, which are emptied and refilled with
-this epoch's values. `solution` itself
-is therefore spent — its own fields still describe the epoch it was computed for, but
-its containers now hold the new one — so use the returned solution from here on, and
-keep a [`copy`](@ref Base.copy(::PVTSolution)) of `solution` if you need it after the
-call (a `Dictionary` made by `map` over `solution.satellites` shares its keys, and sees the
-change too). `prev_pvt` is only read. Passing the same solution as both is allowed and
-is the usual receiver loop above: every value the seed needs is read before anything is
-written.
+**`solution` is the output, and the only thing overwritten**: the returned solution takes
+over its four containers, emptied and refilled. Afterwards `solution`'s scalar fields still
+describe its own epoch but its containers the new one, so keep a
+[`copy`](@ref Base.copy(::PVTSolution)) of it beforehand if you need it (a `Dictionary` made by `map` over
+`solution.satellites` shares its keys and sees the change too). `prev_pvt` is only read,
+and may be `solution` itself, as in the loop above.
 
-Where [`calc_pvt`](@ref) returns `prev_pvt` — an epoch that cannot be solved — so does
-this: `prev_pvt` itself when it is `solution` (or shares its containers), and otherwise a
-copy of it in `solution`'s containers, so that `prev_pvt` stays untouched.
+An epoch that cannot be solved returns `prev_pvt`: itself where it shares `solution`'s
+containers, otherwise a copy of it in them.
 
-It allocates nothing once `workspace` and `solution` have held an epoch with at least as
-many satellites and as many estimated biases; a larger epoch grows them, once. That
-covers everything from the collection pass to the returned solution, but not the
-`groups` themselves, which the caller builds (and can reuse too — a `SignalGroup`'s
-satellites may be any vector).
-
-The `workspace` holds no state between epochs that affects the result — only buffers —
-but it must not be used by two solves at once; give each task its own.
+It allocates nothing once `workspace` and `solution` have held an epoch of as many
+satellites and biases; that covers everything but the `groups`, which the caller builds
+(and can reuse: a `SignalGroup`'s satellites may be any vector). The `workspace` carries no
+state between epochs, but serves one solve at a time; give each task its own.
 """
 function calc_pvt!(
     solution::PVTSolution,
@@ -239,10 +166,8 @@ function calc_pvt!(
     solved ? result : copy_into(solution, prev_pvt)
 end
 
-# The collection pass and the solve: `(true, fix)` with the fix in `solution`'s
-# containers, or `(false, prev_pvt)` for an epoch that cannot be solved, with `solution`
-# untouched. Specialises on the group shape, like `collect_measurements`, and is small;
-# the solver behind it compiles once.
+# The collection pass and the solve: `(true, fix)` in `solution`'s containers, or
+# `(false, prev_pvt)` with `solution` untouched. Specialises on the group shape.
 function _calc_pvt!(
     solution,
     workspace,
@@ -252,9 +177,8 @@ function _calc_pvt!(
     enable_ionospheric_correction,
     enable_tropospheric_correction,
 )
-    # The function barrier. `_collect_measurements!` specialises on the group shape and
-    # reduces it to measurements; `_solve_pvt!` below is one compiled body for every
-    # constellation mix there is.
+    # The function barrier (see collection.jl): the measurements in, one compiled solver
+    # behind.
     ionospheric_parameters =
         _collect_measurements!(workspace.measurements, groups, approximate_year)
     _solve_pvt!(
@@ -266,18 +190,11 @@ function _calc_pvt!(
     )
 end
 
-# The solver: ~200 lines that must compile exactly once, so every argument is of a
-# concrete type — the ionospheric model included, which is wrapped in an
-# `IonosphericModel` rather than passed as the `Union` it is (see there). The inner
-# barrier that does specialise on the model, once per model, where the work actually is,
-# sits behind `predict_atmospheric_delays!`.
-#
-# Returns `(true, fix)`, the fix a new solution holding `solution`'s containers, or
-# `(false, prev_pvt)` for an epoch that cannot be solved. The containers are written only
-# once the epoch is known to be solvable, and only after everything is read from
-# `prev_pvt`, which may be the same solution. A tuple rather than a
-# `Union{Nothing,PVTSolution}`: the solution holds references, so such a `Union` would
-# be returned boxed — an allocation per epoch.
+# The solver, compiled once: every argument is concretely typed, the ionospheric model
+# wrapped in an `IonosphericModel`. Returns `(true, fix)` in `solution`'s containers or
+# `(false, prev_pvt)`; the containers are written only once the epoch is solvable and
+# everything is read from `prev_pvt`, which may be the same solution. A tuple, as a
+# `Union{Nothing,PVTSolution}` would be returned boxed.
 function _solve_pvt!(
     solution::PVTSolution,
     workspace::PVTWorkspace,

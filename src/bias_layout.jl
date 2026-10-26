@@ -474,8 +474,6 @@ function unique_time_systems!(unique_systems, systems)
     unique_systems
 end
 
-
-
 # Whether measurement `j` is the first of its physical satellite, `(time system, PRN)`: a
 # satellite tracked on several bands is several measurements but one line of sight. A scan
 # of the earlier measurements, as a set of `(SupportedTimeSystem, Int)` keys would box each

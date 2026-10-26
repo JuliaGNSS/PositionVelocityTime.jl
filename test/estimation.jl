@@ -1,8 +1,8 @@
 @testset "calc_dop" begin
-    # ECEF line-of-sight unit vector for a satellite at azimuth `az` (rad, from
-    # North) and elevation `el` (rad), seen from `user`. Built by rotating the
-    # local ENU direction back to ECEF via Geodesy, so the geometry matches what
-    # the solver feeds calc_dop (rows of negated ECEF lines of sight, as calc_design_matrix! builds).
+    # ECEF line-of-sight unit vector for a satellite at azimuth `az` (rad, from North) and
+    # elevation `el` (rad), seen from `user`. Built by rotating the local ENU direction back
+    # to ECEF via Geodesy, so the geometry matches what the solver feeds calc_dop (rows of
+    # negated ECEF lines of sight, as calc_design_matrix! builds).
     enu_los(az, el) = [cos(el) * sin(az), cos(el) * cos(az), sin(el)]
     function ecef_los(user, az, el)
         e = enu_los(az, el)
@@ -129,17 +129,17 @@ end
              for name in fieldnames(PositionVelocityTime.SatelliteMeasurement))...)
         placed(dirs) = [with_position(m, user + 2.0e7 * normalize(SVector{3}(d)))
                         for (m, d) in zip(measurements, dirs)]
-        # The position design's columns — the negated lines of sight, as `calc_design_matrix!` builds
-        # them — and one column of ones for the per-system clock columns, which the
-        # velocity solve collapses into one drift.
+        # The position design's columns — the negated lines of sight, as
+        # `calc_design_matrix!` builds them — and one column of ones for the per-system
+        # clock columns, which the velocity solve collapses into one drift.
         design(dirs) = reduce(vcat, [[-normalize(d)' 1.0] for d in dirs])
 
         # Four well-spread directions ⇒ solvable: a finite [vx, vy, vz, ċ], plus one
         # finite post-fit range-rate residual per satellite.
         spread = [[1.0, 0.2, 0.9], [-0.5, 1.0, 0.7], [0.3, -1.0, 0.5], [0.0, 0.1, 1.0]]
-        rows = placed(spread)
+        measurements = placed(spread)
         solution, rate_residuals =
-            PositionVelocityTime.estimate_velocity(rows, user)
+            PositionVelocityTime.estimate_velocity(measurements, user)
         @test length(solution) == 4
         @test all(isfinite, solution)
         @test length(rate_residuals) == length(measurements)
@@ -154,7 +154,7 @@ end
         let user_vel = SVector(solution[1], solution[2], solution[3])
             A = reduce(vcat, [last(PositionVelocityTime.pseudorange_rate_and_gradient(user,
                 user_vel, solution[4], m.position, m.velocity, m.satellite_clock_drift))'
-                              for m in rows])
+                              for m in measurements])
             @test norm(A - design(spread)) < 1e-4
             @test norm(A' * rate_residuals) < 1e-6
         end
@@ -234,13 +234,12 @@ end
         carrier_doppler = doppler,
     )
 
-    rows(v) = first(PositionVelocityTime.collect_measurements(
-        signal_group(v); approximate_year = 2021))
-    _, base = PositionVelocityTime.estimate_velocity(rows(states), user)
+    measurements(v) = measurements_of(signal_group(v))
+    _, base = PositionVelocityTime.estimate_velocity(measurements(states), user)
     Δdoppler = 50.0Hz
     faster = copy(states)
     faster[3] = with_doppler(states[3], states[3].carrier_doppler + Δdoppler)
-    _, closing = PositionVelocityTime.estimate_velocity(rows(faster), user)
+    _, closing = PositionVelocityTime.estimate_velocity(measurements(faster), user)
     λ = PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(states[3].signal))
     @test -λ * ustrip(Hz, Δdoppler) < closing[3] - base[3] < 0.0
 end
@@ -256,11 +255,13 @@ end
         enable_tropospheric_correction = false)
     user_pos = SVector{3,Float64}(pvt.position)
     user_vel = SVector{3,Float64}(pvt.velocity)
-    for row in measurements_of(groups)
+    for measurement in measurements_of(groups)
         modelled = PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel,
-            ustrip(m / s, pvt.clock_drift), row.position, row.velocity, row.satellite_clock_drift)
-        measured = -row.carrier_doppler * c / row.center_frequency
-        residual = ustrip(m / s, pvt.satellites[(row.signal_id, row.prn)].rate_residual)
+            ustrip(m / s, pvt.clock_drift), measurement.position, measurement.velocity,
+            measurement.satellite_clock_drift)
+        measured = -measurement.carrier_doppler * c / measurement.center_frequency
+        key = (measurement.signal_id, measurement.prn)
+        residual = ustrip(m / s, pvt.satellites[key].rate_residual)
         @test abs(residual) > 1e-3
         @test measured - modelled ≈ residual atol = 1e-9
     end
@@ -284,13 +285,14 @@ with_pseudorange_rate(measurement, rate) = PositionVelocityTime.SatelliteMeasure
     groups = signal_group(states)
     pvt = calc_pvt(groups; approximate_year = 2021)
     user_pos = SVector{3,Float64}(pvt.position)
-    rows = measurements_of(groups)
+    measurements = measurements_of(groups)
     for (user_vel, clock_drift) in ((SVector(150.0, -200.0, 50.0), 3000.0),
         (SVector(-600.0, 400.0, -300.0), -30000.0))
         truth = SVector(user_vel..., clock_drift)
-        exact = [with_pseudorange_rate(row,
+        exact = [with_pseudorange_rate(measurement,
             PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel, clock_drift,
-                row.position, row.velocity, row.satellite_clock_drift)) for row in rows]
+                measurement.position, measurement.velocity,
+                measurement.satellite_clock_drift)) for measurement in measurements]
         # From rest: hundreds of m/s and kilometres per second of drift in one step.
         solved, residuals =
             PositionVelocityTime.estimate_velocity(exact, user_pos)

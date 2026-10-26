@@ -19,22 +19,11 @@ loaded, `TAIEpoch(pvt.time)` and `TAITime(epoch)` convert between it and AstroTi
 ## Signal Groups
 
 One epoch's measurements reach [`calc_pvt`](@ref) as *signal groups*: a `NamedTuple` of
-[`PositionVelocityTime.SignalGroup`](@ref)s, one per ranging signal. Deliberately the
-same names `Tracking.jl` uses, and deliberately unexported, so
-`using Tracking, PositionVelocityTime` does not clash and both types print fully
-qualified.
-
-Grouping is what makes the solve type-stable: within a group every satellite shares one
-concrete [`SatelliteState`](@ref) type, so the per-satellite work of
-[`PositionVelocityTime.collect_measurements`](@ref) is statically dispatched. Behind that
-collection pass the solver sees one flat, parameter-free
-[`PositionVelocityTime.SatelliteMeasurement`](@ref) row per satellite and therefore
-compiles **once** for every constellation mix.
-
-Groups are built where the satellites are tracked, not derived from a pooled vector at
-solve time — [`PositionVelocityTime.signal_groups`](@ref) builds a whole epoch's groups
-from a `Tracking.TrackState`. There is deliberately no conversion from a flat
-`Vector{SatelliteState}`; `calc_pvt` refuses one with an error saying what to build.
+[`PositionVelocityTime.SignalGroup`](@ref)s, one per ranging signal, mirroring
+Tracking.jl's. Within a group every satellite shares one concrete type, so
+[`PositionVelocityTime.collect_measurements`](@ref) dispatches statically; behind it the
+solver sees one [`PositionVelocityTime.SatelliteMeasurement`](@ref) per satellite, a
+single concrete type, and compiles once for every constellation mix.
 
 ```@docs
 PositionVelocityTime.SignalGroup
@@ -53,12 +42,9 @@ calc_pvt
 
 ### Allocation-free solving
 
-[`calc_pvt!`](@ref) is the same solve, returning a new (immutable) [`PVTSolution`](@ref)
-that reuses the containers of the solution it is handed, with its scratch in a reusable
-[`PVTWorkspace`](@ref). Once both have held an epoch of a given size, a solve allocates
-nothing. The overwrite is explicit: only the containers of the `solution` argument are
-reused, and passing the same solution as `prev_pvt` — the receiver loop,
-`pvt = calc_pvt!(pvt, workspace, groups, pvt)` — is allowed.
+[`calc_pvt!`](@ref) is the same solve, reusing the containers of the solution it is
+handed and the buffers of a [`PVTWorkspace`](@ref), so a stream of epochs allocates
+nothing.
 
 ```@docs
 calc_pvt!
@@ -71,17 +57,18 @@ PositionVelocityTime.empty_keeping_capacity!
 
 ```@docs
 get_lla
+PositionVelocityTime.calc_course_over_ground
 calc_satellite_position_and_velocity
 calc_elevation_and_azimuth
 ```
 
 ## Atmospheric Corrections
 
-These corrections are applied automatically by [`calc_pvt`](@ref); they are
-documented here for reference and for diagnostic use. The broadcast coefficient sets the
-ionospheric models take, `KlobucharParameters`, `BeiDouKlobucharParameters`,
-`NeQuickGParameters` and `BDGIMParameters`, are GNSSDecoder's, read off a decoder by its
-`get_klobuchar_parameters`, `get_nequick_g_parameters` and `get_bdgim_parameters`.
+Applied by [`calc_pvt`](@ref); documented for reference and diagnostics. The broadcast
+coefficient sets the ionospheric models take, `KlobucharParameters`,
+`BeiDouKlobucharParameters`, `NeQuickGParameters` and `BDGIMParameters`, are GNSSDecoder's,
+read off a decoder by its `get_klobuchar_parameters`, `get_nequick_g_parameters` and
+`get_bdgim_parameters`.
 
 ```@docs
 PositionVelocityTime.select_ionospheric_parameters
@@ -91,32 +78,32 @@ PositionVelocityTime.tropospheric_delay
 
 ## The Measurement-Model Surface
 
-The pieces [`calc_pvt`](@ref) is assembled from, documented so a consumer that
-runs its own estimator over the same measurement model — a navigation filter
-closing tracking loops, for instance — reuses this package's model as a
-stated contract. The names are deliberately not exported (they are solver
-internals, not part of every user's vocabulary); bind them explicitly with
-`using PositionVelocityTime: collect_measurements, …`.
+The pieces [`calc_pvt`](@ref) is assembled from, as a contract for a consumer running its
+own estimator over the same measurement model, such as a navigation filter. They are
+unexported; bind them with `using PositionVelocityTime: collect_measurements, …`.
 
-**The surface is specified on the measurements.** A consumer's first call is
-[`PositionVelocityTime.collect_measurements`](@ref), which turns its signal groups into
-a `Vector{`[`PositionVelocityTime.SatelliteMeasurement`](@ref)`}`; every function below
-that takes per-satellite input takes those measurements, in that order, and returns one
-value per measurement in the same order. A measurement is a single concrete type with no
-type parameters, so a
-consumer's own estimator compiles once over it as well, however many constellations it
-mixes.
-
-Only [`calc_transmit_time`](@ref PositionVelocityTime.calc_transmit_time) reads a
-decoder, through a [`SatelliteState`](@ref), and
+The surface is specified on the satellite measurements: a consumer first calls
+[`PositionVelocityTime.collect_measurements`](@ref), and every per-satellite input and
+output below follows the order of the
+`Vector{`[`PositionVelocityTime.SatelliteMeasurement`](@ref)`}` it returns. The functions
+that read several fields of a measurement take the measurements themselves (the bias
+layout, the atmospheric delays). The others take arrays drawn from them, one entry per
+measurement: the satellite positions (a `3 × N` matrix or a vector of `SVector{3}`s) and
+the pseudoranges. The least-squares
+problem has one row per satellite and, after them, one per
+[`ClockConstraint`](@ref PositionVelocityTime.ClockConstraint), so the pseudoranges and
+the design matrix carry those extra rows.
+[`calc_pseudorange_rate`](@ref PositionVelocityTime.calc_pseudorange_rate) takes one
+satellite's values. Only
+[`calc_transmit_time`](@ref PositionVelocityTime.calc_transmit_time) and
+[`calc_uncorrected_transmit_time`](@ref PositionVelocityTime.calc_uncorrected_transmit_time)
+read a decoder, through a [`SatelliteState`](@ref), and
 [`calc_satellite_clock_drift`](@ref PositionVelocityTime.calc_satellite_clock_drift) takes
 GNSSDecoder's `BroadcastEphemeris`, for a consumer building or amending a measurement
 itself; the decoder's week, ephemeris, group delays and broadcast time offsets are
 GNSSDecoder's `get_week`, `get_broadcast_ephemeris`, `get_group_delay` and
-`get_broadcast_time_offset`.
-
-Times returned or taken here are seconds-of-week counts on each satellite's own system
-scale unless a function says otherwise. The week arithmetic is GNSSSignals':
+`get_broadcast_time_offset`. Times are seconds-of-week counts on each satellite's own
+system unless a function says otherwise; the week arithmetic is GNSSSignals':
 `get_week_start_epoch` dates a week, `get_leap_second_offset` relates two systems'
 counts, and `fold_week_crossover` folds a difference of two counts across a week
 crossover.
@@ -124,8 +111,10 @@ crossover.
 ```@docs
 PositionVelocityTime.SPEED_OF_LIGHT
 PositionVelocityTime.calc_transmit_time
+PositionVelocityTime.calc_uncorrected_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
 PositionVelocityTime.BiasColumns
+PositionVelocityTime.num_parameters
 PositionVelocityTime.ClockConstraint
 PositionVelocityTime.decide_bias_layout
 PositionVelocityTime.decide_bias_layout!
@@ -135,46 +124,36 @@ PositionVelocityTime.dop_bias_columns
 PositionVelocityTime.select_reference_system
 PositionVelocityTime.predict_pseudoranges!
 PositionVelocityTime.calc_design_matrix
+PositionVelocityTime.calc_design_matrix!
 PositionVelocityTime.calc_dop
 PositionVelocityTime.calc_dop!
 PositionVelocityTime.calc_pseudorange_rate
-PositionVelocityTime.has_broadcast_time_offset
 PositionVelocityTime.broadcast_time_offset
+PositionVelocityTime.has_broadcast_time_offset
 PositionVelocityTime.broadcast_inter_system_bias
 PositionVelocityTime.predict_atmospheric_delays
 PositionVelocityTime.predict_atmospheric_delays!
 PositionVelocityTime.IonosphericModel
-PositionVelocityTime.calc_course_over_ground
 ```
 
 The unexported internals the surface above links to, documented for reference:
 
 ```@docs
-PositionVelocityTime.calc_design_matrix!
 PositionVelocityTime.estimate_position
 PositionVelocityTime.estimate_position!
 PositionVelocityTime.estimate_velocity
 PositionVelocityTime.estimate_velocity!
-PositionVelocityTime.num_parameters
 PositionVelocityTime.num_observations
 ```
 
 ## Multi-GNSS Classification
 
-When [`calc_pvt`](@ref) combines constellations and bands it classifies each satellite by
-three keys, all provided by GNSSSignals (3.3+) and read from a satellite's ranging signal:
-`GNSSSignals.get_time_system` (a `GNSSSignals.TimeSystem`, i.e. `GPST()`/`GST()`/`BDT()`) drives
-receiver-clock grouping (one bias per time system); `GNSSSignals.get_band_id` (e.g. `:L1`,
-`:L5`) drives inter-frequency-bias grouping (one bias per band); and
-`GNSSSignals.get_signal_id` (e.g. `:GPSL1CA`) is the per-signal identity used in the `satellites`
-key of [`PVTSolution`](@ref), and the key a
-[`PositionVelocityTime.SignalGroup`](@ref) is one signal's worth of. All three are read
-off the ranging signal once, by the collection pass, and carried on every
-[`PositionVelocityTime.SatelliteMeasurement`](@ref) as `time_system`, `band_id` and
-`signal_id`.
-
-The receiver inter-frequency biases and their reference bands (reported per
-[`InterFrequencyBias`](@ref)) are laid out from the constellation × band coverage graph:
+Each satellite is classified by three GNSSSignals keys of its ranging signal, carried on
+every [`PositionVelocityTime.SatelliteMeasurement`](@ref): `time_system`
+(`get_time_system`, e.g. `GPST()`) groups the receiver clock biases, `band_id`
+(`get_band_id`, e.g. `:L5`) the inter-frequency biases, and `signal_id` (`get_signal_id`,
+e.g. `:GPSL1CA`) keys [`PVTSolution`](@ref)'s `satellites`. The inter-frequency biases are
+laid out from the constellation × band coverage graph:
 
 ```@docs
 PositionVelocityTime.ifb_layout
@@ -183,18 +162,12 @@ PositionVelocityTime.ifb_layout
 ## Trimmed Executables
 
 The solver compiles into a `juliac --trim=safe` executable (Julia 1.12+ with
-[JuliaC](https://github.com/JuliaLang/JuliaC.jl)); `test/trim` holds an app that does
-so for every navigation-data type and a mixed GPS + Galileo + BeiDou epoch, and checks
-its output against a regular session. Signal groups are what make that possible for any
-constellation mix — each group is concretely typed, and the solver behind them sees one
-concrete measurement type.
-
-LsqFit, which the package would otherwise use, cannot be trimmed, so it carries a
-trim-safe stand-in for the part it uses, a self-contained submodule with the original's
-interface — to be dropped once the original can be trimmed:
-[`PositionVelocityTime.LevenbergMarquardt`](@ref) replaces LsqFit's `curve_fit`, which
-calls the model through abstractly typed fields. AstroTime's `TAIEpoch` cannot be
-trimmed either, which is why a solution is dated in GNSSSignals' trim-safe `TAITime`.
+[JuliaC](https://github.com/JuliaLang/JuliaC.jl)); `test/trim` builds one for every
+navigation-data type and a mixed GPS + Galileo + BeiDou epoch and checks it against a
+regular session. LsqFit cannot be trimmed, so the package carries a trim-safe stand-in
+with its interface, [`PositionVelocityTime.LevenbergMarquardt`](@ref) for its
+`curve_fit`; AstroTime cannot either, which is why a solution is dated in GNSSSignals'
+trim-safe `TAITime` rather than AstroTime's `TAIEpoch`.
 
 ```@docs
 PositionVelocityTime.LevenbergMarquardt

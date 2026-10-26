@@ -28,17 +28,10 @@ export calc_pvt,
     calc_satellite_position_and_velocity,
     calc_elevation_and_azimuth
 
-# The measurement-model surface. `calc_pvt` above is the whole scalar solver,
-# but a consumer running its own estimator over the same measurement model — a
-# navigation filter closing tracking loops through its own Kalman update —
-# consumes the model in pieces: the per-satellite times and clock rates, the
-# bias layout and design-matrix columns, the predicted ranges and geometry, the
-# atmospheric and time-system corrections. Those pieces stay unexported — they
-# are solver internals, not names every `using` should carry — but they are
-# documented as a surface (see "The Measurement-Model Surface" in the API
-# reference), and a consumer binds them explicitly with
-# `using PositionVelocityTime: calc_transmit_time, …`, which declares the
-# dependency at a single site.
+# The pieces `calc_pvt` is built from — for a consumer running its own estimator over the
+# same measurement model, such as a navigation filter — stay unexported but documented
+# ("The Measurement-Model Surface" in the API reference); bind them with
+# `using PositionVelocityTime: calc_transmit_time, …`.
 
 # Naming conventions. Names a user writes — exports, documented functions, keyword
 # arguments, struct fields — are spelled out ("satellite", not "sat"), except the bias
@@ -53,17 +46,15 @@ export calc_pvt,
 """
     SPEED_OF_LIGHT
 
-The speed of light (m/s), shared by every range/time conversion in this
-package and its consumers.
+The speed of light (m/s), of every range/time conversion here.
 """
 const SPEED_OF_LIGHT = 299792458.0
 
 """
     EARTH_ROTATION_RATE
 
-The Earth's rotation rate ω_e (rad/s), the WGS-84 value GPS and Galileo (GTRF) both
-use. It sets the Earth's turn over a signal's travel time, which carries the satellite
-from the ECEF frame of transmission into the one of reception.
+The Earth's rotation rate ω_e (rad/s), the WGS-84 value GPS and Galileo (GTRF) both use,
+which turns the ECEF frame over a signal's travel time.
 """
 const EARTH_ROTATION_RATE = 7.2921151467e-5
 
