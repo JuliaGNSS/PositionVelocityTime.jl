@@ -206,7 +206,7 @@
 
     @testset "time of week comes from the decoder, on every BeiDou signal" begin
         # GNSSDecoder answers this now, including B-CNAV1's reconstruction. Asserted
-        # here because `calc_uncorrected_time` reads it for every signal, so a
+        # here because `calc_uncorrected_transmit_time` reads it for every signal, so a
         # `nothing` would propagate silently into a transmit time.
         @test GNSSDecoder.get_time_of_week(d1) == d1.data.SOW
         @test GNSSDecoder.get_time_of_week(b2a) == b2a.data.SOW
@@ -387,8 +387,8 @@
             # kilometres per second. Check it against a central difference of the
             # position, which shares none of the derivative code.
             h = 1e-3
-            forward = PositionVelocityTime.calc_satellite_position(geo_frame, t + h)
-            backward = PositionVelocityTime.calc_satellite_position(geo_frame, t - h)
+            forward = PositionVelocityTime.calc_satellite_position_and_velocity(geo_frame, t + h).position
+            backward = PositionVelocityTime.calc_satellite_position_and_velocity(geo_frame, t - h).position
             @test pv_geo.velocity ≈ (forward - backward) / (2h) atol = 1e-4
         end
 
@@ -465,19 +465,19 @@
         @test PositionVelocityTime.time_scale_offset_to_gpst(GPST()) == 0.0
         @test PositionVelocityTime.time_scale_offset_to_gpst(GST()) == 0.0
         @test PositionVelocityTime.time_scale_offset_to_gpst(BDT()) == -14.0
-        # Per satellite it is the seconds to add to reach the *primary* system's count,
-        # applied whether or not a clock collapsed. Read off each measurement row's
+        # Per satellite it is the seconds to add to reach the *reference* system's count,
+        # applied whether or not a clock collapsed. Read off each measurement's
         # precomputed `count_offset_to_gpst`, so a row carrying only that field is
-        # enough here. GPS-primary: BeiDou needs +14 s.
+        # enough here. GPS-referenced: BeiDou needs +14 s.
         row(system) = (;
             count_offset_to_gpst = PositionVelocityTime.time_scale_offset_to_gpst(system),
         )
-        offsets(systems, primary) =
-            PositionVelocityTime.calc_time_scale_offsets(map(row, systems), primary)
+        offsets(systems, reference) =
+            PositionVelocityTime.calc_time_scale_offsets(map(row, systems), reference)
         @test offsets([GPST(), BDT(), GST(), BDT()], GPST()) == [0.0, 14.0, 0.0, 14.0]
-        # BeiDou-primary: the sign reverses, and a BeiDou-only epoch needs nothing —
-        # which is why anchoring on GPST instead of the primary system would have
-        # traded this bug for a 14 s error in the reported time of every BDT-primary
+        # BeiDou-referenced: the sign reverses, and a BeiDou-only epoch needs nothing —
+        # which is why anchoring on GPST instead of the reference system would have
+        # traded this bug for a 14 s error in the reported time of every BDT-referenced
         # fix, where `reference_time` is dated from the BDT epoch.
         @test offsets([BDT(), GPST(), BDT()], BDT()) == [0.0, -14.0, 0.0]
         @test all(iszero, offsets([BDT(), BDT(), BDT()], BDT()))
@@ -589,12 +589,12 @@
     function ranging_state(decoder, system, user, t_rx)
         # Solve the light-time equation against the *same* range model the solver
         # uses, which rotates the satellite into the ECEF frame of the reception
-        # instant (`calc_ρ_hat!`). Omitting that Sagnac term would leave a ±30 m
+        # instant (`predict_pseudoranges!`). Omitting that Sagnac term would leave a ±30 m
         # per-satellite inconsistency and the recovered position tens of metres out —
         # a synthesis error that looks exactly like a decoder bug.
         t_tx = t_rx - 0.075                      # ~one light-time as a seed
         for _ = 1:6
-            position = PositionVelocityTime.calc_satellite_position(decoder, t_tx)
+            position = PositionVelocityTime.calc_satellite_position_and_velocity(decoder, t_tx).position
             rotated = PositionVelocityTime.satellite_position_at_reception(user, position)
             t_tx = t_rx - norm(rotated - user) / C
         end
@@ -602,7 +602,7 @@
         SatelliteState(;
             decoder = GNSSDecoder.GNSSDecoderState(
                 decoder; num_bits_after_valid_syncro_sequence = num_bits),
-            system = system,
+            signal = system,
             code_phase = code_phase,
             carrier_doppler = 0.0Hz,
             carrier_phase = 0.0,
@@ -624,7 +624,7 @@
             for (i, state) in enumerate(galileo)
         ]
         pvt = calc_pvt(signal_group(b1i); kw...)
-        @test length(pvt.sats) == length(galileo)
+        @test length(pvt.satellites) == length(galileo)
         @test pvt.reference_system == BDT()
         @test norm(pvt.position - user) < 1e-2
         # One constellation, one band, so no inter-system or inter-frequency biases.
@@ -685,7 +685,7 @@
         # the pilot path is the common case rather than an exotic one.
         #
         # Two things differ from the data-ranged fix and both are worth a number
-        # rather than a `hasmethod` check. `calc_uncorrected_time` divides the
+        # rather than a `hasmethod` check. `calc_uncorrected_transmit_time` divides the
         # pilot's code frequency by the *decoder's* data frequency to reduce the
         # shared code phase modulo one data symbol — for B1C that is 1.023 Mcps over
         # 100 Hz, 10230 chips per symbol — and `correct_by_group_delay` applies the
@@ -710,7 +710,7 @@
 
             pvt_data = calc_pvt(signal_group(on_data); kw...)
             pvt_pilot = calc_pvt(signal_group(on_pilot); kw...)
-            @test length(pvt_pilot.sats) == length(galileo)
+            @test length(pvt_pilot.satellites) == length(galileo)
             @test norm(pvt_pilot.position - user) < 1e-2
             @test norm(pvt_pilot.position - pvt_data.position) < 1e-2
             # Same satellite, same band — so a pilot-ranged epoch is one band and one
@@ -726,7 +726,7 @@
             for state in galileo
         ]
         pvt = calc_pvt(signal_group(b2a_states); kw...)
-        @test length(pvt.sats) == length(galileo)
+        @test length(pvt.satellites) == length(galileo)
         @test norm(pvt.position - user) < 1e-2
     end
 
@@ -775,7 +775,7 @@
         plenty_beidou = beidou([21, 22, 23, 24])
         plenty = (signal_group(gps), signal_group(plenty_beidou))
         pvt = calc_pvt(plenty; kw...)
-        @test length(pvt.sats) == length(gps) + length(plenty_beidou)
+        @test length(pvt.satellites) == length(gps) + length(plenty_beidou)
         @test norm(pvt.position - user) < 1e-2
         @test haskey(pvt.inter_system_biases, BDT())
         # The steering term alone, ~3.6 m — not the 4.2e9 m the structural count
@@ -826,12 +826,12 @@
         @test length(unique(get_time_system(group.signal) for group in scarce)) == 2
         @test sum(length(group.satellites) for group in scarce) == 4
         @test PositionVelocityTime.decide_bias_layout(
-            measurement_rows(scarce),
+            measurements_of(scarce),
         ).bias_columns.num_clock_biases == 1
 
         collapsed = calc_pvt(scarce; kw...)
         @test collapsed.reference_system == GPST()
-        @test length(collapsed.sats) == 4
+        @test length(collapsed.satellites) == 4
         # A 4-satellite solve has no redundancy at all, so the millimetre-scale
         # time-of-week rounding noise described above is not averaged down here the
         # way it is in the 5-satellite fixes; a few centimetres is the honest bound.
@@ -859,7 +859,7 @@
         galileo_ggto = SatelliteState(;
             decoder = GNSSDecoder.GNSSDecoderState(
                 galileo[5].decoder; data = ggto_data, raw_data = ggto_data),
-            system = galileo[5].system,
+            signal = galileo[5].signal,
             code_phase = galileo[5].code_phase,
             carrier_doppler = galileo[5].carrier_doppler,
             carrier_phase = galileo[5].carrier_phase,
@@ -872,7 +872,7 @@
             signal_group(beidou_l1([21]; bgto = Δ)),
             signal_group([galileo_ggto]),
         )
-        mixed_rows = measurement_rows(mixed)
+        mixed_rows = measurements_of(mixed)
         @test map(row -> row.time_system, mixed_rows) ==
               [GPST(), GPST(), GPST(), BDT(), GST()]
         @test all(row -> row.band_id == :L1, mixed_rows)
@@ -887,7 +887,7 @@
         # Galileo instead: the BGTO's GNSS_ID names Galileo (2) as well as GPS (1)
         # — BDS-SIS-ICD-B1C-1.0 §7.13.1 — and `decide_bias_layout` tries GST as the
         # hub once GPST is not in the epoch. Everything downstream follows the hub:
-        # the primary system, the reported time scale, and the inter-system-bias
+        # the reference system, the reported time scale, and the inter-system-bias
         # readout. (The defined BDT count offset against GST is the same 14 s as
         # against GPST — both GPST and GST are TAI − 19 s — so the same `structural`
         # and steering values apply.)
@@ -910,10 +910,10 @@
         # Re-synthesized against this testset's own `user`/`t_rx`, like every other
         # satellite here; the top-level `galileo` states were built for another epoch.
         gal_states = [
-            ranging_state(st.decoder, st.system, user, t_rx) for st in galileo[1:3]
+            ranging_state(st.decoder, st.signal, user, t_rx) for st in galileo[1:3]
         ]
         gps_free = (signal_group(gal_states), signal_group([beidou_gal_bgto]))
-        gst_layout = PositionVelocityTime.decide_bias_layout(measurement_rows(gps_free))
+        gst_layout = PositionVelocityTime.decide_bias_layout(measurements_of(gps_free))
         @test !isnothing(gst_layout)
         @test gst_layout.hub_system == GST()
         @test map(row -> row.time_system, gst_layout.hub_rows) == [BDT()]
@@ -922,7 +922,7 @@
 
         gst_collapsed = calc_pvt(gps_free; kw...)
         @test gst_collapsed.reference_system == GST()
-        @test length(gst_collapsed.sats) == 4
+        @test length(gst_collapsed.satellites) == 4
         @test norm(gst_collapsed.position - user) < 5e-2
         @test ustrip(m, gst_collapsed.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
     end

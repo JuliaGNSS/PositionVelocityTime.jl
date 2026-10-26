@@ -162,28 +162,6 @@ function calc_eccentric_anomaly(decoder::GNSSDecoder.GNSSDecoderState, t)
 end
 
 """
-    calc_satellite_position(decoder::GNSSDecoder.GNSSDecoderState, t)
-    calc_satellite_position(state::SatelliteState)
-
-Calculate the satellite ECEF position from orbital parameters at time `t`.
-
-The first method takes a decoder state and explicit time. The second method
-computes the corrected transmission time from the [`SatelliteState`](@ref) automatically.
-
-# Arguments
-- `decoder`: GNSS decoder state containing ephemeris data
-- `t`: Transmission time in system time (seconds)
-- `state`: A [`SatelliteState`](@ref) combining decoder, system, and phase measurements
-
-# Returns
-An `SVector{3, Float64}` with the satellite position in ECEF coordinates (meters).
-"""
-function calc_satellite_position(decoder::GNSSDecoder.GNSSDecoderState, t)
-    pos_and_vel = calc_satellite_position_and_velocity(decoder, t)
-    pos_and_vel.position
-end
-
-"""
     calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderState, t)
     calc_satellite_position_and_velocity(state::SatelliteState)
 
@@ -195,7 +173,7 @@ for argument of latitude, radius, and inclination) to propagate the satellite ep
 # Arguments
 - `decoder`: GNSS decoder state containing ephemeris data
 - `t`: Transmission time in system time (seconds)
-- `state`: A [`SatelliteState`](@ref) combining decoder, system, and phase measurements
+- `state`: A [`SatelliteState`](@ref) combining decoder, signal, and phase measurements
 
 # Returns
 A named tuple `(position, velocity)` where each is an `SVector{3, Float64}` in ECEF
@@ -340,12 +318,8 @@ function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderSt
         time_from_ephemeris_reference_epoch) : (position = position, velocity = velocity)
 end
 
-function calc_satellite_position(state::SatelliteState)
-    pos_and_vel = calc_satellite_position_and_velocity(state)
-    pos_and_vel.position
-end
 function calc_satellite_position_and_velocity(state::SatelliteState)
-    t = calc_corrected_time(state)
+    t = calc_transmit_time(state)
     calc_satellite_position_and_velocity(state.decoder, t)
 end
 
@@ -357,8 +331,8 @@ function calc_pseudoranges!(times)
     t_ref = maximum(times)
     # Folded modulo the week, like the vector loop's `pseudorange_from_tows` and
     # every other time difference in this package: the inputs are seconds-of-week
-    # counts, and the week wrap does not pass through all of them at once. Within
-    # one constellation the wrap sweeps through the transmit-time spread (tens of
+    # counts, and a week crossover does not pass through all of them at once. Within
+    # one constellation it sweeps through the transmit-time spread (tens of
     # milliseconds, once a week); in a mixed solve the scale alignment
     # (`calc_time_scale_offsets`) widens the straddle to the full defined offset —
     # a BeiDou time reads `SOW + 14` on the GPS count, which exceeds 604800 for

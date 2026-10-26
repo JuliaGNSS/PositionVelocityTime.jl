@@ -2,14 +2,14 @@
 # solve removes them from the pseudoranges.
 
 """
-    predict_atmospheric_delays(ξ, measurements, correction,
+    predict_atmospheric_delays(user_pos, measurements, parameters,
                                reference_time, doy, enable_tropospheric_correction) -> Vector{Float64}
 
 Per-satellite ionospheric + tropospheric delay (metres), to be subtracted from the
-pseudoranges. The user position is the first three elements of the least-squares
-state vector `ξ = [x, y, z, tc₁, …]` (ECEF, metres); the remaining clock-bias
-components are ignored. `correction` is the constellation-wide ionospheric model
-from [`select_ionospheric_correction`](@ref) (`nothing` skips the ionosphere); the
+pseudoranges, seen from `user_pos` (ECEF, metres; any vector whose first three
+elements are the position, a state vector `[x, y, z, tc₁, …]` included). `parameters` is
+the constellation-wide set of ionospheric parameters
+from [`select_ionospheric_parameters`](@ref) (`nothing` skips the ionosphere); the
 troposphere uses the blind Saastamoinen zenith delays mapped by the Niell mapping
 functions, whose seasonal term takes the day of year `doy` (see
 [`tropospheric_delay`](@ref)), unless `enable_tropospheric_correction` is `false`.
@@ -19,18 +19,18 @@ satellite elevation/azimuth (and, for the troposphere, the user height), and
 ∂delay/∂position is negligible over the metre-level position uncertainty (a 15 m
 shift moves the elevation by ~1e-5°), so delays predicted at a nearby position are
 accurate to well under a millimetre — no iterate-to-convergence needed. The user
-geodetic coordinates and the ENU transform depend only on `ξ`, so they are
+geodetic coordinates and the ENU transform depend only on `user_pos`, so they are
 computed once and reused across satellites.
 """
 Base.@nospecializeinfer function predict_atmospheric_delays(
-    ξ,
+    user_pos,
     measurements,
-    @nospecialize(correction),
+    @nospecialize(parameters),
     reference_time,
     doy,
     enable_tropospheric_correction,
 )::Vector{Float64}
-    # Taken `@nospecialize`d, so that with a single method a caller holding `correction`
+    # Taken `@nospecialize`d, so that with a single method a caller holding `parameters`
     # as `Any` resolves statically to this one unspecialised body, where an `Any`
     # argument to a specialising function would be a dynamic dispatch (which a
     # `juliac --trim` build rejects). The narrowing to each model's concrete type is
@@ -40,27 +40,27 @@ Base.@nospecializeinfer function predict_atmospheric_delays(
     # The return annotation is load-bearing too: without it the `Any` argument makes the
     # return type `Any`.
     predict(model) = predict_atmospheric_delays!(
-        Vector{Float64}(undef, length(measurements)), ξ, measurements,
+        Vector{Float64}(undef, length(measurements)), user_pos, measurements,
         IonosphericModel(model), reference_time, doy, enable_tropospheric_correction)
-    correction isa KlobucharParams && return predict(correction)
-    correction isa BeiDouKlobucharParams && return predict(correction)
-    correction isa NTCMGParams && return predict(correction)
-    correction isa BDGIMParams && return predict(correction)
-    isnothing(correction) && return predict(nothing)
-    throw(ArgumentError("not an ionospheric correction: $(typeof(correction))"))
+    parameters isa KlobucharParams && return predict(parameters)
+    parameters isa BeiDouKlobucharParams && return predict(parameters)
+    parameters isa NTCMGParams && return predict(parameters)
+    parameters isa BDGIMParams && return predict(parameters)
+    isnothing(parameters) && return predict(nothing)
+    throw(ArgumentError("not a set of ionospheric parameters: $(typeof(parameters))"))
 end
 
 """
-    predict_atmospheric_delays!(delays, ξ, measurements, model::IonosphericModel,
+    predict_atmospheric_delays!(delays, user_pos, measurements, model::IonosphericModel,
                                 reference_time, doy, enable_tropospheric_correction)
         -> delays
 
 [`predict_atmospheric_delays`](@ref) into `delays` (resized to the satellite count), with
-the ionospheric correction carried by an [`IonosphericModel`](@ref). Allocates nothing.
+the ionospheric parameters carried by an [`IonosphericModel`](@ref). Allocates nothing.
 """
 function predict_atmospheric_delays!(
     delays,
-    ξ,
+    user_pos,
     measurements,
     model,
     reference_time,
@@ -70,33 +70,33 @@ function predict_atmospheric_delays!(
     # The per-satellite loop specialises once per ionospheric model, behind this barrier:
     # the field is a five-member `Union`, one more than Julia splits by itself, so the
     # split is spelled out.
-    predict(correction) = _predict_atmospheric_delays!(delays, ξ, measurements,
-        correction, reference_time, doy, enable_tropospheric_correction)
-    correction = model.correction
-    correction isa KlobucharParams && return predict(correction)
-    correction isa BeiDouKlobucharParams && return predict(correction)
-    correction isa NTCMGParams && return predict(correction)
-    correction isa BDGIMParams && return predict(correction)
+    predict(parameters) = _predict_atmospheric_delays!(delays, user_pos, measurements,
+        parameters, reference_time, doy, enable_tropospheric_correction)
+    parameters = model.parameters
+    parameters isa KlobucharParams && return predict(parameters)
+    parameters isa BeiDouKlobucharParams && return predict(parameters)
+    parameters isa NTCMGParams && return predict(parameters)
+    parameters isa BDGIMParams && return predict(parameters)
     return predict(nothing)
 end
 
 function _predict_atmospheric_delays!(
     delays,
-    ξ,
+    user_pos,
     measurements,
-    correction,
+    parameters,
     reference_time,
     doy,
     enable_tropospheric_correction,
 )
     delays = resize!(delays, length(measurements))
-    user_pos = ECEF(ξ[1], ξ[2], ξ[3])
-    user_lla = LLAfromECEF(wgs84)(user_pos)
-    enu_from_ecef = ENUfromECEF(user_pos, wgs84)
+    user_ecef = ECEF(user_pos[1], user_pos[2], user_pos[3])
+    user_lla = LLAfromECEF(wgs84)(user_ecef)
+    enu_from_ecef = ENUfromECEF(user_ecef, wgs84)
     for (j, measurement) in enumerate(measurements)
-        elevation, azimuth = _elevation_azimuth(enu_from_ecef, measurement.position)
+        elevation, azimuth = calc_elevation_and_azimuth(enu_from_ecef, measurement.position)
         iono = ionospheric_delay(
-            correction,
+            parameters,
             measurement.center_frequency,
             elevation,
             azimuth,

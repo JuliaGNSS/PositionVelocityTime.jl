@@ -294,7 +294,7 @@ merge_all_ionospheric_candidates(candidates::Tuple) = merge_ionospheric_candidat
     merge_all_ionospheric_candidates(Base.tail(candidates)),
 )
 
-# The order of preference documented on `select_ionospheric_correction`, top rung first.
+# The order of preference documented on `select_ionospheric_parameters`, top rung first.
 function select_from_ionospheric_candidates(candidates)
     (; gps_klobuchar, beidou_klobuchar, bdgim, ntcm_g) = candidates
     !isnothing(ntcm_g) && return ntcm_g
@@ -304,25 +304,25 @@ function select_from_ionospheric_candidates(candidates)
 end
 
 """
-    IonosphericModel(correction)
+    IonosphericModel(parameters)
 
-The ionospheric `correction` of one solve (see [`select_ionospheric_correction`](@ref)),
-held in a single concrete type. The correction itself is a `Union` of four coefficient
+The ionospheric `parameters` of one solve (see [`select_ionospheric_parameters`](@ref)),
+held in a single concrete type. The parameters are a `Union` of four coefficient
 sets and `nothing`; the solver takes this wrapper instead so that it compiles once
 whichever model an epoch selected, and so that passing the model costs no allocation —
 a `Union` value handed to an unspecialised argument is boxed, whereas a field of a
 concrete struct is stored inline.
 """
 struct IonosphericModel
-    correction::Union{Nothing,KlobucharParams,BeiDouKlobucharParams,NTCMGParams,BDGIMParams}
+    parameters::Union{Nothing,KlobucharParams,BeiDouKlobucharParams,NTCMGParams,BDGIMParams}
 end
 
 """
-    select_ionospheric_correction(groups)
+    select_ionospheric_parameters(groups)
         -> Union{KlobucharParams,BeiDouKlobucharParams,NTCMGParams,BDGIMParams,Nothing}
 
 Scan the satellite decoders of one epoch's [`SignalGroups`](@ref) and pick the
-single ionospheric correction to apply to the whole solve, in a fixed order of
+single set of ionospheric parameters to correct the whole solve with, in a fixed order of
 preference:
 
  1. NTCM-G, if Galileo Effective Ionisation Level coefficients were decoded.
@@ -351,7 +351,7 @@ there the scan sees only the satellites that clear the health gate. This is the
 standalone form, for a consumer running its own estimator over the same measurement
 model.
 """
-function select_ionospheric_correction(groups)
+function select_ionospheric_parameters(groups)
     # Over the groups' `Tuple`, not the `NamedTuple`, as in `collect_measurements`.
     candidates = map(values(_normalize_signal_groups(groups))) do group
         group_candidates = NO_IONOSPHERIC_CANDIDATES
@@ -365,29 +365,11 @@ function select_ionospheric_correction(groups)
 end
 
 """
-    _elevation_azimuth(enu_from_ecef::ENUfromECEF, sat_position) -> (elevation, azimuth)
-
-Elevation and azimuth (radians) of `sat_position` (ECEF) in the local East-North-Up
-frame defined by `enu_from_ecef = ENUfromECEF(user_position, wgs84)`. Azimuth is
-measured clockwise from North. The transform is taken precomputed so it can be built
-once per user position and reused across satellites.
-"""
-function _elevation_azimuth(enu_from_ecef::ENUfromECEF, sat_position)
-    sat_enu = get_sat_enu(enu_from_ecef, ECEF(sat_position))
-    elevation = sat_enu.ϕ
-    # `SphericalFromCartesian` measures θ counter-clockwise from East (the ENU +x
-    # axis); the ionospheric models use azimuth measured clockwise from North, i.e.
-    # π/2 − θ. Only cos/sin of the azimuth are used downstream, so the wrap is moot.
-    azimuth = π / 2 - sat_enu.θ
-    return elevation, azimuth
-end
-
-"""
-    ionospheric_delay(correction, center_frequency, elevation, azimuth, lla, time_of_week)
+    ionospheric_delay(parameters, center_frequency, elevation, azimuth, lla, time_of_week)
         -> Float64
 
 Slant ionospheric group delay in metres for one satellite, using the
-constellation-wide `correction` returned by [`select_ionospheric_correction`](@ref):
+constellation-wide `parameters` returned by [`select_ionospheric_parameters`](@ref):
 
 - `::Nothing` → `0.0` (no coefficients were decoded).
 - [`KlobucharParams`](@ref) → Klobuchar model (IS-GPS-200, Fig. 20-4).
@@ -405,12 +387,12 @@ below any of the three models' own error. The geometry is taken precomputed — 
 shared across satellites and with [`tropospheric_delay`](@ref) — so a whole-epoch
 correction does the user geodetic conversion only once. Derive the geometry from
 ECEF with `LLAfromECEF(wgs84)(user)` and
-[`_elevation_azimuth`](@ref)`(ENUfromECEF(user, wgs84), sat)`.
+[`calc_elevation_and_azimuth`](@ref)`(ENUfromECEF(user, wgs84), sat)`.
 
 `center_frequency` is the ranging signal's carrier in Hz as a plain `Float64`
-(`ustrip(Hz, get_center_frequency(system))`, precomputed on every
+(`ustrip(Hz, get_center_frequency(signal))`, precomputed on every
 [`SatelliteMeasurement`](@ref)) — every model needs the carrier and nothing else about
-the signal, which is why the row carries the frequency rather than the signal.
+the signal, which is why the measurement carries the frequency rather than the signal.
 """
 ionospheric_delay(::Nothing, center_frequency, elevation, azimuth, lla, time_of_week) = 0.0
 

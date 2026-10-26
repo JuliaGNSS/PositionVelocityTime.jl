@@ -3,7 +3,7 @@
 # Everything that depends on a satellite's navigation-data type — the decoder, the
 # ranging signal, the propagator, the clock polynomial, the broadcast time offsets —
 # is evaluated here, once per satellite, and reduced to the single concrete
-# [`SatelliteMeasurement`](@ref) row the solver works on. This is the function
+# [`SatelliteMeasurement`](@ref) the solver works on. This is the function
 # barrier of `calc_pvt`: everything upstream of it specialises on the group shape
 # (and is small), everything downstream compiles exactly once no matter which
 # constellations the epoch mixes.
@@ -15,15 +15,17 @@ Combines the GNSS decoder state with code and carrier phase measurements for a s
 
 # Fields
 - `decoder::GNSSDecoderState`: GNSS decoder state containing decoded navigation data
-- `system::AbstractGNSSSignal`: GNSS system (e.g., `GPSL1CA()`, `GalileoE1B()`)
+- `signal::AbstractGNSSSignal`: the ranging signal the code phase and carrier Doppler
+  were measured on (e.g., `GPSL1CA()`, `GalileoE1C()`). It may be a dataless pilot,
+  whose navigation data `decoder` decoded from the data component of the same band.
 - `code_phase::CP`: Code phase measurement in chips
 - `carrier_doppler`: Carrier Doppler frequency in Hz
 - `carrier_phase::CP`: Carrier phase measurement in radians, matching
   `Tracking.get_carrier_phase` (default: `0.0`)
 
 # Constructors
-    SatelliteState(; decoder, system, code_phase, carrier_doppler, carrier_phase=0.0)
-    SatelliteState(decoder, system, sat_state)
+    SatelliteState(; decoder, signal, code_phase, carrier_doppler, carrier_phase=0.0)
+    SatelliteState(decoder, signal, sat_state)
 
 The second constructor extracts code phase, carrier Doppler, and carrier phase from a
 `Tracking` satellite state (`Tracking.TrackedSat`). Tracking.jl defines it (from
@@ -32,7 +34,7 @@ depend on Tracking.
 """
 @kwdef struct SatelliteState{CP<:Real,D<:GNSSDecoder.GNSSDecoderState,S<:AbstractGNSSSignal}
     decoder::D
-    system::S
+    signal::S
     code_phase::CP
     carrier_doppler::typeof(1.0Hz)
     carrier_phase::CP = 0.0
@@ -65,7 +67,7 @@ one vector — what `calc_pvt` used to take — is what made them dynamic.
   or as an `AbstractVector{<:SatelliteState}` (so a consumer can reuse one buffer per
   group). Iteration order is significant — see [`calc_pvt`](@ref).
 
-Every satellite's own `state.system` must be `signal`. This is not checked per epoch;
+Every satellite's own `state.signal` must be `signal`. This is not checked per epoch;
 a group built by Tracking.jl ([`signal_groups`](@ref)) satisfies it by
 construction.
 """
@@ -163,7 +165,7 @@ the reference system of a [`PVTSolution`](@ref).
 A closed `Union` rather than the abstract `GNSSSignals.TimeSystem` so that every call on
 a time system — hashing it into `inter_system_biases`, `time_scale_offset_to_gpst`, a
 hub's offset index — is split into statically dispatched branches instead of being a
-dynamic dispatch, which a `juliac --trim` build rejects. The row it types stays one
+dynamic dispatch, which a `juliac --trim` build rejects. The measurement it types stays one
 concrete type, so the solver still compiles once for every constellation mix. A time
 system GNSSSignals adds later has to be added to `CANDIDATE_HUB_SYSTEMS` anyway (the
 `time_offsets` tuple is indexed by it), and this follows.
@@ -180,7 +182,7 @@ hub_system_index(target::GNSSSignals.TimeSystem) =
     BroadcastTimeOffset
 
 One constellation's broadcast offset toward one target GNSS time system, flattened out
-of the navigation message into an `isbits` row so that evaluating it costs no dispatch
+of the navigation message into an `isbits` record so that evaluating it costs no dispatch
 and no decoder field access. One per entry of [`CANDIDATE_HUB_SYSTEMS`](@ref) is
 carried by every [`SatelliteMeasurement`](@ref).
 
@@ -216,7 +218,7 @@ struct BroadcastTimeOffset
     count_anchor::Float64
 end
 
-# The "this satellite broadcasts nothing toward that system" row. The coefficients and
+# The "this satellite broadcasts nothing toward that system" entry. The coefficients and
 # the count anchor are NaN so that a misuse propagates a NaN rather than a plausible
 # zero. A NaN `t_0` alone would not: `calc_steering_offset` reads it as the BeiDou
 # D1/D2 "no reference epoch" marker and evaluates the polynomial on `t` instead.
@@ -226,7 +228,7 @@ const NO_TIME_OFFSET = BroadcastTimeOffset(false, NaN, NaN, NaN, NaN, 0.0, NaN)
     SatelliteMeasurement
 
 One satellite's contribution to one epoch, reduced to a single concrete type with no
-type parameters — the row the whole PVT solver works on.
+type parameters — what the whole PVT solver works on.
 
 Everything that depends on the navigation-message family, the decoder or the ranging
 signal has already been evaluated by [`collect_measurements`](@ref): the transmit
@@ -239,24 +241,24 @@ compiles once for every mix.
 # Fields
 - `prn::Int`: the satellite's PRN, unique only within its constellation.
 - `signal_id::Symbol`: `get_signal_id` of the ranging signal (`:GPSL1CA`, …), the
-  per-signal half of the `(signal, PRN)` key of `PVTSolution.sats`.
+  per-signal half of the `(signal, PRN)` key of `PVTSolution.satellites`.
 - `band_id::Symbol`: `get_band_id` of the ranging signal (`:L1`, `:L5`, …), the
   grouping key of the receiver inter-frequency biases.
 - `time_system::SupportedTimeSystem`: `get_time_system` of the ranging signal
   (`GPST()`, `GST()`, `BDT()`), the grouping key of the receiver clock biases. A small
-  `Union` of singletons (see [`SupportedTimeSystem`](@ref)), so the row stays concrete
+  `Union` of singletons (see [`SupportedTimeSystem`](@ref)), so the measurement stays concrete
   and every call on the field splits statically.
 - `count_offset_to_gpst::Float64`: [`time_scale_offset_to_gpst`](@ref) of
   `time_system`, precomputed, so the solver reads a number rather than branching on
   the time system per satellite.
-- `time::Float64`: the corrected transmit time ([`calc_corrected_time`](@ref)) as a
+- `transmit_time::Float64`: the corrected transmit time ([`calc_transmit_time`](@ref)) as a
   seconds-of-week count **on this satellite's own system's scale**.
-- `position::SVector{3,Float64}`: satellite ECEF position at `time` (m).
-- `velocity::SVector{3,Float64}`: satellite ECEF velocity at `time` (m/s).
+- `position::SVector{3,Float64}`: satellite ECEF position at `transmit_time` (m).
+- `velocity::SVector{3,Float64}`: satellite ECEF velocity at `transmit_time` (m/s).
 - `carrier_doppler::Float64`: the measured carrier Doppler (Hz, unitless).
 - `center_frequency::Float64`: the ranging signal's carrier (Hz, unitless) — the
   Doppler wavelength, and the `1/f²` of every ionospheric model.
-- `clock_drift::Float64`: [`calc_satellite_clock_drift`](@ref) at `time` (s/s).
+- `clock_drift::Float64`: [`calc_satellite_clock_drift`](@ref) at `transmit_time` (s/s).
 - `week::Int`: the absolute week number of `time_system`, with the GPS L1 C/A
   1024-week rollover already resolved against `approximate_year`.
 - `system_start_epoch::TAITime`: the TAI epoch of that system's week 0,
@@ -272,7 +274,7 @@ struct SatelliteMeasurement
     band_id::Symbol
     time_system::SupportedTimeSystem
     count_offset_to_gpst::Float64
-    time::Float64
+    transmit_time::Float64
     position::SVector{3,Float64}
     velocity::SVector{3,Float64}
     carrier_doppler::Float64
@@ -284,42 +286,42 @@ struct SatelliteMeasurement
     time_offsets::NTuple{3,BroadcastTimeOffset}
 end
 
-# One satellite state → one flat row. Every decoder- and signal-typed call of the
+# One satellite state → one measurement. Every decoder- and signal-typed call of the
 # whole solve happens here.
 function satellite_measurement(state::SatelliteState, approximate_year::Integer)
     decoder = state.decoder
-    system = state.system
-    time = calc_corrected_time(state)
-    position_and_velocity = calc_satellite_position_and_velocity(decoder, time)
-    time_system = get_time_system(system)
+    signal = state.signal
+    transmit_time = calc_transmit_time(state)
+    pos_and_vel = calc_satellite_position_and_velocity(decoder, transmit_time)
+    time_system = get_time_system(signal)
     count_offset_to_gpst = time_scale_offset_to_gpst(time_system)
     week = get_week(decoder; approximate_year)
     SatelliteMeasurement(
         decoder.prn,
-        get_signal_id(system),
-        get_band_id(system),
+        get_signal_id(signal),
+        get_band_id(signal),
         time_system,
         count_offset_to_gpst,
-        time,
-        get_sat_position(position_and_velocity),
-        get_sat_velocity(position_and_velocity),
+        transmit_time,
+        pos_and_vel.position,
+        pos_and_vel.velocity,
         ustrip(Hz, state.carrier_doppler),
-        ustrip(Hz, get_center_frequency(system)),
-        calc_satellite_clock_drift(decoder, time),
+        ustrip(Hz, get_center_frequency(signal)),
+        calc_satellite_clock_drift(decoder, transmit_time),
         week,
-        system_start_epoch(system),
-        get_system_start_time(system),
+        system_start_epoch(signal),
+        get_system_start_time(signal),
         broadcast_time_offsets(decoder, week, count_offset_to_gpst),
     )
 end
 
 """
     collect_measurements(groups; approximate_year = year(now(UTC)))
-        -> (Vector{SatelliteMeasurement}, ionospheric_correction)
+        -> (Vector{SatelliteMeasurement}, ionospheric_parameters)
 
 Flatten the [`SignalGroups`](@ref) of one epoch into the solver's input: the
-per-satellite [`SatelliteMeasurement`](@ref) rows, and the single constellation-wide
-ionospheric model [`select_ionospheric_correction`](@ref) would pick for them (folded
+per-satellite [`SatelliteMeasurement`](@ref)s, and the single constellation-wide
+ionospheric model [`select_ionospheric_parameters`](@ref) would pick for them (folded
 into the same pass — both need exactly the satellites that survive the health gate).
 
 A satellite is kept only if its full navigation-data set is decoded and it reports
@@ -330,14 +332,14 @@ touches a decoder again.
 
 This is the function barrier: it specialises on the group shape (and stays small),
 while the solver it feeds sees one concrete element type for every constellation mix.
-The flat row order is group order × within-group order, and it is significant — see
+The order of the measurements is group order × within-group order, and it is significant — see
 [`calc_pvt`](@ref).
 
 `approximate_year` resolves the GPS L1 C/A 1024-week rollover; see [`calc_pvt`](@ref).
 """
 function collect_measurements(groups; approximate_year::Integer = year(now(UTC)))
     measurements = SatelliteMeasurement[]
-    # An epoch's satellite count is known before a single row is built, and a row is
+    # An epoch's satellite count is known before a single measurement is built, and one is
     # ~320 bytes, so reserving the whole vector up front saves the geometric regrowth
     # (five reallocations and copies for a dozen satellites). The reservation is the
     # unfiltered count — an unhealthy satellite leaves a little slack, never a regrowth.
@@ -349,10 +351,10 @@ end
 """
     collect_measurements!(measurements::Vector{SatelliteMeasurement}, groups;
                           approximate_year = year(now(UTC)))
-        -> (measurements, ionospheric_correction)
+        -> (measurements, ionospheric_parameters)
 
 [`collect_measurements`](@ref) into an existing vector: `measurements` is emptied and
-refilled with this epoch's rows. What it held is overwritten.
+refilled with this epoch's measurements. What it held is overwritten.
 
 The returned tuple pairs the (non-`isbits`) vector with a `Union` of coefficient sets,
 which Julia returns boxed: one small allocation per call. A consumer that must not
@@ -368,14 +370,14 @@ collect_measurements!(
 """
     collect_measurement_rows!(measurements::Vector{SatelliteMeasurement}, groups;
                               approximate_year = year(now(UTC)))
-        -> ionospheric_correction
+        -> ionospheric_parameters
 
 [`collect_measurements!`](@ref) without the vector in the result: `measurements` is
-emptied and refilled with this epoch's rows, and only the ionospheric correction is
+emptied and refilled with this epoch's measurements, and only the ionospheric parameters are
 returned. That is a `Union` of `isbits` coefficient sets, which Julia returns unboxed, so
-once `measurements` has held as many rows before, this allocates nothing. It is the
+once `measurements` has held as many measurements before, this allocates nothing. It is the
 collection pass [`calc_pvt!`](@ref) runs, for a consumer that runs its own estimator over
-the same rows in a loop that must not allocate.
+the same measurements in a loop that must not allocate.
 """
 collect_measurement_rows!(
     measurements::Vector{SatelliteMeasurement},
@@ -387,7 +389,7 @@ collect_measurement_rows!(
 function _collect_measurements!(measurements, groups, approximate_year::Integer)
     normalized = _normalize_signal_groups(groups)
     empty!(measurements)
-    # `map` over the groups visits them in order, which is what makes the flat row order
+    # `map` over the groups visits them in order, which is what makes the measurement order
     # group order × within-group order. Over their `Tuple` rather than the `NamedTuple`
     # itself: `map(f, ::NamedTuple)` only passes `f` on, so Julia does not specialise it
     # on the closure, and every group's call would be a dynamic dispatch.

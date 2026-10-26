@@ -35,8 +35,9 @@ const _DEFAULT_RELATIVE_HUMIDITY = 0.7  # GNSS-SDR / RTKLIB default
 
 # Niell hydrostatic coefficients: averages and seasonal amplitudes at latitudes
 # 15°, 30°, 45°, 60°, 75° (linearly interpolated in |latitude|, constant outside).
-# The coefficient at day-of-year `doy` is `average − amplitude·cos(2π(doy−28)/365.25)`,
-# phase-shifted half a year in the southern hemisphere.
+# The coefficient on `day_of_year` is
+# `average − amplitude·cos(2π(day_of_year−28)/365.25)`, phase-shifted half a year in the
+# southern hemisphere.
 const _NMF_HYDROSTATIC_AVERAGE = (
     a = (1.2769934e-3, 1.2683230e-3, 1.2465397e-3, 1.2196049e-3, 1.2045996e-3),
     b = (2.9153695e-3, 2.9152299e-3, 2.9288445e-3, 2.9022565e-3, 2.9024912e-3),
@@ -88,24 +89,24 @@ function _marini_mapping(sin_el, a, b, c)
 end
 
 """
-    niell_mapping_functions(latitude, height, elevation, doy) -> (hydrostatic, wet)
+    niell_mapping_functions(latitude, height, elevation, day_of_year) -> (hydrostatic, wet)
 
 The Niell (1996) hydrostatic and wet mapping functions: dimensionless factors that
 map the zenith tropospheric delays to a satellite at `elevation` (radians).
 `latitude` is in radians, `height` is the site's ellipsoidal height in metres (it
 enters the hydrostatic height correction; RTKLIB likewise substitutes the
-ellipsoidal height for the orthometric one), and `doy` is the day of year driving
-the hydrostatic seasonal term (phase-shifted half a year in the southern
+ellipsoidal height for the orthometric one), and `day_of_year` drives the
+hydrostatic seasonal term (phase-shifted half a year in the southern
 hemisphere). Elevations below the horizon are evaluated at the horizon, where both
 factors are finite (≈ 37 hydrostatic, ≈ 57 wet); both decrease strictly to exactly
 1 at zenith.
 """
-function niell_mapping_functions(latitude, height, elevation, doy)
+function niell_mapping_functions(latitude, height, elevation, day_of_year)
     el = max(elevation, 0.0)
     sin_el = sin(el)
     abs_lat = abs(rad2deg(latitude))
     # Seasonal term, southern hemisphere shifted by half a year
-    cosy = cos(2π * ((doy - 28.0) / 365.25 + (latitude < 0.0 ? 0.5 : 0.0)))
+    cosy = cos(2π * ((day_of_year - 28.0) / 365.25 + (latitude < 0.0 ? 0.5 : 0.0)))
     ah = _interpolate_nmf_coefficient(_NMF_HYDROSTATIC_AVERAGE.a, abs_lat) -
          _interpolate_nmf_coefficient(_NMF_HYDROSTATIC_AMPLITUDE.a, abs_lat) * cosy
     bh = _interpolate_nmf_coefficient(_NMF_HYDROSTATIC_AVERAGE.b, abs_lat) -
@@ -126,20 +127,21 @@ function niell_mapping_functions(latitude, height, elevation, doy)
 end
 
 """
-    saastamoinen_zenith_delays(latitude, height, humidity) -> (hydrostatic, wet)
+    saastamoinen_zenith_delays(latitude, height, relative_humidity) -> (hydrostatic, wet)
 
 Saastamoinen zenith hydrostatic and wet tropospheric delays in metres, from a
 standard atmosphere (15 °C at sea level) evaluated at the geodetic `latitude`
-(radians) and `height` (metres, clamped below at 0). `humidity` is the relative
-humidity (0…1) feeding the water-vapour partial pressure of the wet term. The
-formulas are those of RTKLIB's `tropmodel` at zenith.
+(radians) and `height` (metres, clamped below at 0). `relative_humidity` (0…1) feeds the
+water-vapour partial pressure of the wet term. The formulas are those of RTKLIB's
+`tropmodel` at zenith.
 """
-function saastamoinen_zenith_delays(latitude, height, humidity)
+function saastamoinen_zenith_delays(latitude, height, relative_humidity)
     hgt = max(height, 0.0)
     # Standard atmosphere
     pressure = 1013.25 * (1.0 - 2.2557e-5 * hgt)^5.2568          # hPa
     temperature = 15.0 - 6.5e-3 * hgt + 273.16                  # K (15 °C at sea level)
-    e = 6.108 * humidity * exp((17.15 * temperature - 4684.0) / (temperature - 38.45))  # hPa
+    e = 6.108 * relative_humidity *
+        exp((17.15 * temperature - 4684.0) / (temperature - 38.45))  # hPa
     hydrostatic =
         0.0022768 * pressure /
         (1.0 - 0.00266 * cos(2.0 * latitude) - 0.00028 * hgt / 1.0e3)
@@ -148,15 +150,15 @@ function saastamoinen_zenith_delays(latitude, height, humidity)
 end
 
 """
-    tropospheric_delay(elevation, lla, doy; humidity = 0.7) -> Float64
+    tropospheric_delay(elevation, lla, day_of_year; relative_humidity = 0.7) -> Float64
 
 Slant tropospheric group delay in metres for a satellite at `elevation` (radians)
 seen from the user geodetic position `lla` (a `Geodesy.LLA`): the Saastamoinen
 zenith delays (see [`saastamoinen_zenith_delays`](@ref)) mapped to the line of
 sight by the Niell mapping functions (see [`niell_mapping_functions`](@ref)),
-whose seasonal term is driven by the day of year `doy`. The delay is
-non-dispersive (frequency independent). `humidity` is the relative humidity (0…1)
-used for the wet component. The delay is finite and monotone in elevation all the
+whose seasonal term is driven by `day_of_year`. The delay is
+non-dispersive (frequency independent). `relative_humidity` (0…1) is used for the
+wet component. The delay is finite and monotone in elevation all the
 way down to the horizon (≈ 90 m for a grazing ray at sea level); elevations below
 the horizon reuse the horizon value. Returns `0.0` when the user height is outside
 the model's valid range (−100 m … 10 km).
@@ -164,13 +166,19 @@ the model's valid range (−100 m … 10 km).
 The geometry is taken precomputed so a whole-epoch correction shares the user
 geodetic conversion and the elevation with [`ionospheric_delay`](@ref).
 """
-function tropospheric_delay(elevation, lla, doy; humidity = _DEFAULT_RELATIVE_HUMIDITY)
+function tropospheric_delay(
+    elevation,
+    lla,
+    day_of_year;
+    relative_humidity = _DEFAULT_RELATIVE_HUMIDITY,
+)
     (lla.alt < -100.0 || lla.alt > 1.0e4) && return 0.0
     latitude = deg2rad(lla.lat)
     height = max(lla.alt, 0.0)
-    zenith_hydrostatic, zenith_wet = saastamoinen_zenith_delays(latitude, height, humidity)
+    zenith_hydrostatic, zenith_wet = saastamoinen_zenith_delays(latitude, height,
+        relative_humidity)
     hydrostatic_mapping, wet_mapping =
-        niell_mapping_functions(latitude, height, elevation, doy)
+        niell_mapping_functions(latitude, height, elevation, day_of_year)
     return zenith_hydrostatic * hydrostatic_mapping + zenith_wet * wet_mapping
 end
 

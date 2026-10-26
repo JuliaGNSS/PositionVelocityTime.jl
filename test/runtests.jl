@@ -15,7 +15,7 @@ using PositionVelocityTime: SVector
 # type of the same name, and `test/pvt_integration.jl` loads Tracking, so the
 # deliberate collision can be live in this very session.
 function signal_group(signal, states)
-    ids = unique(get_signal_id(state.system) for state in states)
+    ids = unique(get_signal_id(state.signal) for state in states)
     all(id -> id === get_signal_id(signal), ids) || error(
         "signal_group takes the satellites of one ranging signal, got $ids — " *
         "put each signal in its own group",
@@ -28,20 +28,20 @@ end
 # The signal read off the satellites, for the usual case of a non-empty group. A group
 # that may be empty has to be given its signal explicitly — which is exactly why a
 # `SignalGroup` carries one rather than deriving it from its satellites.
-signal_group(states) = signal_group(first(states).system, states)
+signal_group(states) = signal_group(first(states).signal, states)
 
 # Two more shorthands, for the tests that exercise the measurement-model surface
 # directly rather than through `calc_pvt`. They live here rather than in `fixtures.jl`,
 # which stays strictly the data shared with the benchmark script.
 #
-# `measurement_rows` is the flat `SatelliteMeasurement` rows behind one epoch's groups —
+# `measurements_of` gives the `SatelliteMeasurement`s behind one epoch's groups —
 # what the collection pass hands the solver. `approximate_year` is pinned for the same
 # reason every `calc_pvt` call here pins it: the fixtures were recorded in 2021 and
 # GPS L1 C/A's week number is 10 bits.
-measurement_rows(groups; approximate_year = 2021) =
+measurements_of(groups; approximate_year = 2021) =
     first(PositionVelocityTime.collect_measurements(groups; approximate_year))
 # `carrier_hz` is a ranging signal's carrier as the plain `Float64` in Hz that
-# `ionospheric_delay` takes — the `center_frequency` field of a measurement row.
+# `ionospheric_delay` takes — the `center_frequency` field of a measurement.
 carrier_hz(system) = ustrip(Hz, get_center_frequency(system))
 # The inferred return type of `f(::types...)`. `Base.infer_return_type` says this in one
 # call but only from Julia 1.11; `Base.return_types` is the spelling that also works on
@@ -50,7 +50,7 @@ carrier_hz(system) = ustrip(Hz, get_center_frequency(system))
 inferred_return_type(f, types) = only(Base.return_types(f, types))
 
 # Relabels a SatelliteState's decoder PRN. Nothing in the least-squares solve depends on
-# the PRN — it identifies a satellite, as the `sats`-dict key and for the layout's
+# the PRN — it identifies a satellite, as the `satellites`-dict key and for the layout's
 # distinct-satellite count — so this isolates that identity from the measurements.
 function with_prn(state, prn)
     d = state.decoder
@@ -65,7 +65,7 @@ function with_prn(state, prn)
     )
     SatelliteState(;
         decoder = new_decoder,
-        system = state.system,
+        signal = state.signal,
         code_phase = state.code_phase,
         carrier_doppler = state.carrier_doppler,
         carrier_phase = state.carrier_phase,
@@ -75,7 +75,7 @@ end
 
 const ONE_CLOCK_COLUMN = PositionVelocityTime.BiasColumns([1], 1, [0], 0)
 
-# The pseudorange at receiver time `t`, as `calc_ρ_hat!` models it: the satellite taken
+# The pseudorange at receiver time `t`, as `predict_pseudoranges!` models it: the satellite taken
 # at its transmit time `t_t = t − ρ/c` (found by fixed-point iteration), the receiver at
 # `user_at(t)` with clock bias `bias_at(t)` (m), and the satellite clock offset
 # `sat_clock_at(t_t)` (m) subtracted.
@@ -85,7 +85,7 @@ function modelled_pseudorange(sat_at, sat_clock_at, user_at, bias_at, t)
     t_t = t
     for _ in 1:10
         t_t = t - ρ / c
-        ρ = PositionVelocityTime.calc_ρ_hat!(
+        ρ = PositionVelocityTime.predict_pseudoranges!(
             zeros(1), [sat_at(t_t)], [user_at(t); bias_at(t)], ONE_CLOCK_COLUMN)[1] -
             sat_clock_at(t_t)
     end

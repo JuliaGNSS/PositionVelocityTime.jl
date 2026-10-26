@@ -44,7 +44,7 @@
     end
 
     @testset "group order is significant, exactly as vector order was" begin
-        # The primary system is the most-populated one, ties broken by first
+        # The reference system is the most-populated one, ties broken by first
         # appearance — so two groups of equal size swap which one dates the fix.
         # Three each: two systems need 3 + 2 measurements from as many distinct
         # satellites, so a pair each would not solve at all.
@@ -54,8 +54,8 @@
         gal_first = calc_pvt((a = three_gal, b = three_gps); kw...)
         @test gps_first.reference_system == GPST()
         @test gal_first.reference_system == GST()
-        # And `sats` is built in flat order: group order × within-group order.
-        @test collect(keys(gal_first.sats)) == [
+        # And `satellites` is built in flat order: group order × within-group order.
+        @test collect(keys(gal_first.satellites)) == [
             [(:GalileoE1B, state.decoder.prn) for state in gal[1:3]]
             [(:GPSL1CA, state.decoder.prn) for state in gps[1:3]]
         ]
@@ -95,7 +95,7 @@
             @test occursin("takes signal groups", message)
             @test occursin("SignalGroup(GPSL1CA()", message)
         end
-        @test_throws ArgumentError PositionVelocityTime.select_ionospheric_correction(
+        @test_throws ArgumentError PositionVelocityTime.select_ionospheric_parameters(
             (gps = gps,))
         # An empty NamedTuple is an epoch with no groups, not a malformed one.
         @test PositionVelocityTime._normalize_signal_groups((;)) === (;)

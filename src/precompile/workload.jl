@@ -6,8 +6,8 @@
 #
 # What is specialised on the navigation-data type is the *collection* pass
 # (`collect_measurements`): the decoder accessors, the propagator, the clock
-# polynomial and the broadcast time offsets. The solver behind the flat
-# `SatelliteMeasurement` row is one body shared by every data type and every
+# polynomial and the broadcast time offsets. The solver behind the
+# `SatelliteMeasurement` is one body shared by every data type and every
 # constellation mix, so it is compiled by the first solve here and reused by all
 # the others — which is what lets this workload be a list of data types rather
 # than a list of their combinations.
@@ -117,59 +117,59 @@ _precompile_fnav(d) = GNSSDecoder.GalileoE5aData(;
 )
 
 """
-    _precompile_states(system, table, make_data, source_system)
+    _precompile_states(signal, table, make_data, source_signal)
 
-The fixture satellites as [`SatelliteState`](@ref)s on `system`, with their
+The fixture satellites as [`SatelliteState`](@ref)s on `signal`, with their
 navigation data converted by `make_data`.
 
-The observables were recorded on `source_system` (GPS L1 C/A or Galileo E1B).
+The observables were recorded on `source_signal` (GPS L1 C/A or Galileo E1B).
 Expressing them on another signal of the same satellite has to preserve the
-transmit epoch, which [`calc_uncorrected_time`](@ref) builds as `TOW + n_bits/data_rate + (code_phase reduced to one data symbol)/chip_rate`. So the
+transmit epoch, which [`calc_uncorrected_transmit_time`](@ref) builds as `TOW + n_bits/data_rate + (code_phase reduced to one data symbol)/chip_rate`. So the
 sub-TOW offset is converted as a whole: taken off the source signal, then split
 again into whole data symbols and a code phase in the target's own units.
 Scaling the two terms independently would be wrong — a signal whose data symbol
 is shorter has to carry part of the code phase in its bit count instead.
 """
-function _precompile_states(system, table, make_data, source_system)
+function _precompile_states(signal, table, make_data, source_signal)
     map(table) do s
         data = make_data(s.data)
         target = GNSSDecoder.GNSSDecoderState(
-            GNSSDecoder.GNSSDecoderState(system, s.prn);
+            GNSSDecoder.GNSSDecoderState(signal, s.prn);
             raw_data = data,
             data = data,
         )
         source = GNSSDecoder.GNSSDecoderState(
-            GNSSDecoder.GNSSDecoderState(source_system, s.prn);
+            GNSSDecoder.GNSSDecoderState(source_signal, s.prn);
             raw_data = s.data,
             data = s.data,
         )
         source_rate = ustrip(Hz, get_data_frequency(source))
-        source_chips = ustrip(Hz, get_code_frequency(source_system))
+        source_chips = ustrip(Hz, get_code_frequency(source_signal))
         offset =
             s.num_bits / source_rate +
             mod(s.code_phase, source_chips / source_rate) / source_chips
         rate = ustrip(Hz, get_data_frequency(target))
-        chips = ustrip(Hz, get_code_frequency(system))
+        chips = ustrip(Hz, get_code_frequency(signal))
         num_bits = floor(Int, offset * rate)
         SatelliteState(;
             decoder = GNSSDecoder.GNSSDecoderState(
                 target;
                 num_bits_after_valid_syncro_sequence = num_bits,
             ),
-            system,
+            signal,
             code_phase = (offset - num_bits / rate) * chips,
             carrier_doppler = s.carrier_doppler,
-            carrier_phase = s.carrier_phase * ustrip(Hz, get_center_frequency(system)) /
-                            ustrip(Hz, get_center_frequency(source_system)),
+            carrier_phase = s.carrier_phase * ustrip(Hz, get_center_frequency(signal)) /
+                            ustrip(Hz, get_center_frequency(source_signal)),
         )
     end
 end
 
 @setup_workload begin
-    gps(system, make_data = identity) =
-        _precompile_states(system, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA())
-    galileo(system, make_data = identity) =
-        _precompile_states(system, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B())
+    gps(signal, make_data = identity) =
+        _precompile_states(signal, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA())
+    galileo(signal, make_data = identity) =
+        _precompile_states(signal, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B())
     l1ca = gps(GPSL1CA())
     e1b = galileo(GalileoE1B())
     # A `Dictionary`-backed group keyed by PRN — the shape a receiver carrying its

@@ -21,9 +21,9 @@ first_satellites(group, n) =
 function same_solution(a::PVTSolution, b::PVTSolution)
     a.position == b.position && a.velocity == b.velocity &&
         a.course_over_ground == b.course_over_ground &&
-        a.time_correction == b.time_correction && a.time == b.time &&
+        a.clock_bias == b.clock_bias && a.time == b.time &&
         a.relative_clock_drift == b.relative_clock_drift && a.dop == b.dop &&
-        collect(pairs(a.sats)) == collect(pairs(b.sats)) &&
+        collect(pairs(a.satellites)) == collect(pairs(b.satellites)) &&
         a.reference_system === b.reference_system &&
         a.inter_system_biases == b.inter_system_biases &&
         a.inter_frequency_biases == b.inter_frequency_biases
@@ -112,12 +112,12 @@ end
         @test same_solution(returned, calc_pvt(groups, prev_pvt; kw...))
         @test same_solution(prev_pvt, before)      # `prev_pvt` is only read
         # The returned solution took over `solution`'s containers, refilled.
-        @test returned.sats === solution.sats
+        @test returned.satellites === solution.satellites
         @test returned.inter_system_biases === solution.inter_system_biases
         @test returned.inter_frequency_biases === solution.inter_frequency_biases
         again = calc_pvt!(returned, PVTWorkspace(), l1ca, prev_pvt; kw...)
-        @test again.sats === solution.sats
-        @test length(again.sats) == length(l1ca.satellites)
+        @test again.satellites === solution.satellites
+        @test length(again.satellites) == length(l1ca.satellites)
         # `calc_pvt` still never touches its `prev_pvt`.
         calc_pvt(l1ca, prev_pvt; kw...)
         @test same_solution(prev_pvt, before)
@@ -134,7 +134,7 @@ end
             solution = calc_pvt(e1b; kw...)
             copied = calc_pvt!(solution, PVTWorkspace(), unsolvable, prev_pvt; kw...)
             @test same_solution(copied, prev_pvt)
-            @test copied.sats === solution.sats
+            @test copied.satellites === solution.satellites
             @test same_solution(prev_pvt, before)
             # As its own output: `prev_pvt` itself, as it was.
             @test calc_pvt!(prev_pvt, PVTWorkspace(), unsolvable, prev_pvt; kw...) ===
@@ -231,7 +231,7 @@ end
                 5.25, 3.0, -0.75, 1.5, -2.0, 0.5, 0.25, -0.125, 0.5, 800),
             nothing,
         )
-        rows = measurement_rows((gps = l1ca, galileo = e1b))
+        rows = measurements_of((gps = l1ca, galileo = e1b))
         ξ = [4.0186e6, 427035.0, 4.918e6, 0.0, 0.0]
         predict! = PositionVelocityTime.predict_atmospheric_delays!
         allocated_predict(delays, model) =
@@ -286,13 +286,13 @@ end
         solution = calc_pvt!(PVTSolution(), PVTWorkspace(),
             (l1 = l1ca, l5 = precompile_gps(GPSL5I(), _precompile_cnav),
                 galileo = e1b), PVTSolution(); kw...)
-        @test !isempty(solution.sats)
+        @test !isempty(solution.satellites)
         @test !isempty(solution.inter_system_biases)
         @test !isempty(solution.inter_frequency_biases)
-        sats = solution.sats
+        satellites = solution.satellites
         @test PositionVelocityTime.empty_keeping_capacity!(solution) === solution
-        @test solution.sats === sats
-        @test isempty(solution.sats)
+        @test solution.satellites === satellites
+        @test isempty(solution.satellites)
         @test isempty(solution.inter_system_biases)
         @test isempty(solution.inter_frequency_biases)
     end
@@ -336,17 +336,18 @@ end
         # The time-system and ENU helpers.
         @test PositionVelocityTime.unique_time_systems((GPST(), GST(), GPST(), BDT())) ==
               [GPST(), GST(), BDT()]
-        mixed_rows = measurement_rows((gps = l1ca, galileo = e1b))
-        select_primary(rows) = @allocated PositionVelocityTime.select_primary_system(
+        mixed_rows = measurements_of((gps = l1ca, galileo = e1b))
+        select_reference(rows) = @allocated PositionVelocityTime.select_reference_system(
             rows, nothing)
-        select_primary(mixed_rows)
-        @test select_primary(mixed_rows) == 0
+        select_reference(mixed_rows)
+        @test select_reference(mixed_rows) == 0
         user = ECEF(4.0186e6, 427035.0, 4.918e6)
         sat = ECEF(1.5e7, 1.0e7, 1.8e7)
-        @test get_sat_enu(user, sat) == get_sat_enu(ENUfromECEF(user, wgs84), sat)
+        @test calc_elevation_and_azimuth(user, sat) ==
+              calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
 
         # Anything but one of the four coefficient sets (or `nothing`) is refused.
-        rows = measurement_rows(l1ca)
+        rows = measurements_of(l1ca)
         @test_throws ArgumentError PositionVelocityTime.predict_atmospheric_delays(
             [4.0186e6, 427035.0, 4.918e6, 0.0], rows, 1.0, 259200.0, 151, true)
     end

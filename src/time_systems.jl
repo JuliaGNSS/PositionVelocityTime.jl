@@ -124,7 +124,7 @@ instant — `get_tai_offset(GPST) − get_tai_offset(time_system)`, so **negativ
 where the system's count reads lower (BDT: `19 − 33 = −14.0`), and `0.0` for a
 system that counts alike. `calc_time_scale_offsets` adds the *difference of two
 of these* to a transmit time, which is what puts the +14 s onto a BeiDou time
-in a GPS-primary solve.
+in a GPS-referenced solve.
 
 This is structural, not a bias: it follows from the time scales' definitions, not
 from either system's steering. Both GPST and GST are `TAI − 19 s`, so they count
@@ -149,17 +149,17 @@ time_scale_offset_to_gpst(time_system::GNSSSignals.TimeSystem) =
     ustrip(s, get_tai_offset(GPST()) - get_tai_offset(time_system))
 
 """
-    calc_time_scale_offsets(measurements, primary_system) -> Vector{Float64}
+    calc_time_scale_offsets(measurements, reference_system) -> Vector{Float64}
 
 Seconds to add to each satellite's transmit time to express it in
-`primary_system`'s count, so that `calc_pseudoranges` may difference them.
+`reference_system`'s count, so that `calc_pseudoranges` may difference them.
 `0.0` for every satellite of a system that counts alike — which is every GPS and
 Galileo satellite, and all of them in a single-constellation epoch.
 
-Relative to the *primary* system rather than to GPS Time, because the primary
+Relative to the *reference* system rather than to GPS Time, because the reference
 system's count is also what dates the reported epoch: `reference_time` comes out
-of the same differencing, and is combined with the primary system's week and
-`system_start_epoch`. Anchoring on GPST instead leaves a BeiDou-primary solve
+of the same differencing, and is combined with the reference system's week and
+`system_start_epoch`. Anchoring on GPST instead leaves a BeiDou-referenced solve
 reporting a GPS-count time of week dated from the BDT epoch — a 14 s error in
 `PVTSolution.time` traded for the one this removes from the pseudoranges.
 
@@ -167,27 +167,27 @@ This is applied to the times *handed to the differencing*, and nowhere else. The
 satellite position must still be propagated from the untouched transmit time
 against the message's own `t_0e`, which is on the broadcasting system's scale, so
 shifting the time itself would move the offset into the ephemeris — about 55 km
-of along-track error at BeiDou MEO velocities. `SatInfo.time` and
+of along-track error at BeiDou MEO velocities. `SatelliteInfo.transmit_time` and
 [`calc_steering_offset`](@ref) likewise keep the unconverted value.
 """
-calc_time_scale_offsets(measurements, primary_system) = calc_time_scale_offsets!(
-    Vector{Float64}(undef, length(measurements)), measurements, primary_system)
+calc_time_scale_offsets(measurements, reference_system) = calc_time_scale_offsets!(
+    Vector{Float64}(undef, length(measurements)), measurements, reference_system)
 
 # `calc_time_scale_offsets` into `offsets`, resized to the satellite count.
-function calc_time_scale_offsets!(offsets, measurements, primary_system)
+function calc_time_scale_offsets!(offsets, measurements, reference_system)
     offsets = resize!(offsets, length(measurements))
-    primary = time_scale_offset_to_gpst(primary_system)
-    # Each row already carries its own anchor (`count_offset_to_gpst`), precomputed by
+    reference = time_scale_offset_to_gpst(reference_system)
+    # Each measurement already carries its own anchor (`count_offset_to_gpst`), precomputed by
     # `collect_measurements`, so this reads a number rather than branching on the
     # `time_system` field per satellite.
     for (j, measurement) in enumerate(measurements)
-        offsets[j] = primary - measurement.count_offset_to_gpst
+        offsets[j] = reference - measurement.count_offset_to_gpst
     end
     offsets
 end
 
 """
-    system_start_epoch(system) -> TAITime
+    system_start_epoch(signal) -> TAITime
 
 Absolute TAI epoch of a ranging signal's GNSS time-scale origin (week 0, time of
 week 0), from GNSSSignals' `get_tai_system_start_time` — the epoch already
@@ -198,7 +198,7 @@ label) and AstroTime's leap-aware conversion; GNSSSignals 4.1 states the TAI
 labels itself, which is also what makes the value safe to derive at
 precompile time.
 """
-system_start_epoch(system) = TAITime(get_tai_system_start_time(system))
+system_start_epoch(signal) = TAITime(get_tai_system_start_time(signal))
 
 """
     get_week(decoder::GNSSDecoderState{<:GPSL1CAData}; approximate_year)

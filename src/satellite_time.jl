@@ -2,8 +2,8 @@
     fold_week_crossover(t) -> Float64
 
 Fold a difference of two seconds-of-week counts modulo the week, into
-`(-302400, 302400]`: near a week rollover the two operands sit on opposite
-sides of the wrap and their raw difference is off by ±604800 s. Every time
+`(-302400, 302400]`: across a week crossover (IS-GPS-200's term) the two operands sit
+on opposite sides of it and their raw difference is off by ±604800 s. Every time
 difference in this package — and in a consumer differencing transmit times —
 must pass through this.
 """
@@ -12,8 +12,8 @@ function fold_week_crossover(t)
     t + (t > half_week ? -2 * half_week : (t < -half_week ? 2 * half_week : 0.0))
 end
 
-function calc_uncorrected_time(state::SatelliteState)
-    system = state.system
+function calc_uncorrected_transmit_time(state::SatelliteState)
+    signal = state.signal
     # Time of week at the navigation-frame reference epoch, from GNSSDecoder's own
     # accessor. Most signals broadcast seconds outright, but GPS L1C-D counts
     # two-hour intervals plus 18 s TOI steps and BeiDou B1C counts hours plus 18 s
@@ -23,10 +23,10 @@ function calc_uncorrected_time(state::SatelliteState)
     # Bit-count term uses the decoder's nav-message symbol rate — the rate the bits
     # were counted at — reported by `get_data_frequency` on the decoder
     # state (GNSSDecoder 3.6). It is the decoder's *data* signal, not the tracked
-    # `system`: with joint same-band tracking the pseudorange may be generated on a
+    # `signal`: with joint same-band tracking the pseudorange may be generated on a
     # dataless pilot (e.g. GPS L1C-P, Galileo E1C) whose own data frequency is 0 Hz,
     # while the bits come from the data component the decoder ran on. The code- and
-    # carrier-phase terms use the tracked ranging `system`.
+    # carrier-phase terms use the tracked ranging `signal`.
     t_bits =
         state.decoder.num_bits_after_valid_syncro_sequence /
         get_data_frequency(state.decoder) * Hz
@@ -37,12 +37,12 @@ function calc_uncorrected_time(state::SatelliteState)
     # double-counting it. A no-op for a single-signal sat, whose code phase is already
     # below one data symbol of chips.
     chips_per_symbol =
-        ustrip(Hz, get_code_frequency(system)) / ustrip(Hz, get_data_frequency(state.decoder))
-    t_code_phase = mod(state.code_phase, chips_per_symbol) / get_code_frequency(system) * Hz
+        ustrip(Hz, get_code_frequency(signal)) / ustrip(Hz, get_data_frequency(state.decoder))
+    t_code_phase = mod(state.code_phase, chips_per_symbol) / get_code_frequency(signal) * Hz
     # `carrier_phase` is in radians (that is what `Tracking.get_carrier_phase` reports and
     # what Tracking.jl passes on), so convert to cycles before dividing by the
     # centre frequency — unlike the code phase above, which is already in chips.
-    t_carrier_phase = state.carrier_phase / 2π / get_center_frequency(system) * Hz
+    t_carrier_phase = state.carrier_phase / 2π / get_center_frequency(signal) * Hz
 
     t_tow + t_bits + t_code_phase + t_carrier_phase
 end
@@ -57,11 +57,11 @@ function calc_relativistic_correction(decoder::GNSSDecoder.GNSSDecoderState, t)
     decoder.constants.F * decoded(data.e) * el.sqrt_A * sin(E)
 end
 
-function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, system, t)
+function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, signal, t)
     Δtr = calc_relativistic_correction(decoder, t)
     data = decoder.data
-    # Folded modulo the week like every other time difference here: near a week
-    # rollover `t` and `t_0c` sit on opposite sides of the wrap, and the raw
+    # Folded modulo the week like every other time difference here: across a week
+    # crossover `t` and `t_0c` sit on opposite sides of it, and the raw
     # difference of ±604800 s puts ~a_f1·604800 ≈ microseconds (kilometres of
     # range) into a polynomial whose real argument is seconds.
     Δt_from_reference = fold_week_crossover(t - decoded(data.t_0c))
@@ -70,7 +70,7 @@ function correct_clock(decoder::GNSSDecoder.GNSSDecoderState, system, t)
         decoded(data.a_f1) * Δt_from_reference +
         decoded(data.a_f2) * Δt_from_reference^2 +
         Δtr
-    t - correct_by_group_delay(decoder, system, Δt)
+    t - correct_by_group_delay(decoder, signal, Δt)
 end
 
 """
@@ -92,7 +92,7 @@ function calc_satellite_clock_drift(decoder::GNSSDecoder.GNSSDecoderState, t)
     decoded(data.a_f1) + 2 * decoded(data.a_f2) * fold_week_crossover(t - decoded(data.t_0c))
 end
 
-# Group-delay / inter-signal correction, selected by the *ranging* signal `system`
+# Group-delay / inter-signal correction, selected by the ranging `signal`
 # while the values come from the `decoder`'s navigation message. The two can differ:
 # with joint same-band tracking a band's pseudorange may be generated on a pilot or
 # secondary signal (e.g. GPS L1C-P) while the ephemeris/clock are decoded from the
@@ -192,8 +192,8 @@ correct_by_group_delay(
 # treating one as zero would hide a decoder contract violation as a few-nanosecond
 # bias. `group_delay_term` is reserved for the terms a message may legitimately not
 # have broadcast yet, which for Galileo is none of them.
-galileo_group_delay_scaling(system) =
-    (get_center_frequency(GalileoE1B) / get_center_frequency(system))^2
+galileo_group_delay_scaling(signal) =
+    (get_center_frequency(GalileoE1B) / get_center_frequency(signal))^2
 
 # One method per (message, ranging signal) that can actually occur, and no fallback —
 # the same shape as the GPS and BeiDou methods above, so the whole table can be
@@ -211,7 +211,7 @@ galileo_group_delay_scaling(system) =
 # broadcast BGD(E1,E5a), but nothing reads it: an E5a range carries an F/NAV decoder.
 correct_by_group_delay(
     decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GalileoINAVData},
-    system::Union{
+    signal::Union{
         GNSSSignals.GalileoE1B,
         GNSSSignals.GalileoE1C,
         GNSSSignals.GalileoE1B_BOC11,
@@ -222,11 +222,11 @@ correct_by_group_delay(
     t,
 ) =
     t -
-    galileo_group_delay_scaling(system) * decoder.data.BGD_E1_E5b
+    galileo_group_delay_scaling(signal) * decoder.data.BGD_E1_E5b
 
 correct_by_group_delay(
     decoder::GNSSDecoder.GNSSDecoderState{<:GNSSDecoder.GalileoE5aData},
-    system::Union{
+    signal::Union{
         GNSSSignals.GalileoE5aI,
         GNSSSignals.GalileoE5aQ,
         GNSSSignals.GalileoE5aQP,
@@ -234,7 +234,7 @@ correct_by_group_delay(
     t,
 ) =
     t -
-    galileo_group_delay_scaling(system) * decoder.data.BGD_E1_E5a
+    galileo_group_delay_scaling(signal) * decoder.data.BGD_E1_E5a
 
 # BeiDou references its broadcast clock polynomial to the B3I signal, on both the
 # legacy and the BDS-3 messages, and then publishes a group delay per signal to
@@ -327,19 +327,19 @@ correct_by_group_delay(
 # CNAV's L5 and L2C signals, for the same reason.)
 
 """
-    calc_corrected_time(state::SatelliteState) -> Float64
+    calc_transmit_time(state::SatelliteState) -> Float64
 
 The satellite's transmit time as a seconds-of-week count on its own system's
 scale: the decoder's time of week plus the bit, code-phase and carrier-phase
-fractions (`calc_uncorrected_time`), corrected by the SV clock polynomial, the
+fractions (`calc_uncorrected_transmit_time`), corrected by the SV clock polynomial, the
 relativistic term and the ranging signal's group delay (`correct_clock`). This
 is the `t` every ephemeris and clock evaluation takes; only pseudorange
 *differencing* converts it to another scale (see
 [`time_scale_offset_to_gpst`](@ref)), never the value itself.
 """
-function calc_corrected_time(state::SatelliteState)
-    approximated_time = calc_uncorrected_time(state)
-    correct_clock(state.decoder, state.system, approximated_time)
+function calc_transmit_time(state::SatelliteState)
+    approximated_time = calc_uncorrected_transmit_time(state)
+    correct_clock(state.decoder, state.signal, approximated_time)
 end
 
 # `time_offset_available` and `calc_steering_offset` — the two functions that read a

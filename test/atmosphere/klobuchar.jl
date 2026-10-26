@@ -98,7 +98,7 @@ end
     end
     mkstate(dec, sys) = SatelliteState(;
         decoder = dec,
-        system = sys,
+        signal = sys,
         code_phase = 0.0,
         carrier_doppler = 0.0Hz,
     )
@@ -137,7 +137,7 @@ end
         gal_bare = mkstate(GNSSDecoderState(GalileoE1B(), 2), GalileoE1B())
         gal_ntcm = mkstate(galileo_decoder_with(121.13, 0.35, 0.013, 1100), GalileoE1B())
 
-        select = PositionVelocityTime.select_ionospheric_correction
+        select = PositionVelocityTime.select_ionospheric_parameters
         # Nothing decoded → no correction
         @test select((signal_group([gps_bare]), signal_group([gal_bare]))) === nothing
         # Only Klobuchar → Klobuchar. Both satellites are on one signal, so they are
@@ -157,7 +157,7 @@ end
         sat = ECEF(user[1] + 1.0e7, user[2] + 1.0e7, user[3] + 2.0e7)
         klob = PositionVelocityTime.KlobucharParams(α..., β...)
         # Line-of-sight geometry (same user/sat for every call below)
-        el, az = PositionVelocityTime._elevation_azimuth(ENUfromECEF(user, wgs84), sat)
+        el, az = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
         lla = LLAfromECEF(wgs84)(user)
 
         # No correction → exactly zero for any system

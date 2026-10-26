@@ -26,48 +26,47 @@ function factorize_normal_matrix!(normal_matrix, H)
 end
 
 """
-Calculates the dilution of precision for a given geometry matrix H
+    calc_dop(H, user_pos::ECEF, reference_clock_column = 1) -> DOP
 
-`H_GEO` has `3 + num_clock_biases + num_ifb` columns (three position partials, one per
+The dilution of precision of the design matrix `H` ([`calc_design_matrix`](@ref)) at the
+user position. `H` has `3 + num_clock_biases + num_ifbs` columns (three position partials, one per
 GNSS time system, and one per frequency band beyond the reference). `D = (HᵀH)⁻¹` is
-the parameter covariance in the units/frame of `H`. Because `calc_H!` builds `H` from
+the parameter covariance in the units/frame of `H`. Because `calc_design_matrix!` builds `H` from
 ECEF unit vectors (the negated receiver→satellite lines of sight), the position
 block of `D` is in ECEF; it is rotated into
 the local ENU frame at `user_pos` before the horizontal/vertical split, so `HDOP`/`VDOP`
 are taken in the user's tangent plane (`PDOP`/`GDOP` are trace-invariant and unaffected
 by the rotation). `GDOP` spans all parameters; `TDOP` reports the clock variance of the
-primary (reference) system — see [`PVTSolution`](@ref) — while the other systems' clock
+reference system — see [`PVTSolution`](@ref) — while the other systems' clock
 (inter-system-bias) and the inter-frequency-bias variances enter `GDOP` only.
 
 A rank-deficient geometry makes `HᵀH` singular (not positive definite, or only to
 within rounding); the factorisation detects this and the function returns the sentinel
 `DOP(-1, …)` instead of erroring.
 
-$SIGNATURES
-`H_GEO`: Geometry matrix
-`user_pos`: User ECEF position, for the ECEF→ENU rotation of the horizontal/vertical DOPs
-`primary_clock_index`: Index (1…num_clock_biases) of the clock column whose variance is reported as TDOP
+`reference_clock_column` is the clock column (1…num_clock_biases) whose variance is
+reported as `TDOP`.
 """
-calc_DOP(H_GEO, user_pos::ECEF, primary_clock_index = 1) = calc_DOP!(
-    Matrix{Float64}(undef, size(H_GEO, 2), size(H_GEO, 2)), H_GEO, user_pos,
-    primary_clock_index)
+calc_dop(H, user_pos::ECEF, reference_clock_column = 1) = calc_dop!(
+    Matrix{Float64}(undef, size(H, 2), size(H, 2)), H, user_pos,
+    reference_clock_column)
 
 """
-    calc_DOP!(normal_matrix, H_GEO, user_pos::ECEF, primary_clock_index = 1) -> DOP
+    calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_column = 1) -> DOP
 
-[`calc_DOP`](@ref) with the normal-equations matrix `HᵀH` formed, factorised and
-inverted in `normal_matrix` (`n × n` for the `n` columns of `H_GEO`, overwritten), so
+[`calc_dop`](@ref) with the normal-equations matrix `HᵀH` formed, factorised and
+inverted in `normal_matrix` (`n × n` for the `n` columns of `H`, overwritten), so
 that it allocates nothing. The factorisation is LAPACK's Cholesky `potrf`, followed by
 a relative rank test on its pivots, and the inverse is `potri` on that factor — what
 `inv` of a `Cholesky` computes.
 """
-function calc_DOP!(normal_matrix, H_GEO, user_pos::ECEF, primary_clock_index = 1)
+function calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_column = 1)
     # HᵀH is symmetric positive definite iff H has full column rank, so a
     # rank-deficient (singular) geometry fails gracefully here instead of throwing —
     # see `factorize_normal_matrix!`. The inverse of an SPD matrix is itself SPD, so
     # the DOP variances on the diagonal are then guaranteed non-negative.
-    n = size(H_GEO, 2)
-    factorize_normal_matrix!(normal_matrix, H_GEO) || return DOP(-1, -1, -1, -1, -1)
+    n = size(H, 2)
+    factorize_normal_matrix!(normal_matrix, H) || return DOP(-1, -1, -1, -1, -1)
     # The inverse, in the upper triangle only; `D(i, j)` reads it symmetrically.
     LAPACK.potri!('U', normal_matrix)
     D(i, j) = i <= j ? normal_matrix[i, j] : normal_matrix[j, i]
@@ -92,27 +91,28 @@ function calc_DOP!(normal_matrix, H_GEO, user_pos::ECEF, primary_clock_index = 1
     HDOP = sqrt(D_enu[1, 1] + D_enu[2, 2])   # horizontal dop (East² + North²)
     VDOP = sqrt(D_enu[3, 3])                 # vertical dop (Up)
     PDOP = sqrt(D(1, 1) + D(2, 2) + D(3, 3)) # position dop (trace-invariant)
-    TDOP = sqrt(D(3 + primary_clock_index, 3 + primary_clock_index)) # temporal dop (reference system)
+    # temporal dop (reference system)
+    TDOP = sqrt(D(3 + reference_clock_column, 3 + reference_clock_column))
     GDOP = sqrt(sum(i -> D(i, i), 1:n))      # geometrical dop (all parameters)
 
     return DOP(GDOP, PDOP, VDOP, HDOP, TDOP)
 end
 
 """
-Computes user position
+    estimate_position(sat_positions, pseudoranges, bias_columns::BiasColumns,
+                      prev_ξ = zeros(num_parameters(bias_columns))) -> (ξ, residuals)
 
-$SIGNATURES
-`sat_positions_mat`: Satellite positions, as a `(3, N)` matrix (xyz per satellite) or a
-vector of `SVector{3}`s.
-`ρ`: Array of pseudoranges
+The user position, receiver clock biases and inter-frequency biases that fit the
+`pseudoranges` by least squares, starting from `prev_ξ`. The algorithm is based on the
+common reception method.
 
-Calculates the user position by least squares method. The algorithm is based on the common reception method.
+- `sat_positions`: a `3 × N` matrix or a vector of `SVector{3}`s.
+- `bias_columns`: the per-satellite [`BiasColumns`](@ref) (clock and
+  inter-frequency-bias columns).
 
-`bias_columns`: The per-satellite [`BiasColumns`](@ref) (clock and inter-frequency-bias columns).
-
-Returns `(ξ, residuals)`: the solved state vector
-`ξ = [x, y, z, tc₁, …, ifb₁, …]` and the per-satellite post-fit residual vector
-(measured minus modeled pseudorange, metres), in the same satellite order as `ρ`.
+Returns `(ξ, residuals)`: the solved state vector `ξ = [x, y, z, tc₁, …, ifb₁, …]` and
+the per-satellite post-fit residuals (measured minus modeled pseudorange, metres), in
+the order of `pseudoranges`.
 
 `curve_fit` (LsqFit's, mirrored by [`LevenbergMarquardt`](@ref)) reports its own residual
 as `model - data`, so the returned vector negates it.
@@ -121,32 +121,32 @@ residuals — RTKLIB's `rescode`, and GNSS-SDR and PocketSDR through it — and 
 is the whole of the difference: it is applied to the converged fit, so the solve itself
 is untouched.
 
-The allocating form of [`user_position!`](@ref), on fresh buffers.
+The allocating form of [`estimate_position!`](@ref), on fresh buffers.
 """
-user_position(sat_positions_mat, ρ, bias_columns::BiasColumns,
-    prev_ξ = zeros(num_lsq_params(bias_columns))) = user_position!(
-    LMWorkspace(), Vector{Float64}(undef, length(ρ)), sat_positions_mat, ρ, bias_columns,
-    prev_ξ)
+estimate_position(sat_positions, pseudoranges, bias_columns::BiasColumns,
+    prev_ξ = zeros(num_parameters(bias_columns))) = estimate_position!(
+    LMWorkspace(), Vector{Float64}(undef, length(pseudoranges)), sat_positions,
+    pseudoranges, bias_columns, prev_ξ)
 
 """
-    user_position!(workspace::LMWorkspace, residuals, sat_positions, ρ, bias_columns, prev_ξ)
-        -> (ξ, residuals)
+    estimate_position!(workspace::LMWorkspace, residuals, sat_positions,
+                       pseudoranges, bias_columns, prev_ξ) -> (ξ, residuals)
 
-[`user_position`](@ref) on the buffers of `workspace`, writing the post-fit residuals into
+[`estimate_position`](@ref) on the buffers of `workspace`, writing the post-fit residuals into
 `residuals` (resized to the satellite count). The returned `ξ` **is** `workspace.x`, so it
 is overwritten by the next solve on the same workspace; `prev_ξ` may be that same vector,
 to restart a solve from the previous one's solution.
 """
-function user_position!(
+function estimate_position!(
     workspace::LMWorkspace,
     residuals,
-    sat_positions_mat,
-    ρ,
+    sat_positions,
+    pseudoranges,
     bias_columns::BiasColumns,
     prev_ξ,
 )
-    model! = (out, x, par) -> calc_ρ_hat!(out, x, par, bias_columns)
-    jacobian! = (J, x, par) -> calc_H!(J, x, par, bias_columns)
+    model! = (out, x, par) -> predict_pseudoranges!(out, x, par, bias_columns)
+    jacobian! = (J, x, par) -> calc_design_matrix!(J, x, par, bias_columns)
 
     # Two departures from LsqFit's Levenberg-Marquardt defaults, both about the scale of
     # this particular problem:
@@ -173,36 +173,37 @@ function user_position!(
     # Detect cold by checking the default zeros sentinel (origin position).
     ξ_fit_ols = if iszero(prev_ξ)
         curve_fit!(
-            workspace, model!, jacobian!, sat_positions_mat, ρ, prev_ξ;
+            workspace, model!, jacobian!, sat_positions, pseudoranges, prev_ξ;
             inplace = true,
-            avv! = (dir_deriv, par, v) -> calc_Avv!(dir_deriv, sat_positions_mat, par, v),
+            avv! = (curvature, par, v) ->
+                calc_pseudorange_curvature!(curvature, sat_positions, par, v),
             lambda = 1e-8,
             min_step_quality = 0.0,
             x_tol = 1e-13,
         )
     else
         curve_fit!(
-            workspace, model!, jacobian!, sat_positions_mat, ρ, prev_ξ;
+            workspace, model!, jacobian!, sat_positions, pseudoranges, prev_ξ;
             inplace = true,
             lambda = 1e-8,
             x_tol = 1e-13,
         )
     end
     #    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
-    #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions_mat, ρ, wt, collect(prev_ξ))
+    #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions, pseudoranges, wt, collect(prev_ξ))
     # Negated into the caller's buffer rather than in place: `resid` is the workspace's
     # own residual buffer, which the next fit starts from.
-    residuals = resize!(residuals, length(ρ))
+    residuals = resize!(residuals, length(pseudoranges))
     residuals .= .-ξ_fit_ols.resid
     return ξ_fit_ols.param, residuals
 end
 
 """
-Computes user velocity
+    estimate_velocity(measurements, user_pos,
+                      prev_vel_and_drift = zero(SVector{4,Float64}))
+        -> (velocity_and_drift::SVector{4}, rate_residuals)
 
-$SIGNATURES
-
-Calculates the user velocity and a single receiver clock drift, returned together with
+The user velocity and a single receiver clock drift, returned together with
 the per-satellite post-fit range-rate residuals as `([vx, vy, vz, ċ], rate_residuals)`.
 Unlike the position solve — which estimates one clock *bias*
 per GNSS time system (the inter-system bias / GGTO is metre-level and must be
@@ -214,8 +215,8 @@ every satellite constrain the four unknowns instead of spending a column per
 system.
 
 The measured range rate is fitted to [`calc_pseudorange_rate`](@ref), the exact time
-derivative of the pseudorange [`calc_ρ_hat!`](@ref) models (see `calc_pseudorange_rate`
-for its two terms of order `v/c`), by one Gauss–Newton step from `start`
+derivative of the pseudorange [`predict_pseudoranges!`](@ref) models (see `calc_pseudorange_rate`
+for its two terms of order `v/c`), by one Gauss–Newton step from `prev_vel_and_drift`
 (`[vx, vy, vz, ċ]`, m/s; the resting receiver by default). The model is so nearly linear
 that one step is the least-squares fit: within ~1e-11 m/s from a start a few m/s off,
 such as the previous epoch's solution, and within ~1e-7 m/s from rest even for an
@@ -226,7 +227,7 @@ position, hence the solved `user_pos` (ECEF, m — the position block of the con
 
 The residuals are `measured − modeled` range rate (m/s): the measured rate minus
 [`calc_pseudorange_rate`](@ref) at the solved state, to the same precision, the same
-orientation as the pseudorange residuals of [`user_position`](@ref) and in the same
+orientation as the pseudorange residuals of [`estimate_position`](@ref) and in the same
 satellite order as `measurements`. They are the range-rate analogue of the post-fit
 pseudorange residual: a per-satellite Doppler-consistency / outlier indicator. Measured
 and modeled are both taken in that model's sense, in which a *receding* satellite reads
@@ -234,42 +235,44 @@ positive — the same quantity and sign as RTKLIB's `resdop` residual, and hence
 negative of the Doppler-signed range rate a tracking loop works in (see the note at the
 residual loop).
 
-Needs a geometry whose position design at `user_pos` ([`calc_H!`](@ref)) has full
-column rank, as [`calc_DOP`](@ref) establishes. Where the velocity design itself is not of
-full rank to within the tolerance `calc_DOP` applies, the solve does not throw but returns
+Needs a geometry whose position design at `user_pos` ([`calc_design_matrix!`](@ref)) has full
+column rank, as [`calc_dop`](@ref) establishes. Where the velocity design itself is not of
+full rank to within the tolerance `calc_dop` applies, the solve does not throw but returns
 `NaN` for the state and every residual.
 
-The allocating form of [`calc_user_velocity_and_clock_drift!`](@ref).
+The allocating form of [`estimate_velocity!`](@ref).
 """
-calc_user_velocity_and_clock_drift(measurements, user_pos,
-    start = zero(SVector{4,Float64})) = calc_user_velocity_and_clock_drift!(
+estimate_velocity(measurements, user_pos,
+    prev_vel_and_drift = zero(SVector{4,Float64})) = estimate_velocity!(
     Vector{Float64}(undef, length(measurements)), SVector{4,Float64}[], measurements,
-    user_pos, start)
+    user_pos, prev_vel_and_drift)
 
 """
-    calc_user_velocity_and_clock_drift!(rate_residuals, design, measurements, user_pos,
-        start = zero(SVector{4,Float64})) -> (velocity_and_drift::SVector{4}, rate_residuals)
+    estimate_velocity!(rate_residuals, design, measurements, user_pos,
+        prev_vel_and_drift = zero(SVector{4,Float64}))
+        -> (velocity_and_drift::SVector{4}, rate_residuals)
 
-[`calc_user_velocity_and_clock_drift`](@ref) writing the range-rate residuals into
+[`estimate_velocity`](@ref) writing the range-rate residuals into
 `rate_residuals`, with `design` — a `Vector{SVector{4,Float64}}` — as scratch for the
 design rows; both are resized to the satellite count. The solve itself is a fixed `4 × 4`
 static one and allocates nothing.
 """
-function calc_user_velocity_and_clock_drift!(rate_residuals, design, measurements,
-    user_pos, start = zero(SVector{4,Float64}))
-    user_position = SVector{3,Float64}(user_pos[1], user_pos[2], user_pos[3])
-    start_vel = SVector{3,Float64}(start[1], start[2], start[3])
+function estimate_velocity!(rate_residuals, design, measurements,
+    user_pos, prev_vel_and_drift = zero(SVector{4,Float64}))
+    position = SVector{3,Float64}(user_pos[1], user_pos[2], user_pos[3])
+    prev_vel = SVector{3,Float64}(
+        prev_vel_and_drift[1], prev_vel_and_drift[2], prev_vel_and_drift[3])
     rate_residuals = resize!(rate_residuals, length(measurements))
     design = resize!(design, length(measurements))
-    # One Gauss–Newton step on `measured − calc_pseudorange_rate` from `start`, in
+    # One Gauss–Newton step on `measured − calc_pseudorange_rate` from `prev_vel_and_drift`, in
     # normal-equations form: accumulating AᵀA (4×4) and Aᵀr (length 4) row by row keeps
     # the solve a fixed 4×4 regardless of satellite count — no per-count recompilation and
     # no per-epoch heap allocation. Every quantity the loop needs — the Doppler, the
-    # carrier, the satellite clock drift, position and velocity — is a field of the flat
-    # [`SatelliteMeasurement`](@ref) row, so no decoder is touched and this compiles once
+    # carrier, the satellite clock drift, position and velocity — is a field of the
+    # [`SatelliteMeasurement`](@ref), so no decoder is touched and this compiles once
     # for every constellation mix.
     #
-    # The design row is the gradient of `calc_pseudorange_rate` at `start`: the negated
+    # The design row is the gradient of `calc_pseudorange_rate` at `prev_vel_and_drift`: the negated
     # rotated line of sight plus a ~3e-6 relative share from the travel-time rate and the
     # light-time factor, and a clock-drift entry of `1 − s/c` (the single common drift
     # column; H's per-system clock columns, unit indicators, collapsed). The model is
@@ -284,7 +287,8 @@ function calc_user_velocity_and_clock_drift!(rate_residuals, design, measurement
     Atr = zero(SVector{4,Float64})
     for j in eachindex(measurements)
         measurement = measurements[j]
-        modelled, a = pseudorange_rate_and_gradient(user_position, start_vel, start[4],
+        modelled, a = pseudorange_rate_and_gradient(position, prev_vel,
+            prev_vel_and_drift[4],
             measurement.position, measurement.velocity, measurement.clock_drift)
         rⱼ = measured_pseudorange_rate(measurement) - modelled
         rate_residuals[j] = rⱼ
@@ -313,7 +317,7 @@ function calc_user_velocity_and_clock_drift!(rate_residuals, design, measurement
     end
     step = factor \ Atr
 
-    # Post-fit residual, measured minus modeled: the residual at `start` moved on by the
+    # Post-fit residual, measured minus modeled: the residual at `prev_vel_and_drift` moved on by the
     # step along its design row — `calc_pseudorange_rate` at the solved state to the step's
     # precision above, without a second rotation per satellite. It is orthogonal to the
     # design, as a least-squares residual is.
@@ -327,23 +331,10 @@ function calc_user_velocity_and_clock_drift!(rate_residuals, design, measurement
     for j in eachindex(measurements)
         rate_residuals[j] -= dot(design[j], step)
     end
-    return start + step, rate_residuals
+    return prev_vel_and_drift + step, rate_residuals
 end
 
 # The measured range rate, receding-positive as the model runs.
 @inline measured_pseudorange_rate(measurement) =
     -measurement.carrier_doppler * SPEED_OF_LIGHT / measurement.center_frequency
 
-"""
-    get_sat_position(sat_pv) -> SVector{3,Float64}
-
-Satellite ECEF position (m) of one [`calc_satellite_position_and_velocity`](@ref) result.
-"""
-get_sat_position(x) = x.position
-
-"""
-    get_sat_velocity(sat_pv) -> SVector{3,Float64}
-
-Satellite ECEF velocity (m/s) of one [`calc_satellite_position_and_velocity`](@ref) result.
-"""
-get_sat_velocity(x) = x.velocity

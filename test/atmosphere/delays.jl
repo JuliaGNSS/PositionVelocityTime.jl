@@ -117,7 +117,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     173,
                     false,
                 ),
-                system = gpsl1,
+                signal = gpsl1,
                 code_phase = 7457.6350011159975,
                 carrier_doppler = 945.8683607586818Hz,
                 carrier_phase = -0.22095823550737081,
@@ -232,7 +232,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     173,
                     true,
                 ),
-                system = gpsl1,
+                signal = gpsl1,
                 code_phase = 6078.218551898637,
                 carrier_doppler = -3276.264988960822Hz,
                 carrier_phase = 0.7638002718956874,
@@ -347,7 +347,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     173,
                     false,
                 ),
-                system = gpsl1,
+                signal = gpsl1,
                 code_phase = 17299.53480240955,
                 carrier_doppler = -189.2252575679783Hz,
                 carrier_phase = 2.7456602492891107,
@@ -462,7 +462,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     173,
                     false,
                 ),
-                system = gpsl1,
+                signal = gpsl1,
                 code_phase = 4175.34652009604,
                 carrier_doppler = -3554.3272562888696Hz,
                 carrier_phase = 1.7547749028909547,
@@ -470,7 +470,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         ]
         # Constellation-wide model selection picks Klobuchar: the GPS decoders
         # carry the broadcast α/β, no Galileo coefficients are present.
-        @test PositionVelocityTime.select_ionospheric_correction(signal_group(states)) isa
+        @test PositionVelocityTime.select_ionospheric_parameters(signal_group(states)) isa
               PositionVelocityTime.KlobucharParams
 
         # Corrections are on by default — the fix lands within a metre of the ground truth.
@@ -596,7 +596,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     1391,
                     false,
                 ),
-                system = galileo_e1b,
+                signal = galileo_e1b,
                 code_phase = 1134.9227691611316,
                 carrier_doppler = -1048.4103530464388Hz,
                 carrier_phase = -1.1559529083133402,
@@ -696,7 +696,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     1388,
                     false,
                 ),
-                system = galileo_e1b,
+                signal = galileo_e1b,
                 code_phase = 552.8323205662532,
                 carrier_doppler = -2401.7199003375345Hz,
                 carrier_phase = -0.5865229251135221,
@@ -796,7 +796,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     1388,
                     true,
                 ),
-                system = galileo_e1b,
+                signal = galileo_e1b,
                 code_phase = 1998.2750592825137,
                 carrier_doppler = 1342.86940202154Hz,
                 carrier_phase = -1.9500644306669892,
@@ -896,7 +896,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     1388,
                     true,
                 ),
-                system = galileo_e1b,
+                signal = galileo_e1b,
                 code_phase = 2721.0058329387184,
                 carrier_doppler = -3042.4604297211754Hz,
                 carrier_phase = -0.5604621503191517,
@@ -904,7 +904,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         ]
         # NTCM-G is selected from the Effective Ionisation Level coefficients
         # decoded from the E1B navigation message.
-        @test PositionVelocityTime.select_ionospheric_correction(signal_group(states)) isa
+        @test PositionVelocityTime.select_ionospheric_parameters(signal_group(states)) isa
               PositionVelocityTime.NTCMGParams
 
         # The fixture observables were generated with the flat-slab 1/sin(el)

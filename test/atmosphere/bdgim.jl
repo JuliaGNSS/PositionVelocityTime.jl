@@ -363,7 +363,7 @@
     @testset "selection order: NTCM-G > BDGIM > GPS Klobuchar > BeiDou Klobuchar" begin
         mk(dec, sys) = SatelliteState(;
             decoder = dec,
-            system = sys,
+            signal = sys,
             code_phase = 0.0,
             carrier_doppler = 0.0Hz,
         )
@@ -415,7 +415,7 @@
             BeiDouB1I(),
         )
 
-        select = PositionVelocityTime.select_ionospheric_correction
+        select = PositionVelocityTime.select_ionospheric_parameters
         # Each of these satellites is on a signal of its own, so each is its own group;
         # the tuple's order is the order the scan sees them in, which is what the
         # preference rungs below are asserted against.

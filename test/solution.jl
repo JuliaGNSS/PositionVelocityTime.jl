@@ -1,4 +1,4 @@
-@testset "PVT sats keyed by (signal, PRN): same PRN across signals coexists" begin
+@testset "PVT satellites keyed by (signal, PRN): same PRN across signals coexists" begin
     gps = gps_l1_states(0.0Hz)
     gal = galileo_e1b_states(0.0Hz)
     healthy(s) = PositionVelocityTime.is_sat_healthy(s.decoder)
@@ -24,11 +24,11 @@
     # Both the GPS and the Galileo satellite with the shared PRN survive as
     # distinct entries — with a bare-Int PRN key one would have overwritten the
     # other and the used-satellite count would have dropped.
-    @test haskey(pvt.sats, (:GPSL1CA, shared_prn))
-    @test haskey(pvt.sats, (:GalileoE1B, shared_prn))
-    @test get_sat_info(pvt, :GPSL1CA, shared_prn) !==
-          get_sat_info(pvt, :GalileoE1B, shared_prn)
-    @test length(pvt.sats) == length(baseline.sats)
+    @test haskey(pvt.satellites, (:GPSL1CA, shared_prn))
+    @test haskey(pvt.satellites, (:GalileoE1B, shared_prn))
+    @test pvt.satellites[(:GPSL1CA, shared_prn)] !==
+          pvt.satellites[(:GalileoE1B, shared_prn)]
+    @test length(pvt.satellites) == length(baseline.satellites)
 end
 
 # Course over ground: azimuth of the velocity vector in the local ENU frame, degrees

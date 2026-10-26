@@ -45,7 +45,7 @@ using PositionVelocityTime, GNSSSignals, GNSSDecoder
 gpsl1 = GPSL1CA()
 sat_state = SatelliteState(
     decoder = decoder,
-    system = gpsl1,
+    signal = gpsl1,
     code_phase = code_phase,
     carrier_doppler = carrier_doppler,
     carrier_phase = carrier_phase,  # optional, in radians
@@ -73,7 +73,7 @@ pvt = calc_pvt((
     gps = SignalGroup(GPSL1CA(), gps_sat_states),
     galileo = SignalGroup(GalileoE1B(), galileo_sat_states),
 ))
-lla = get_LLA(pvt)  # latitude, longitude, altitude
+lla = get_lla(pvt)  # latitude, longitude, altitude
 ```
 
 Each group holds the satellites tracked on one signal, as a `Dictionary` keyed by PRN or
@@ -143,7 +143,7 @@ end
 ```
 
 A [`PVTSolution`](@ref) is immutable, so `calc_pvt!` returns the new fix; what it reuses
-are the `sats` and bias containers of its first argument, which the returned solution
+are the `satellites` and bias containers of its first argument, which the returned solution
 takes over. That argument is the only thing overwritten — `prev_pvt` is only read, so
 passing a different solution there keeps it intact — and it is spent by the call: keep
 the returned solution, and `copy(pvt)` any solution you want to keep beyond the next

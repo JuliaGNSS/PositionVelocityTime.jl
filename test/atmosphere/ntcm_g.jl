@@ -20,7 +20,7 @@
             a0, a1, a2, doy, ut, slon, slat, sh, blon, blat, bh, expected = v
             u = toecef(slat, slon, sh)
             s = toecef(blat, blon, bh)
-            el, az = PositionVelocityTime._elevation_azimuth(ENUfromECEF(u, wgs84), s)
+            el, az = calc_elevation_and_azimuth(ENUfromECEF(u, wgs84), s)
             stec = PositionVelocityTime.ntcm_g_stec(
                 el,
                 az,
@@ -37,8 +37,8 @@
 
     @testset "Azpar (Eq. 2)" begin
         # |√(a0² + 1633.33·a1² + 4802000·a2² + 3266.67·a0·a2)|, in sfu
-        @test PositionVelocityTime._azpar(HI...) ≈ 244.007 atol = 1e-2
-        @test PositionVelocityTime._azpar(0.0, 0.0, 0.0) == 0.0
+        @test PositionVelocityTime._ntcm_g_azpar(HI...) ≈ 244.007 atol = 1e-2
+        @test PositionVelocityTime._ntcm_g_azpar(0.0, 0.0, 0.0) == 0.0
     end
 
     @testset "GST week/TOW → day-of-year and UT" begin
@@ -66,13 +66,13 @@
         )
         state = SatelliteState(;
             decoder = gal,
-            system = GalileoE1B(),
+            signal = GalileoE1B(),
             code_phase = 0.0,
             carrier_doppler = 0.0Hz,
         )
-        correction = PositionVelocityTime.select_ionospheric_correction(signal_group([state]))
+        correction = PositionVelocityTime.select_ionospheric_parameters(signal_group([state]))
         @test correction isa PositionVelocityTime.NTCMGParams
-        el, az = PositionVelocityTime._elevation_azimuth(ENUfromECEF(user, wgs84), sat)
+        el, az = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
         delay = PositionVelocityTime.ionospheric_delay(
             correction,
             carrier_hz(GalileoE1B()),

@@ -21,10 +21,10 @@
 #   acquisition + tracking lock-in.
 #
 # WHY ONLY GPS L1 C/A:
-#   `calc_pvt` needs ≥4 healthy satellites of the *same* GNSS. The open-sky
-#   roof recording has plenty of GPS L1 C/A satellites; the other systems/bands
-#   present in the wider L125 set have fewer than 4 in view, so GPS L1 C/A is
-#   the only constellation that can yield a fix here.
+#   `calc_pvt` needs ≥4 healthy satellites, and every further time system or
+#   band adds a bias to estimate. The open-sky roof recording has plenty of GPS
+#   L1 C/A satellites; the other systems/bands present in the wider L125 set
+#   have too few in view to add one, so the test keeps to GPS L1 C/A.
 #
 # CAPTURE FORMAT (`*_L1.bin`, the de-multiplexed L1 band of Flexiband config
 # III-1b — parameters taken from Fraunhofer's own GNSS-SDR config
@@ -236,7 +236,7 @@ else
             tracked = get_sat_state(ts, :gps, p)
             SatelliteState(;
                 decoder = decoders[p],
-                system = GPSL1CA(),
+                signal = GPSL1CA(),
                 code_phase = get_code_phase(tracked),
                 carrier_doppler = get_carrier_doppler(tracked),
                 carrier_phase = get_carrier_phase(tracked),
@@ -246,11 +246,11 @@ else
         # Solve PVT. `approximate_year` resolves the GPS 1024-week rollover; the
         # recording is from 2014, not "now".
         pvt = calc_pvt(signal_group(states); approximate_year = 2014)
-        @test length(pvt.sats) >= 4
+        @test length(pvt.satellites) >= 4
 
-        lla = get_LLA(pvt)
+        lla = get_lla(pvt)
         @info "PVT fix" lat = lla.lat lon = lla.lon alt = lla.alt used =
-            length(pvt.sats) gdop = pvt.dop.GDOP
+            length(pvt.satellites) gdop = pvt.dop.GDOP
         ref_ecef = ECEFfromLLA(wgs84)(L125_REF_LLA)
         @test euclidean_distance(pvt.position, ref_ecef) < L125_REF_TOL_M
         @test isfinite(pvt.dop.GDOP) && pvt.dop.GDOP > 0

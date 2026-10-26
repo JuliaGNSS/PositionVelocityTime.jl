@@ -98,10 +98,10 @@
         )
         e1b_states = galileo_e1b_states(0.0Hz)
         reference = calc_pvt(signal_group(e1b_states); kw...)
-        @test length(reference.sats) >= 4
+        @test length(reference.satellites) >= 4
 
         # Split a transmit time into the decoder's bit count plus a sub-symbol code
-        # phase, the way `calc_uncorrected_time` reads them back (it reduces the code
+        # phase, the way `calc_uncorrected_transmit_time` reads them back (it reduces the code
         # phase modulo one data symbol, so the whole-symbol part must go in the count).
         function bits_and_code_phase(system, tow, target)
             datafreq = Float64(GNSSSignals.get_data_frequency(system) / Hz)
@@ -122,7 +122,7 @@
             # away. Without this the test would read that difference out as a spurious
             # inter-frequency bias instead of the ~0 it is checking for.
             target =
-                PositionVelocityTime.calc_uncorrected_time(state) +
+                PositionVelocityTime.calc_uncorrected_transmit_time(state) +
                 (1 - PositionVelocityTime.galileo_group_delay_scaling(GalileoE5bI())) *
                 decoder.data.BGD_E1_E5b
             num_bits, code_phase =
@@ -134,7 +134,7 @@
                     raw_data = decoder.data,
                     num_bits_after_valid_syncro_sequence = num_bits,
                 ),
-                system = GalileoE5bI(),
+                signal = GalileoE5bI(),
                 code_phase = code_phase,
                 carrier_doppler = 0.0Hz,
                 carrier_phase = 0.0,
@@ -143,12 +143,12 @@
 
         both = calc_pvt(
             (signal_group(e1b_states), signal_group(map(as_e5b_state, e1b_states))); kw...)
-        @test length(both.sats) == 2 * length(reference.sats)
+        @test length(both.satellites) == 2 * length(reference.satellites)
         # One time system (both are Galileo) but two bands, so exactly one IFB column,
         # on E5b against the L1 reference.
         @test both.reference_system == GST()
         @test collect(keys(both.inter_frequency_biases)) == [:E5b]
-        @test both.inter_frequency_biases[:E5b].reference == :L1
+        @test both.inter_frequency_biases[:E5b].reference_band == :L1
         @test abs(both.inter_frequency_biases[:E5b].value) < 1e-2m
         @test norm(both.position - reference.position) < 1e-2
     end
@@ -173,7 +173,7 @@ end
     )
     e6b_state = SatelliteState(;
         decoder = e6b,
-        system = GalileoE6B(),
+        signal = GalileoE6B(),
         code_phase = 0.0,
         carrier_doppler = 0.0Hz,
         carrier_phase = 0.0,
@@ -221,7 +221,7 @@ end
         @test with_e6b.position == reference.position
         @test with_e6b.velocity == reference.velocity
         @test with_e6b.time == reference.time
-        @test keys(with_e6b.sats) == keys(reference.sats)
+        @test keys(with_e6b.satellites) == keys(reference.satellites)
         # E6 contributes no band either, so it cannot invent an inter-frequency bias.
         @test !haskey(with_e6b.inter_frequency_biases, :E6)
     end
@@ -232,7 +232,7 @@ end
         unsolved = calc_pvt(signal_group([e6b_state]); kw...)
         @test unsolved.position == PVTSolution().position
         @test isnothing(unsolved.time)
-        @test isempty(unsolved.sats)
+        @test isempty(unsolved.satellites)
     end
 end
 

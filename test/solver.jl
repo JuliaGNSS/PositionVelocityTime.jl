@@ -17,7 +17,7 @@
     @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 9
     # The modelled range rate carries the light-time factor `1 − ρ̇/c` and the rate of
-    # the Earth-rotation angle (see `calc_user_velocity_and_clock_drift`), which moved this by ~3 mm/s
+    # the Earth-rotation angle (see `estimate_velocity`), which moved this by ~3 mm/s
     # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
     # with the Doppler, so the frequency offsets now differ by a few mHz.
     @test pvt.relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.64Hz + freq_offset) atol = 0.01Hz
@@ -33,7 +33,7 @@
     # stops once its step is below `x_tol` relative to `‖ξ‖`, ~2 µm with the ~2e7 m of
     # clock bias in `ξ`, so which side of that the two land on depends on last-bit
     # rounding — 2 µm apart on one GitHub runner. Geodesy's `≈` on `LLA` defaults to 1 µm.
-    @test get_LLA(warm_pvt) ≈ get_LLA(pvt) atol = 1e-5
+    @test get_lla(warm_pvt) ≈ get_lla(pvt) atol = 1e-5
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
@@ -54,7 +54,7 @@ end
     @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 2.5
     # The modelled range rate carries the light-time factor `1 − ρ̇/c` and the rate of
-    # the Earth-rotation angle (see `calc_user_velocity_and_clock_drift`), which moved this by ~3 mm/s
+    # the Earth-rotation angle (see `estimate_velocity`), which moved this by ~3 mm/s
     # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
     # with the Doppler, so the frequency offsets now differ by a few mHz.
     @test pvt.relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.61Hz + freq_offset) atol = 0.01Hz
@@ -66,7 +66,7 @@ end
         enable_ionospheric_correction = false,
         enable_tropospheric_correction = false,
     )
-    @test get_LLA(warm_pvt) ≈ get_LLA(pvt) atol = 1e-5  # see the first testset
+    @test get_lla(warm_pvt) ≈ get_lla(pvt) atol = 1e-5  # see the first testset
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
@@ -81,7 +81,7 @@ function with_health_bad(state)
         d; raw_data = unhealthy(d.raw_data), data = unhealthy(d.data))
     SatelliteState(;
         decoder = new_decoder,
-        system = state.system,
+        signal = state.signal,
         code_phase = state.code_phase,
         carrier_doppler = state.carrier_doppler,
         carrier_phase = state.carrier_phase,
@@ -106,7 +106,7 @@ end
     @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.285)
 
     # One clock bias per GNSS; the reference (GPS, most satellites) bias is
-    # reported as time_correction, with Galileo's offset relative to it.
+    # reported as clock_bias, with Galileo's offset relative to it.
     @test pvt.reference_system == GPST()
     @test Set(keys(pvt.inter_system_biases)) == Set([GST()])
 
@@ -127,32 +127,29 @@ end
     # Satellites are keyed by (signal, PRN), so both constellations are represented
     # and nothing is merged or dropped across systems: the combined count equals the
     # sum of the single-system counts (PRNs here don't overlap).
-    @test all(k -> k isa Tuple{Symbol,Int}, keys(pvt.sats))
-    @test Set(first(k) for k in keys(pvt.sats)) == Set([:GPSL1CA, :GalileoE1B])
-    @test length(pvt.sats) ==
-          length(gps_only.sats) + length(gal_only.sats)
-    let (sig, prn) = first(keys(pvt.sats))
-        @test get_sat_info(pvt, sig, prn) === pvt.sats[(sig, prn)]
-    end
-    # A satellite not used in the fix returns `nothing` rather than throwing.
-    @test get_sat_info(pvt, :GPSL1CA, 999) === nothing
+    @test all(k -> k isa Tuple{Symbol,Int}, keys(pvt.satellites))
+    @test Set(first(k) for k in keys(pvt.satellites)) == Set([:GPSL1CA, :GalileoE1B])
+    @test length(pvt.satellites) ==
+          length(gps_only.satellites) + length(gal_only.satellites)
+    # A satellite not used in the fix has no entry.
+    @test !haskey(pvt.satellites, (:GPSL1CA, 999))
 
-    # Per-satellite post-fit residuals are exposed via SatInfo (measured − modeled
+    # Per-satellite post-fit residuals are exposed via SatelliteInfo (measured − modeled
     # pseudorange, metres); finite and small for a good fix.
-    resids = [info.residual for info in values(pvt.sats)]
-    @test length(resids) == length(pvt.sats)
+    resids = [info.residual for info in values(pvt.satellites)]
+    @test length(resids) == length(pvt.satellites)
     @test all(isfinite, resids)
     @test maximum(abs, resids) < 10m
 
     # The rate-domain counterpart from the Doppler solve (measured − modeled range
     # rate, m/s): finite, and metre-per-second-level for a stationary receiver.
-    rate_resids = [info.rate_residual for info in values(pvt.sats)]
-    @test length(rate_resids) == length(pvt.sats)
+    rate_resids = [info.rate_residual for info in values(pvt.satellites)]
+    @test length(rate_resids) == length(pvt.satellites)
     @test all(isfinite, rate_resids)
     @test maximum(abs, rate_resids) < 10.0m/s
 
     warm_pvt = calc_pvt(groups, pvt; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    @test get_LLA(warm_pvt) ≈ get_LLA(pvt) atol = 1e-5  # see the first testset
+    @test get_lla(warm_pvt) ≈ get_lla(pvt) atol = 1e-5  # see the first testset
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
@@ -172,11 +169,11 @@ end
     # passed explicitly because `n = 0` leaves no satellite to read it off — a group
     # carries its ranging signal precisely so that an empty one is still well formed.
     for n in 0:3
-        scarce = signal_group(gps[1].system, gps[1:n])
+        scarce = signal_group(gps[1].signal, gps[1:n])
         pvt = calc_pvt(scarce; kwargs...)
         @test pvt.position == ECEF(0, 0, 0)
         @test isnothing(pvt.time)
-        @test isempty(pvt.sats)
+        @test isempty(pvt.satellites)
         # Given a previous fix, that fix is what is carried forward.
         @test calc_pvt(scarce, reference; kwargs...) === reference
     end
@@ -195,7 +192,7 @@ end
 # step is only a fraction of the distance to the optimum. A warm start a metre out
 # therefore took one ~10 cm step and reported convergence, returning a fix most of a
 # metre away from the one the very same measurements give from cold. See the solver
-# settings in `user_position`.
+# settings in `estimate_position`.
 @testset "a warm start converges to the same fix as a cold start" begin
     kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
@@ -208,15 +205,15 @@ end
     for offset in ([1.0, -1.0, 1.0], [30.0, 0.0, -20.0], [1e5, 1e5, -1e5])
         stale = PVTSolution(;
             position = ECEF((Vector(cold.position) .+ offset)...),
-            time_correction = cold.time_correction,
+            clock_bias = cold.clock_bias,
             reference_system = cold.reference_system,
         )
         warm = calc_pvt(signal_group(states), stale; kwargs...)
         @test norm(warm.position - cold.position) < 1e-4
         @test warm.time ≈ cold.time
         # The residuals are those of the converged fit, not of the stale position.
-        @test maximum(abs, [info.residual for info in values(warm.sats)]) ≈
-              maximum(abs, [info.residual for info in values(cold.sats)]) rtol = 1e-6
+        @test maximum(abs, [info.residual for info in values(warm.satellites)]) ≈
+              maximum(abs, [info.residual for info in values(cold.satellites)]) rtol = 1e-6
     end
 end
 
@@ -242,7 +239,7 @@ end
     # as the next seed looks like.
     poisoned = PVTSolution(;
         position = ECEF((Vector(good.position) .+ [2.7e8, 0.0, 0.0])...),
-        time_correction = good.time_correction,
+        clock_bias = good.clock_bias,
         reference_system = good.reference_system,
         dop = PositionVelocityTime.DOP(613.0, 587.0, 400.0, 430.0, 176.6),
     )
@@ -258,8 +255,8 @@ end
     @test recovered.dop.PDOP ≈ good.dop.PDOP
     @test recovered.dop.PDOP < PositionVelocityTime.MAX_TRUSTED_WARM_START_PDOP
     # Nothing of the poisoned seed survives into the reported satellite set.
-    @test maximum(abs, [info.residual for info in values(recovered.sats)]) ≈
-          maximum(abs, [info.residual for info in values(good.sats)]) rtol = 1e-6
+    @test maximum(abs, [info.residual for info in values(recovered.satellites)]) ≈
+          maximum(abs, [info.residual for info in values(good.satellites)]) rtol = 1e-6
 
     # An unsolvable epoch (too few satellites) returns the previous solution exactly
     # as passed, distrusted or not — the gate withholds it from the solve, not from
@@ -271,22 +268,22 @@ end
 # `doppler` (Hz). Only the code phase and bit count move, as in `_precompile_states`;
 # the carrier phase, which also counts into the transmit time, is kept.
 function retimed_state(state, transmit_time, doppler)
-    uncorrected = PositionVelocityTime.calc_uncorrected_time(state)
+    uncorrected = PositionVelocityTime.calc_uncorrected_transmit_time(state)
     # `correct_clock` is a slowly varying offset, so a few fixed-point steps invert it.
     for _ in 1:5
         uncorrected += transmit_time -
-                       PositionVelocityTime.correct_clock(state.decoder, state.system, uncorrected)
+                       PositionVelocityTime.correct_clock(state.decoder, state.signal, uncorrected)
     end
     rate = ustrip(Hz, get_data_frequency(state.decoder))
-    chips = ustrip(Hz, get_code_frequency(state.system))
+    chips = ustrip(Hz, get_code_frequency(state.signal))
     offset = state.decoder.num_bits_after_valid_syncro_sequence / rate +
              mod(state.code_phase, chips / rate) / chips +
-             uncorrected - PositionVelocityTime.calc_uncorrected_time(state)
+             uncorrected - PositionVelocityTime.calc_uncorrected_transmit_time(state)
     num_bits = floor(Int, offset * rate)
     SatelliteState(;
         decoder = GNSSDecoder.GNSSDecoderState(state.decoder;
             num_bits_after_valid_syncro_sequence = num_bits),
-        system = state.system,
+        signal = state.signal,
         code_phase = (offset - num_bits / rate) * chips,
         carrier_doppler = doppler * Hz,
         carrier_phase = state.carrier_phase,
@@ -309,7 +306,7 @@ end
     # velocity here — ten times the bounds below, which the solve meets to ~1e-6 m/s.
     user_vel = SVector(150.0, -200.0, 50.0)
     clock_bias, clock_drift = 0.0, 30.0
-    reception = maximum(PositionVelocityTime.calc_corrected_time, states) + 0.075
+    reception = maximum(PositionVelocityTime.calc_transmit_time, states) + 0.075
 
     exact_states = map(states) do state
         orbit_at(t_t) = calc_satellite_position_and_velocity(state.decoder, t_t).position
@@ -324,7 +321,7 @@ end
             t_t -> c * sat_clock_drift * (t_t - transmit_time),
             t -> user_pos + user_vel * (t - reception),
             t -> clock_bias + clock_drift * (t - reception), t))
-        λ = c / ustrip(Hz, get_center_frequency(state.system))
+        λ = c / ustrip(Hz, get_center_frequency(state.signal))
         doppler = -central_difference(pseudorange, reception, 0.1) / λ
         # The public model at the true state is the exact rate, satellite by satellite.
         sat = calc_satellite_position_and_velocity(state.decoder, transmit_time)
@@ -339,7 +336,7 @@ end
     @test norm(pvt.position - user_pos) < 1e-2
     @test norm(pvt.velocity - user_vel) < 1e-5
     @test pvt.relative_clock_drift * c ≈ clock_drift atol = 1e-5
-    @test maximum(info -> abs(ustrip(m / s, info.rate_residual)), pvt.sats) < 1e-5
+    @test maximum(info -> abs(ustrip(m / s, info.rate_residual)), pvt.satellites) < 1e-5
 end
 
 # `calc_pvt` starts the velocity solve from the previous solution it trusts. The fix does
@@ -351,7 +348,7 @@ end
     groups = signal_group(gps_l1_states(0.0Hz))
     cold = calc_pvt(groups; kwargs...)
     warm = calc_pvt(groups, cold; kwargs...)
-    rate_residuals(pvt) = [ustrip(m / s, info.rate_residual) for info in pvt.sats]
+    rate_residuals(pvt) = [ustrip(m / s, info.rate_residual) for info in pvt.satellites]
     @test norm(warm.velocity - cold.velocity) < 1e-9
     @test warm.relative_clock_drift ≈ cold.relative_clock_drift atol = 1e-9 / 3e8
     @test maximum(abs, rate_residuals(warm) - rate_residuals(cold)) < 1e-9

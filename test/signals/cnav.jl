@@ -77,7 +77,7 @@
             pv = PositionVelocityTime.calc_satellite_position_and_velocity(dc, t)
             h = 0.5
             fd =
-                (PositionVelocityTime.calc_satellite_position(dc, t + h) .- PositionVelocityTime.calc_satellite_position(dc, t - h)) ./
+                (PositionVelocityTime.calc_satellite_position_and_velocity(dc, t + h).position .- PositionVelocityTime.calc_satellite_position_and_velocity(dc, t - h).position) ./
                 (2h)
             @test pv.velocity ≈ fd atol = 1e-3
         end
@@ -144,9 +144,9 @@
         common = (; decoder = dec, code_phase = 123.0,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
         t_data =
-            PositionVelocityTime.calc_uncorrected_time(SatelliteState(; system = GNSSSignals.GPSL1C_D(), common...))
+            PositionVelocityTime.calc_uncorrected_transmit_time(SatelliteState(; signal = GNSSSignals.GPSL1C_D(), common...))
         t_pilot =
-            PositionVelocityTime.calc_uncorrected_time(SatelliteState(; system = GNSSSignals.GPSL1C_P(), common...))
+            PositionVelocityTime.calc_uncorrected_transmit_time(SatelliteState(; signal = GNSSSignals.GPSL1C_P(), common...))
         @test isfinite(t_pilot)
         @test t_pilot ≈ t_data
     end

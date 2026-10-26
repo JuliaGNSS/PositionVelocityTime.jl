@@ -83,25 +83,25 @@ end
 # `SatelliteState.carrier_phase` is in radians (`Tracking.get_carrier_phase`), so it must
 # be converted to cycles before being divided by the centre frequency.
 @testset "Carrier-phase transmit-time term treats carrier_phase as radians" begin
-    system = GPSL1CA()
+    signal = GPSL1CA()
     decoder = GNSSDecoder.GNSSDecoderState(
-        GNSSDecoderState(system, 1);
+        GNSSDecoderState(signal, 1);
         num_bits_after_valid_syncro_sequence = 0,
         data = GNSSDecoder.GPSL1CAData(; TOW = 0),
         raw_data = GNSSDecoder.GPSL1CAData(; TOW = 0),
     )
-    time_of(carrier_phase) = PositionVelocityTime.calc_uncorrected_time(
-        SatelliteState(; decoder, system, code_phase = 0.0, carrier_doppler = 0.0Hz,
+    time_of(carrier_phase) = PositionVelocityTime.calc_uncorrected_transmit_time(
+        SatelliteState(; decoder, signal, code_phase = 0.0, carrier_doppler = 0.0Hz,
             carrier_phase),
     )
 
     for cycles in (0.25, 0.5, -0.5)
-        @test time_of(cycles * 2π) ≈ cycles / ustrip(Hz, get_center_frequency(system))
+        @test time_of(cycles * 2π) ≈ cycles / ustrip(Hz, get_center_frequency(signal))
     end
     # The wrapped carrier phase spans one cycle, so the term is bounded by half a carrier
     # wavelength of range — ~9.5 cm on L1, not the ~60 cm a radians-as-cycles reading gives.
     half_wavelength =
-        0.5 * PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(system))
+        0.5 * PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(signal))
     @test half_wavelength ≈ 0.0952 atol = 1e-4
     @test maximum(
         abs(time_of(φ) * PositionVelocityTime.SPEED_OF_LIGHT) for
