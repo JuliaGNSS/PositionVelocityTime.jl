@@ -134,7 +134,7 @@ See [`tropospheric_delay`](@ref).
   ("most satellites, ties by first appearance"), [`ifb_layout`](@ref)'s
   reference-band tie-break, and the insertion order of `PVTSolution.satellites`.
 - `prev_pvt`: Previous PVT solution used as initial guess (default: origin). A
-  previous solution whose own DOP is implausible (`GDOP < 0`, or `PDOP` above
+  previous solution whose own DOP is implausible (`NaN`, or `PDOP` above
   `MAX_TRUSTED_WARM_START_PDOP` = 50) is not used as a seed and the epoch is
   solved from cold, so one spurious fix cannot re-seed itself epoch after epoch.
 
@@ -160,7 +160,7 @@ solve reusing the containers of a solution passed to it, without allocating. Ret
 satellites to solve the constellation (including the GGTO fallback and the
 distinct-satellite condition — a satellite tracked on several bands supplies one line of
 sight, so measurements alone are not enough), a geometry whose solved design matrix is
-rank deficient (reported as a negative GDOP). None of these throw, so a receiver can pass
+rank deficient (reported as a `NaN` DOP). None of these throw, so a receiver can pass
 whatever it currently tracks each epoch and carry `prev_pvt` forward. Distrust of
 `prev_pvt` (see above) affects only the seed: an unsolvable epoch still returns
 `prev_pvt` exactly as passed.
@@ -328,7 +328,7 @@ function _solve_pvt!(
     # impossible DOP, and is not used as a seed.
     distrusted =
         !isnothing(prev_pvt.dop) &&
-        (prev_pvt.dop.GDOP < 0 || prev_pvt.dop.PDOP > MAX_TRUSTED_WARM_START_PDOP)
+        (isnan(prev_pvt.dop.GDOP) || prev_pvt.dop.PDOP > MAX_TRUSTED_WARM_START_PDOP)
 
     # Seed each clock bias from the previous solution, as its reference bias plus its
     # inter-system bias; a system it lacks gets the reference bias, metres off rather than
@@ -391,7 +391,7 @@ function _solve_pvt!(
     end
     position = ECEF(ξ[1], ξ[2], ξ[3])
 
-    # The geometry at the converged position: a rank deficiency (a negative GDOP) makes `ξ`
+    # The geometry at the converged position: a rank deficiency (a `NaN` DOP) makes `ξ`
     # meaningless, and an epoch unsolvable. The velocity solve backs this up with its own
     # rank test (see `estimate_velocity`). The constraints count as exact
     # (`dop_bias_columns`).
@@ -404,7 +404,7 @@ function _solve_pvt!(
     dop = calc_dop!(view(workspace.normal_matrix, 1:num_dop_params, 1:num_dop_params), H,
         position, layout.clock_group_columns[reference_index])
 
-    dop.GDOP < 0 && return (false, prev_pvt)
+    isnan(dop.GDOP) && return (false, prev_pvt)
 
     # The velocity solve starts from the previous solution where the position solve trusts
     # it, from rest otherwise (see `estimate_velocity` for why one step suffices).

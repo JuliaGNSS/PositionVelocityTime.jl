@@ -41,8 +41,8 @@ reference system — see [`PVTSolution`](@ref) — while the other systems' cloc
 (inter-system-bias) and the inter-frequency-bias variances enter `GDOP` only.
 
 A rank-deficient geometry makes `HᵀH` singular (not positive definite, or only to
-within rounding); the factorisation detects this and the function returns the sentinel
-`DOP(-1, …)` instead of erroring.
+within rounding); the factorisation detects this and the function returns `NaN` for
+every DOP instead of erroring.
 
 `reference_clock_column` is the clock column (1…num_clock_biases) whose variance is
 reported as `TDOP`.
@@ -66,7 +66,7 @@ function calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_column = 1)
     # see `factorize_normal_matrix!`. The inverse of an SPD matrix is itself SPD, so
     # the DOP variances on the diagonal are then guaranteed non-negative.
     n = size(H, 2)
-    factorize_normal_matrix!(normal_matrix, H) || return DOP(-1, -1, -1, -1, -1)
+    factorize_normal_matrix!(normal_matrix, H) || return DOP(NaN, NaN, NaN, NaN, NaN)
     # The inverse, in the upper triangle only; `D(i, j)` reads it symmetrically.
     LAPACK.potri!('U', normal_matrix)
     D(i, j) = i <= j ? normal_matrix[i, j] : normal_matrix[j, i]
