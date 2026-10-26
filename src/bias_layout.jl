@@ -464,15 +464,8 @@ end
 # so `===` is exact and compiles to a pointer test, where `==` or a `Dict` lookup would
 # first branch on the field's `Union`.
 
-"""
-    unique_time_systems(systems) -> Vector{SupportedTimeSystem}
-
-The distinct GNSS time systems of `systems` (an iterable of `TimeSystem`s), in order of
-first appearance — the order that fixes the clock columns of [`BiasColumns`](@ref).
-"""
-unique_time_systems(systems) = unique_time_systems!(SupportedTimeSystem[], systems)
-
-# `unique_time_systems` into `unique_systems`, emptied first.
+# The distinct time systems of `systems` into `unique_systems` (emptied first), in order
+# of first appearance — the order that fixes the clock columns of `BiasColumns`.
 function unique_time_systems!(unique_systems, systems)
     empty!(unique_systems)
     for system in systems
@@ -481,12 +474,6 @@ function unique_time_systems!(unique_systems, systems)
     unique_systems
 end
 
-"""
-    time_system_index(systems, system) -> Union{Int,Nothing}
-
-Position of `system` in `systems`, or `nothing` if absent.
-"""
-time_system_index(systems, system) = findfirst(other -> other === system, systems)
 
 
 # Whether measurement `j` is the first of its physical satellite, `(time system, PRN)`: a

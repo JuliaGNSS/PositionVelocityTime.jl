@@ -103,7 +103,7 @@ zenith delays mapped to the line of sight by the Niell mapping functions.
 See [`tropospheric_delay`](@ref).
 
 # Arguments
-- `groups`: this epoch's measurements, as [`SignalGroups`](@ref) — a `NamedTuple` of
+- `groups`: this epoch's measurements, as signal groups: a `NamedTuple` of
   [`SignalGroup`](@ref)s, one per ranging signal, each holding that signal's
   [`SatelliteState`](@ref)s. A bare `Tuple` of groups is accepted (and numbered
   `group1`, `group2`, …), as is a single `SignalGroup` (which becomes the `:default`

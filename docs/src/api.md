@@ -8,6 +8,8 @@ PVTSolution
 SatelliteInfo
 InterFrequencyBias
 BroadcastInterSystemBias
+DOP
+SupportedTimeSystem
 ```
 
 A solution's `time` is GNSSSignals' `TAITime`, a trim-safe TAI epoch; with AstroTime
@@ -36,13 +38,11 @@ from a `Tracking.TrackState`. There is deliberately no conversion from a flat
 
 ```@docs
 PositionVelocityTime.SignalGroup
-PositionVelocityTime.SignalGroups
 PositionVelocityTime.signal_groups
 PositionVelocityTime.SatelliteMeasurement
 PositionVelocityTime.collect_measurements
 PositionVelocityTime.collect_measurements!
 PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
-PositionVelocityTime.SupportedTimeSystem
 ```
 
 ## PVT Computation
@@ -87,19 +87,6 @@ ionospheric models take, `KlobucharParameters`, `BeiDouKlobucharParameters`,
 PositionVelocityTime.select_ionospheric_parameters
 PositionVelocityTime.ionospheric_delay
 PositionVelocityTime.tropospheric_delay
-PositionVelocityTime.saastamoinen_zenith_delays
-PositionVelocityTime.niell_mapping_functions
-PositionVelocityTime.klobuchar_group_delay
-PositionVelocityTime.beidou_klobuchar_group_delay
-```
-
-## Dilution of Precision
-
-The DOP values are read from the `dop` field of a [`PVTSolution`](@ref), e.g.
-`pvt.dop.GDOP`.
-
-```@docs
-PositionVelocityTime.DOP
 ```
 
 ## The Measurement-Model Surface
@@ -136,7 +123,6 @@ crossover.
 
 ```@docs
 PositionVelocityTime.SPEED_OF_LIGHT
-PositionVelocityTime.EARTH_ROTATION_RATE
 PositionVelocityTime.calc_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
 PositionVelocityTime.BiasColumns
@@ -152,8 +138,6 @@ PositionVelocityTime.calc_design_matrix
 PositionVelocityTime.calc_dop
 PositionVelocityTime.calc_dop!
 PositionVelocityTime.calc_pseudorange_rate
-PositionVelocityTime.estimate_velocity
-PositionVelocityTime.estimate_velocity!
 PositionVelocityTime.has_broadcast_time_offset
 PositionVelocityTime.broadcast_time_offset
 PositionVelocityTime.broadcast_inter_system_bias
@@ -169,10 +153,10 @@ The unexported internals the surface above links to, documented for reference:
 PositionVelocityTime.calc_design_matrix!
 PositionVelocityTime.estimate_position
 PositionVelocityTime.estimate_position!
+PositionVelocityTime.estimate_velocity
+PositionVelocityTime.estimate_velocity!
 PositionVelocityTime.num_parameters
 PositionVelocityTime.num_observations
-PositionVelocityTime.unique_time_systems
-PositionVelocityTime.time_system_index
 ```
 
 ## Multi-GNSS Classification

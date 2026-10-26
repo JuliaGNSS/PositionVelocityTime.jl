@@ -41,7 +41,7 @@ latitude/longitude, `elevation`/`azimuth` (the ICD's `E`/`A`) the satellite's.
 coefficient tuples (SI units; their `s·π⁻ⁿ` scale factors make the polynomial argument
 `φ_M/π` — semicircles, exactly like the GPS set).
 
-The same eight-coefficient half-cosine idea as [`klobuchar_group_delay`](@ref),
+The same eight-coefficient half-cosine idea as `klobuchar_group_delay`,
 but not the same algorithm — the ICD replaces IS-GPS-200's fitted
 approximations with exact spherical geometry and drops the geomagnetic frame:
 

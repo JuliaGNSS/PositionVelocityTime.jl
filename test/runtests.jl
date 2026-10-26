@@ -102,6 +102,7 @@ end
 central_difference(f, t, h) = (f(t + h) - f(t - h)) / 2h
 
 include("aqua.jl")
+include("api.jl")
 include("fixtures.jl")
 # One file per source file, in the source's order.
 include("collection.jl")

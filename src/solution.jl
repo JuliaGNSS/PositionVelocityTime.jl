@@ -5,7 +5,8 @@
     DOP
 
 Dilution of Precision (DOP) values describing the geometric quality of the satellite
-constellation used for a PVT solution.
+constellation used for a PVT solution, as [`PVTSolution`](@ref)'s `dop` (e.g.
+`pvt.dop.GDOP`). `NaN` throughout for a geometry that fails the rank test.
 
 # Fields
 - `GDOP::Float64`: Geometric DOP (overall quality)
