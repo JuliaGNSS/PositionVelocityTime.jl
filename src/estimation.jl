@@ -102,40 +102,28 @@ end
     estimate_position(sat_positions, pseudoranges, bias_columns::BiasColumns,
                       prev_ξ = zeros(num_parameters(bias_columns))) -> (ξ, residuals)
 
-The user position, receiver clock biases and inter-frequency biases that fit the
-`pseudoranges` by least squares, starting from `prev_ξ`. The algorithm is based on the
-common reception method.
+The user position, clock biases and inter-frequency biases that fit `pseudoranges` by
+least squares from `prev_ξ`, and the per-satellite post-fit residuals (m, measured minus
+modelled; see [`SatelliteInfo`](@ref)).
 
 - `sat_positions`: a `3 × N` matrix or a vector of `SVector{3}`s.
-- `bias_columns`: the per-satellite [`BiasColumns`](@ref) (clock and
-  inter-frequency-bias columns).
+- `pseudoranges`: the satellites' pseudoranges followed by each [`ClockConstraint`](@ref)'s
+  `value`; any other length is an `ArgumentError`.
+- `bias_columns`: the [`BiasColumns`](@ref).
 
-Returns `(ξ, residuals)`: the solved state vector `ξ = [x, y, z, tc₁, …, ifb₁, …]` and
-the per-satellite post-fit residuals (measured minus modeled pseudorange, metres), in
-the order of `pseudoranges`.
-
-`curve_fit` (LsqFit's, mirrored by [`LevenbergMarquardt`](@ref)) reports its own residual
-as `model - data`, so the returned vector negates it.
-Measured − modeled ("observed minus computed") is how GNSS software reports observation
-residuals — RTKLIB's `rescode`, and GNSS-SDR and PocketSDR through it — and the negation
-is the whole of the difference: it is applied to the converged fit, so the solve itself
-is untouched.
-
-The allocating form of [`estimate_position!`](@ref), on fresh buffers.
+The allocating form of [`estimate_position!`](@ref).
 """
 estimate_position(sat_positions, pseudoranges, bias_columns::BiasColumns,
     prev_ξ = zeros(num_parameters(bias_columns))) = estimate_position!(
-    LMWorkspace(), Vector{Float64}(undef, length(pseudoranges)), sat_positions,
-    pseudoranges, bias_columns, prev_ξ)
+    LMWorkspace(), Vector{Float64}(undef, satellite_count(sat_positions)),
+    sat_positions, pseudoranges, bias_columns, prev_ξ)
 
 """
     estimate_position!(workspace::LMWorkspace, residuals, sat_positions,
                        pseudoranges, bias_columns, prev_ξ) -> (ξ, residuals)
 
-[`estimate_position`](@ref) on the buffers of `workspace`, writing the post-fit residuals into
-`residuals` (resized to the satellite count). The returned `ξ` **is** `workspace.x`, so it
-is overwritten by the next solve on the same workspace; `prev_ξ` may be that same vector,
-to restart a solve from the previous one's solution.
+[`estimate_position`](@ref) on the buffers of `workspace`. The returned `ξ` **is**
+`workspace.x`, overwritten by the next solve; `prev_ξ` may be that same vector.
 """
 function estimate_position!(
     workspace::LMWorkspace,
@@ -145,32 +133,25 @@ function estimate_position!(
     bias_columns::BiasColumns,
     prev_ξ,
 )
+    length(pseudoranges) == num_observations(sat_positions, bias_columns) ||
+        throw(ArgumentError("pseudoranges has $(length(pseudoranges)) entries, but the " *
+            "$(satellite_count(sat_positions)) satellites and " *
+            "$(length(bias_columns.constraints)) clock constraints need " *
+            "$(num_observations(sat_positions, bias_columns))"))
     model! = (out, x, par) -> predict_pseudoranges!(out, x, par, bias_columns)
     jacobian! = (J, x, par) -> calc_design_matrix!(J, x, par, bias_columns)
 
-    # Two departures from LsqFit's Levenberg-Marquardt defaults, both about the scale of
-    # this particular problem:
+    # Two departures from LsqFit's defaults, both for this problem's scale:
     #
-    #  - `x_tol` is a *relative* step tolerance — the iteration stops once a step falls
-    #    below `x_tol·(x_tol + ‖ξ‖)` — and `‖ξ‖` here is dominated not by the position but
-    #    by the clock bias, which carries the ~2e7 m of common range the pseudoranges are
-    #    referred to. The 1e-8 default therefore calls it converged at a step of ~0.2 m,
-    #    so a solve that starts a metre from the optimum — an ordinary warm start from the
-    #    previous epoch — stops most of a metre short of it. 1e-13 puts the threshold at a
-    #    ~2 µm step, still ~1e3 × the rounding resolution of `ξ`.
-    #  - `lambda` is the initial (inverse) trust-region radius, and the default 10 damps
-    #    the first steps to a fraction of the Gauss-Newton step — which is what makes the
-    #    tolerance above bite so early. The pseudorange model is only mildly nonlinear, so
-    #    the full step is a good step here: 1e-8 leaves the iteration effectively
-    #    Gauss-Newton — measured at 2 to 5 iterations to nanometre level from 1 m, 100 km
-    #    or a cold start, against 8 to 16 with the default or with damping switched off
-    #    entirely — while keeping LM's machinery available, since a step that fails to
-    #    improve still grows `lambda` from there.
+    #  - `x_tol` is relative to `‖ξ‖`, which the clock bias dominates (~2e7 m), so the
+    #    1e-8 default stops at a ~0.2 m step — most of a metre short on a warm start.
+    #    1e-13 stops at ~2 µm, still ~1e3 × the rounding of `ξ`.
+    #  - `lambda = 10` damps the first steps well short of Gauss–Newton. The model is only
+    #    mildly nonlinear, so 1e-8 makes it effectively Gauss–Newton: 2 to 5 iterations
+    #    from 1 m, 100 km or a cold start, against 8 to 16, while a failing step still
+    #    grows `lambda`.
     #
-    # Geodesic acceleration additionally helps when starting far from the optimum (cold
-    # start from origin, ~6e6 m away) by trading per-iteration work for fewer iterations.
-    # When prev_ξ is already near-converged, the extra Avv! evals are pure overhead.
-    # Detect cold by checking the default zeros sentinel (origin position).
+    # Geodesic acceleration pays off only from a cold start (the zero seed, ~6e6 m away).
     ξ_fit_ols = if iszero(prev_ξ)
         curve_fit!(
             workspace, model!, jacobian!, sat_positions, pseudoranges, prev_ξ;
@@ -189,12 +170,11 @@ function estimate_position!(
             x_tol = 1e-13,
         )
     end
-    #    wt = 1 ./ (ξ_fit_ols.resid .^ 2)
-    #    ξ_fit_wls = curve_fit(ρ_hat, H, sat_positions, pseudoranges, wt, collect(prev_ξ))
-    # Negated into the caller's buffer rather than in place: `resid` is the workspace's
-    # own residual buffer, which the next fit starts from.
-    residuals = resize!(residuals, length(pseudoranges))
-    residuals .= .-ξ_fit_ols.resid
+    # `curve_fit` reports `model − data`; negated into the caller's buffer, as `resid` is
+    # the workspace's own.
+    num_sats = satellite_count(sat_positions)
+    residuals = resize!(residuals, num_sats)
+    residuals .= .-view(ξ_fit_ols.resid, 1:num_sats)
     return ξ_fit_ols.param, residuals
 end
 

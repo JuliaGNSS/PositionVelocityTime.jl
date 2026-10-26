@@ -115,8 +115,9 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   BGTO's subject) — never the defined 14 s count offset, which is a convention already
   removed from the measurements (GNSSSignals' `get_leap_second_offset`). It is
   **estimated directly from the geometry whenever observable** (no broadcast error); the
-  broadcast GGTO/BGTO is used to derive it only as a fallback (the offset-aided
-  collapse), as that broadcast value may be erroneous. Reference-independent
+  broadcast GGTO/BGTO fixes it only where the satellites leave it unobservable (see
+  [`decide_bias_layout`](@ref)), as that broadcast value may be erroneous.
+  Reference-independent
   (the difference of two entries is the offset between those two systems); empty for a
   single-system solution.
 - `inter_frequency_biases::Dict{Symbol, InterFrequencyBias}`: For each frequency band

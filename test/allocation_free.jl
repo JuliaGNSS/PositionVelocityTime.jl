@@ -68,9 +68,9 @@ end
         # Too few satellites for two independent clocks.
         "scarce GPS + Galileo" =>
             (gps = first_satellites(l1ca, 3), galileo = first_satellites(e1b, 2)),
-        # Collapsed: one Galileo satellite carrying a GGTO shares the GPS clock column,
-        # so a warm start seeds that column from the hub's own bias.
-        "collapsed GPS + Galileo" => (gps = first_satellites(l1ca, 3),
+        # Constrained: one Galileo satellite carrying a GGTO, which ties its clock to
+        # the GPS one through an extra observation row.
+        "constrained GPS + Galileo" => (gps = first_satellites(l1ca, 3),
             galileo = first_satellites(precompile_galileo(GalileoE1B(), data ->
                     GNSSDecoder.GalileoINAVData(data; A_0G = 5.0e-9, A_1G = 0.0,
                         t_0G = 0, WN_0G = 0)), 1)),
@@ -338,11 +338,21 @@ end
         # The time-system and ENU helpers.
         @test PositionVelocityTime.unique_time_systems((GPST(), GST(), GPST(), BDT())) ==
               [GPST(), GST(), BDT()]
-        mixed_rows = measurements_of((gps = l1ca, galileo = e1b))
-        select_reference(rows) = @allocated PositionVelocityTime.select_reference_system(
-            rows, nothing)
-        select_reference(mixed_rows)
-        @test select_reference(mixed_rows) == 0
+        mixed_measurements = measurements_of((gps = l1ca, galileo = e1b))
+        mixed_layout = PositionVelocityTime.decide_bias_layout(mixed_measurements)
+        select_reference(layout) =
+            @allocated PositionVelocityTime.select_reference_system(layout)
+        select_reference(mixed_layout)
+        @test select_reference(mixed_layout) == 0
+        # Columns without constraints share one empty vector rather than allocate one.
+        # Stored, so the compiler cannot drop the unused columns and their vector.
+        indices = [1, 1]
+        sink = Ref{PositionVelocityTime.BiasColumns}()
+        columns(sink, indices) =
+            @allocated sink[] = PositionVelocityTime.BiasColumns(indices, 1, indices, 0)
+        columns(sink, indices)
+        @test columns(sink, indices) == 0
+        @test isempty(PositionVelocityTime.BiasColumns(indices, 1, indices, 0).constraints)
         user = ECEF(4.0186e6, 427035.0, 4.918e6)
         sat = ECEF(1.5e7, 1.0e7, 1.8e7)
         @test calc_elevation_and_azimuth(user, sat) ==

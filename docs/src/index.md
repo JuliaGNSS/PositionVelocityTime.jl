@@ -16,11 +16,10 @@ Calculates position, velocity, and time from GNSS satellite measurements.
   selected by the signal the range was generated on (which may be a pilot such as
   GPS L1C-P, Galileo E1C or BeiDou B2a-Q), while the ephemeris and clock come from
   the band's data-component decoder.
-- One receiver clock bias per GNSS time system (GPST, GST, BDT), collapsed onto a hub
-  system using the broadcast offset — Galileo's GGTO or BeiDou's BGTO — when the
-  geometry is too weak to estimate it. Every time system is a candidate hub, tried in
-  the order GPST, GST, BDT; today's messages broadcast offsets toward GPS Time and
-  Galileo System Time only, so no collapse onto BDT occurs in practice
+- One receiver clock bias per GNSS time system (GPST, GST, BDT). Where the satellites
+  cannot separate two of them, a broadcast offset between the systems — Galileo's GGTO,
+  BeiDou's BGTO, or GPS's CNAV/CNAV-2 GGTO — ties them together as an extra
+  observation
 
 Galileo E6-B is decoded by `GNSSDecoder` but carries no ephemeris of its own: its
 C/NAV message is the Galileo High Accuracy Service correction channel. An E6-B
@@ -89,8 +88,10 @@ pvt = calc_pvt(PositionVelocityTime.signal_groups(track_state, decoders))
 Satellites from different constellations may be combined this way. Because each GNSS
 references its broadcasts to its own system time, [`calc_pvt`](@ref) estimates one
 receiver clock bias per GNSS time system, so a combined fix needs at least `3 + M`
-satellites for `M` distinct systems. The per-system clock offsets are reported as
-`pvt.inter_system_biases` relative to `pvt.reference_system`.
+satellites for `M` distinct systems — unless a broadcast offset between two of them
+(GGTO, BGTO) ties their clocks together, which brings a mixed fix down to 4 satellites.
+The per-system clock offsets are reported as `pvt.inter_system_biases` relative to
+`pvt.reference_system`.
 
 !!! note "Migrating from 5.x"
 

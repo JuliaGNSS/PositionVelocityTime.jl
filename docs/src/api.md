@@ -41,7 +41,7 @@ PositionVelocityTime.SatelliteMeasurement
 PositionVelocityTime.collect_measurements
 PositionVelocityTime.collect_measurements!
 PositionVelocityTime.collect_measurement_rows!
-PositionVelocityTime.CANDIDATE_HUB_SYSTEMS
+PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
 PositionVelocityTime.SupportedTimeSystem
 ```
 
@@ -140,11 +140,12 @@ PositionVelocityTime.EARTH_ROTATION_RATE
 PositionVelocityTime.calc_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
 PositionVelocityTime.BiasColumns
+PositionVelocityTime.ClockConstraint
 PositionVelocityTime.decide_bias_layout
 PositionVelocityTime.decide_bias_layout!
-PositionVelocityTime.BiasLayoutWorkspace
-PositionVelocityTime.bias_layout
 PositionVelocityTime.BiasLayout
+PositionVelocityTime.fit_bias_columns
+PositionVelocityTime.dop_bias_columns
 PositionVelocityTime.select_reference_system
 PositionVelocityTime.predict_pseudoranges!
 PositionVelocityTime.calc_design_matrix
@@ -169,7 +170,7 @@ PositionVelocityTime.calc_design_matrix!
 PositionVelocityTime.estimate_position
 PositionVelocityTime.estimate_position!
 PositionVelocityTime.num_parameters
-PositionVelocityTime.calc_hub_range_offsets
+PositionVelocityTime.num_observations
 PositionVelocityTime.unique_time_systems
 PositionVelocityTime.time_system_index
 ```
@@ -193,7 +194,6 @@ The receiver inter-frequency biases and their reference bands (reported per
 
 ```@docs
 PositionVelocityTime.ifb_layout
-PositionVelocityTime.ifb_layout!
 ```
 
 ## Trimmed Executables

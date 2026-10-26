@@ -9,12 +9,9 @@ transmit time, as GNSSDecoder's `get_broadcast_time_offset` evaluated it: the st
 residual between two atomic scales, tens of nanoseconds, without the whole seconds between
 their counts, which `calc_leap_second_corrections!` applies to the transmit times.
 `nothing` where none is broadcast or `target` is outside
-[`CANDIDATE_HUB_SYSTEMS`](@ref). Toward GPS Time that is Galileo's GGTO and BeiDou's BGTO;
+[`SUPPORTED_TIME_SYSTEMS`](@ref). Toward GPS Time that is Galileo's GGTO and BeiDou's BGTO;
 toward Galileo System Time, BeiDou's BGTO variant and the GGTO GPS broadcasts on
-CNAV/CNAV-2. Such an offset lets that constellation's measurements be expressed on the
-target system's clock, which makes a fix possible when the geometry is too weak to
-estimate an independent clock bias for it — see [`decide_bias_layout`](@ref), which
-collapses onto a hub system this way.
+CNAV/CNAV-2. An offset can tie two receiver clocks (see [`decide_bias_layout`](@ref)).
 """
 broadcast_time_offset(measurement::SatelliteMeasurement, ::GPST) =
     measurement.time_offset_to_gpst
