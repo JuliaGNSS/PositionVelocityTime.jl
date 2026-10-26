@@ -439,7 +439,7 @@ function _solve_pvt!(
     for (j, measurement) in enumerate(measurements)
         key = (measurement.signal_id, measurement.prn)
         set!(satellites, key, SatelliteInfo(measurement.position,
-            measurement.transmit_time, residuals[j] * m, rate_residuals[j] * (m / s)))
+            measurement.transmit_time * s, residuals[j] * m, rate_residuals[j] * (m / s)))
     end
 
     # The reference system's own bias is `clock_bias`.

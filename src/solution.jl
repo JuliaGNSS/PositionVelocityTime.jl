@@ -30,7 +30,7 @@ satellite used in the fix).
 
 # Fields
 - `position::ECEF{Float64}`: Satellite ECEF position at transmit time (metres).
-- `transmit_time::Float64`: Satellite transmit time (system time of week, seconds).
+- `transmit_time::typeof(1.0s)`: Satellite transmit time (system time of week).
 - `residual::typeof(1.0m)`: Post-fit least-squares pseudorange residual (metres) — the
   (atmosphere-corrected) measured minus the modeled pseudorange. A per-satellite
   fit-quality / outlier indicator.
@@ -49,7 +49,7 @@ residual from its tracking loops' `λ · carrier_doppler` works in the opposite 
 """
 struct SatelliteInfo
     position::ECEF{Float64}
-    transmit_time::Float64
+    transmit_time::typeof(1.0s)
     residual::typeof(1.0m)
     rate_residual::typeof(1.0m/s)
 end
