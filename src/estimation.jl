@@ -95,7 +95,7 @@ function calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_column = 1)
     TDOP = sqrt(D(3 + reference_clock_column, 3 + reference_clock_column))
     GDOP = sqrt(sum(i -> D(i, i), 1:n))      # geometrical dop (all parameters)
 
-    return DOP(GDOP, PDOP, VDOP, HDOP, TDOP)
+    return DOP(GDOP, PDOP, HDOP, VDOP, TDOP)
 end
 
 """

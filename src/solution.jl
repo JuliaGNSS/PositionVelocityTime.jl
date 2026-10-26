@@ -10,15 +10,15 @@ constellation used for a PVT solution.
 # Fields
 - `GDOP::Float64`: Geometric DOP (overall quality)
 - `PDOP::Float64`: Position DOP (3D position quality)
-- `VDOP::Float64`: Vertical DOP
 - `HDOP::Float64`: Horizontal DOP
+- `VDOP::Float64`: Vertical DOP
 - `TDOP::Float64`: Time DOP
 """
 struct DOP
     GDOP::Float64
     PDOP::Float64
-    VDOP::Float64
     HDOP::Float64
+    VDOP::Float64
     TDOP::Float64
 end
 
@@ -112,23 +112,14 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   direction of motion, not vehicle heading (which a single-antenna receiver cannot
   observe). The vertical (Up) velocity component is ignored. `0°` when the horizontal
   velocity is zero (stationary or purely vertical), where course is undefined.
+- `time::Union{TAITime, Nothing}`: Estimated time as a TAI epoch (GNSSSignals' `TAITime`;
+  with AstroTime loaded, `TAIEpoch(time)` converts it)
 - `clock_bias::typeof(1.0m)`: Estimated receiver clock bias of the reference GNSS
   (meters). For a multi-GNSS solution this is the bias of `reference_system`;
   other systems' biases are `clock_bias + inter_system_biases[system]`.
-- `time::Union{TAITime, Nothing}`: Estimated time as a TAI epoch (GNSSSignals' `TAITime`;
-  with AstroTime loaded, `TAIEpoch(time)` converts it)
 - `clock_drift::typeof(1.0m/s)`: Estimated receiver clock drift, as the rate of
   `clock_bias` (metres per second); divided by the speed of light it is the relative
   drift (s/s)
-- `dop::Union{DOP, Nothing}`: Dilution of precision values
-- `satellites::Dictionary{Tuple{Symbol, Int}, SatelliteInfo}`: Maps `(signal, PRN)` to satellite
-  info — position, transmit time, and the post-fit pseudorange and range-rate
-  residuals (see [`SatelliteInfo`](@ref)). The signal tag (e.g. `:GPSL1CA`,
-  `:GalileoE1B`; see `get_signal_id`) keeps the
-  same PRN apart both across constellations (GPS PRN 5 vs Galileo E05) and across
-  signals of one constellation (a satellite tracked on GPS L1 C/A and L5 yields two
-  entries sharing a PRN). Receiver-clock grouping is by time system, not signal —
-  see `reference_system`.
 - `reference_system::Union{SupportedTimeSystem, Nothing}`: GNSS time system (e.g.
   `GNSSSignals.GPST()`, `GST()`) that `time` and `clock_bias` are referenced to.
 - `inter_system_biases::Dictionary{SupportedTimeSystem, typeof(1.0m)}`: For each GNSS time
@@ -145,6 +136,10 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   Reference-independent
   (the difference of two entries is the offset between those two systems); empty for a
   single-system solution.
+- `applied_broadcast_inter_system_biases::Vector{BroadcastInterSystemBias}`: the
+  inter-system biases taken from a broadcast time offset rather than estimated, one per
+  pair of clocks it tied (see [`BroadcastInterSystemBias`](@ref)). Empty whenever the
+  satellites separate every clock, the usual case.
 - `inter_frequency_biases::Dictionary{Symbol, InterFrequencyBias}`: For each frequency band
   other than the reference band, the receiver inter-frequency bias relative to it — the
   differential hardware delay of that band's RF chain, estimated as an extra unknown
@@ -157,10 +152,15 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   [`ifb_layout`](@ref)), so a disconnected constellation can in principle yield
   several references. Empty for a single-band solution. A solution then needs
   `n ≥ 3 + M + B` satellites for `M` time systems and `B` extra bands.
-- `applied_broadcast_inter_system_biases::Vector{BroadcastInterSystemBias}`: the
-  inter-system biases taken from a broadcast time offset rather than estimated, one per
-  pair of clocks it tied (see [`BroadcastInterSystemBias`](@ref)). Empty whenever the
-  satellites separate every clock, the usual case.
+- `dop::Union{DOP, Nothing}`: Dilution of precision values
+- `satellites::Dictionary{Tuple{Symbol, Int}, SatelliteInfo}`: Maps `(signal, PRN)` to satellite
+  info — position, transmit time, and the post-fit pseudorange and range-rate
+  residuals (see [`SatelliteInfo`](@ref)). The signal tag (e.g. `:GPSL1CA`,
+  `:GalileoE1B`; see `get_signal_id`) keeps the
+  same PRN apart both across constellations (GPS PRN 5 vs Galileo E05) and across
+  signals of one constellation (a satellite tracked on GPS L1 C/A and L5 yields two
+  entries sharing a PRN). Receiver-clock grouping is by time system, not signal —
+  see `reference_system`.
 
 Immutable: a solution's fields cannot be reassigned once it is built. The allocation-free
 [`calc_pvt!`](@ref) returns a new solution too; what it reuses are the `satellites`,
@@ -173,19 +173,19 @@ it reads.
     position::ECEF{Float64} = ECEF(0.0, 0.0, 0.0)
     velocity::ECEF{Float64} = ECEF(0.0, 0.0, 0.0)
     course_over_ground::typeof(1.0°) = 0.0°
-    clock_bias::typeof(1.0m) = 0.0m
     time::Union{TAITime,Nothing} = nothing
+    clock_bias::typeof(1.0m) = 0.0m
     clock_drift::typeof(1.0m/s) = 0.0m/s
-    dop::Union{DOP,Nothing} = nothing
-    satellites::Dictionary{Tuple{Symbol,Int},SatelliteInfo} =
-        Dictionary{Tuple{Symbol,Int},SatelliteInfo}()
     reference_system::Union{SupportedTimeSystem,Nothing} = nothing
     inter_system_biases::Dictionary{SupportedTimeSystem,typeof(1.0m)} =
         Dictionary{SupportedTimeSystem,typeof(1.0m)}()
-    inter_frequency_biases::Dictionary{Symbol,InterFrequencyBias} =
-        Dictionary{Symbol,InterFrequencyBias}()
     applied_broadcast_inter_system_biases::Vector{BroadcastInterSystemBias} =
         BroadcastInterSystemBias[]
+    inter_frequency_biases::Dictionary{Symbol,InterFrequencyBias} =
+        Dictionary{Symbol,InterFrequencyBias}()
+    dop::Union{DOP,Nothing} = nothing
+    satellites::Dictionary{Tuple{Symbol,Int},SatelliteInfo} =
+        Dictionary{Tuple{Symbol,Int},SatelliteInfo}()
 end
 
 """
@@ -220,15 +220,15 @@ Base.copy(pvt::PVTSolution) = PVTSolution(
     pvt.position,
     pvt.velocity,
     pvt.course_over_ground,
-    pvt.clock_bias,
     pvt.time,
+    pvt.clock_bias,
     pvt.clock_drift,
-    pvt.dop,
-    copy(pvt.satellites),
     pvt.reference_system,
     copy(pvt.inter_system_biases),
-    copy(pvt.inter_frequency_biases),
     copy(pvt.applied_broadcast_inter_system_biases),
+    copy(pvt.inter_frequency_biases),
+    pvt.dop,
+    copy(pvt.satellites),
 )
 
 # A copy of `source` in the containers of `solution`. `source` itself where the two
@@ -250,15 +250,15 @@ function copy_into(solution::PVTSolution, source::PVTSolution)
         source.position,
         source.velocity,
         source.course_over_ground,
-        source.clock_bias,
         source.time,
+        source.clock_bias,
         source.clock_drift,
-        source.dop,
-        solution.satellites,
         source.reference_system,
         solution.inter_system_biases,
-        solution.inter_frequency_biases,
         solution.applied_broadcast_inter_system_biases,
+        solution.inter_frequency_biases,
+        source.dop,
+        solution.satellites,
     )
 end
 

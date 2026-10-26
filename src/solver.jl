@@ -470,14 +470,14 @@ function _solve_pvt!(
         position,
         velocity,
         calc_course_over_ground(position, velocity),
-        clock_bias * m,
         week_start + corrected_reference_time,
+        clock_bias * m,
         user_velocity_and_clock_drift[4] * (m / s),
-        dop,
-        satellites,
         reference_system,
         inter_system_biases,
-        inter_frequency_biases,
         applied_biases,
+        inter_frequency_biases,
+        dop,
+        satellites,
     )
 end

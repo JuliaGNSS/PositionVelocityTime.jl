@@ -245,7 +245,7 @@ end
         position = ECEF((Vector(good.position) .+ [2.7e8, 0.0, 0.0])...),
         clock_bias = good.clock_bias,
         reference_system = good.reference_system,
-        dop = PositionVelocityTime.DOP(613.0, 587.0, 400.0, 430.0, 176.6),
+        dop = PositionVelocityTime.DOP(613.0, 587.0, 430.0, 400.0, 176.6),
     )
     recovered = calc_pvt(signal_group(states), poisoned; kwargs...)
 
