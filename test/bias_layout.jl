@@ -341,3 +341,195 @@
         @test iszero(cold.position)
     end
 end
+
+# Injects synthetic GGTO parameters into a Galileo SatelliteState's decoder.
+function with_ggto(state; A_0G, A_1G = 0.0, t_0G = 0, WN_0G = 0)
+    d = state.decoder
+    new_data = GNSSDecoder.GalileoINAVData(d.data; A_0G, A_1G, t_0G, WN_0G)
+    new_raw = GNSSDecoder.GalileoINAVData(d.raw_data; A_0G, A_1G, t_0G, WN_0G)
+    new_decoder = GNSSDecoder.GNSSDecoderState(d; raw_data = new_raw, data = new_data)
+    SatelliteState(;
+        decoder = new_decoder,
+        system = state.system,
+        code_phase = state.code_phase,
+        carrier_doppler = state.carrier_doppler,
+        carrier_phase = state.carrier_phase,
+    )
+end
+
+@testset "PVT GPS + Galileo GGTO fallback" begin
+    C = 299792458.0
+    gps = gps_l1_states(0.0Hz)
+    gal = galileo_e1b_states(0.0Hz)
+
+    # The full independent solution provides the reference position and the
+    # inter-system time offset that the GGTO must encode.
+    reference = calc_pvt((signal_group(gps), signal_group(gal)); approximate_year = 2021,
+        enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    gps_only = calc_pvt(signal_group(gps); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    # reference_system is GPS (most satellites), so the Galileo inter-system bias
+    # is Galileo − GPS = −c·(GST − GPST). The physical broadcast GGTO that would
+    # reproduce it is its negation, in seconds.
+    Δ = -ustrip(m, reference.inter_system_biases[GST()]) / C
+
+    # 3 GPS + 1 Galileo: the independent solve needs 3 + 2 = 5 satellites, so
+    # without GGTO the constellation is under-determined and calc_pvt returns the
+    # (origin) previous solution.
+    subset = (signal_group(gps[1:3]), signal_group(gal[1:1]))
+    @test calc_pvt(subset; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false).position == ECEF(0, 0, 0)
+
+    # With the GGTO available the Galileo clock bias collapses onto GPS, so a
+    # 4-satellite fix becomes possible and reproduces the full-constellation
+    # position. A wrong offset sign would corrupt the single Galileo measurement
+    # (here c·Δ ≈ 2.4e6 m), so reproducing the reference also pins the sign.
+    subset_ggto = (signal_group(gps[1:3]), signal_group([with_ggto(gal[1]; A_0G = Δ)]))
+    pvt = calc_pvt(subset_ggto; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    @test pvt.position != ECEF(0, 0, 0)
+    @test norm(pvt.position - reference.position) < 10
+    @test norm(pvt.position - gps_only.position) < 10
+    @test pvt.reference_system == GPST()
+    @test Set(keys(pvt.inter_system_biases)) == Set([GST()])
+
+    # A satellite is identified as (time system, PRN) for the layout's
+    # distinct-satellite count, not by PRN alone: a Galileo satellite sharing a GPS PRN
+    # is still the fourth distinct satellite the collapsed layout needs, so relabelling
+    # it leaves the fix untouched (PRN-only identity would count three and bail).
+    collided = with_prn(with_ggto(gal[1]; A_0G = Δ), gps[1].decoder.prn)
+    pvt_collided = calc_pvt((signal_group(gps[1:3]), signal_group([collided])); approximate_year = 2021,
+        enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    @test pvt_collided.position == pvt.position
+
+    # A single Galileo satellite carrying the GGTO is enough to collapse the
+    # whole Galileo set: here only the first of two Galileo satellites has it.
+    @test !PositionVelocityTime.time_offset_available(gal[2].decoder, GPST())
+    mixed = (signal_group(gps[1:2]), signal_group([with_ggto(gal[1]; A_0G = Δ), gal[2]]))
+    pvt_mixed = calc_pvt(mixed; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    @test pvt_mixed.position != ECEF(0, 0, 0)
+    @test norm(pvt_mixed.position - reference.position) < 50
+
+    # The GGTO offset is applied with the exact sign and magnitude: the Galileo
+    # inter-system bias (relative to the GPS reference) equals −c·A_0G, because a
+    # Galileo measurement is moved into the GPS frame by subtracting GST − GPST.
+    A_big = 1.0e-6
+    big = calc_pvt((signal_group(gps[1:3]), signal_group([with_ggto(gal[1]; A_0G = A_big)]));
+        approximate_year = 2021, enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false)
+    @test big.inter_system_biases[GST()] ≈ -C * A_big * m rtol = 1e-6
+
+    # A warm start seeds the shared clock column with the hub's own bias. The Galileo
+    # row comes last and maps onto that column too, but its previous absolute bias —
+    # the hub's plus its −c·A_0G ≈ −300 m inter-system bias — must not overwrite it.
+    big_groups = (signal_group(gps[1:3]), signal_group([with_ggto(gal[1]; A_0G = A_big)]))
+    workspace = PVTWorkspace()
+    calc_pvt!(PVTSolution(), workspace, big_groups, big; approximate_year = 2021,
+        enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    @test big.dop.PDOP < PositionVelocityTime.MAX_TRUSTED_WARM_START_PDOP
+    @test workspace.prev_ξ[4] == ustrip(m, big.time_correction)
+    # The seed only sets the starting point: warm and cold starts reach the same fix.
+    warm = calc_pvt(big_groups, big; approximate_year = 2021,
+        enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    @test norm(warm.position - big.position) < 1e-3
+    @test warm.time ≈ big.time
+    @test warm.inter_system_biases[GST()] ≈ big.inter_system_biases[GST()]
+
+    # calc_steering_offset evaluates the OS SIS ICD word-type-10 polynomial, taking
+    # the reference week difference modulo 64. `broadcast_time_offset` is the flattened
+    # `BroadcastTimeOffset` the collection pass puts on every measurement row.
+    g = with_ggto(gal[1]; A_0G = 5.0e-9, A_1G = 1.0e-15, t_0G = 100, WN_0G = 1134)
+    ggto = PositionVelocityTime.broadcast_time_offset(g.decoder, GPST())
+    @test PositionVelocityTime.calc_steering_offset(ggto, 132000.0) ≈
+          5.0e-9 + 1.0e-15 * (132000.0 - 100 + 604800 * mod(1136 - 1134, 64))
+    @test ggto.available
+    @test PositionVelocityTime.time_offset_available(g.decoder, GPST())
+    @test !PositionVelocityTime.time_offset_available(gal[1].decoder, GPST())
+    @test !PositionVelocityTime.time_offset_available(gps[1].decoder, GPST())
+    # A target no message broadcasts an offset toward is reported unavailable rather
+    # than looked up and missed.
+    @test !PositionVelocityTime.broadcast_time_offset(g.decoder, BDT()).available
+    # An unavailable offset evaluates to NaN rather than a plausible zero — including
+    # through the NaN-`t_0` branch `calc_steering_offset` takes for BeiDou D1/D2, which
+    # a NaN `t_0` alone would silently turn into an all-zero polynomial.
+    no_offset = PositionVelocityTime.broadcast_time_offset(gal[1].decoder, GPST())
+    @test !no_offset.available
+    @test isnan(PositionVelocityTime.calc_steering_offset(no_offset, 132000.0))
+
+    # calc_hub_range_offsets turns the rows `decide_bias_layout` selected into the
+    # per-satellite range corrections: −c·GGTO for the collapsed (Galileo) satellites at
+    # their own transmit times, zero for the anchor system's. An independent layout
+    # (no hub at all) needs no conversion at all.
+    offset_rows = measurement_rows((
+        signal_group(gps[1:2]),
+        signal_group([
+            with_ggto(gal[1]; A_0G = 5.0e-9, A_1G = 1.0e-15, t_0G = 100, WN_0G = 1134),
+            gal[2],
+        ]),
+    ))
+    # The measurement form of `time_offset_available` reads the flag the collection pass
+    # flattened onto each row, and has to agree with the decoder form it was derived
+    # from — row 3 is the Galileo satellite carrying the GGTO, row 4 the one without,
+    # rows 1-2 are GPS, whose offset toward its own time system is not a broadcast
+    # quantity.
+    available(row, target) = PositionVelocityTime.time_offset_available(row, target)
+    @test available(offset_rows[3], GPST())
+    @test !available(offset_rows[4], GPST())
+    @test !available(offset_rows[1], GPST())
+    @test [available(row, GPST()) for row in offset_rows] ==
+          [PositionVelocityTime.time_offset_available(state.decoder, GPST()) for state in
+           [gps[1:2]; [with_ggto(gal[1]; A_0G = 5.0e-9, A_1G = 1.0e-15, t_0G = 100,
+               WN_0G = 1134), gal[2]]]]
+    # No message broadcasts an offset toward BDT, so every row reports it unavailable
+    # rather than indexing something that is not there.
+    @test !any(row -> available(row, BDT()), offset_rows)
+
+    hub_rows = [offset_rows[3]]
+    offsets = PositionVelocityTime.calc_hub_range_offsets(offset_rows, hub_rows, GPST())
+    @test offsets[[1, 2]] == [0.0, 0.0]
+    @test offsets[[3, 4]] ≈ [
+        -C * PositionVelocityTime.calc_steering_offset(ggto, row.time) for
+        row in offset_rows[3:4]
+    ]
+    # Both Galileo rows are converted by the one row that carries the offset, each at
+    # its own transmit time — so the two corrections differ (by the polynomial's drift
+    # term) rather than being one shared scalar.
+    @test offsets[3] != offsets[4]
+    # `inter_system_bias` is that correction for one row: the offset-carrying row's own,
+    # or applied at another row's transmit time; zero for the hub's own system.
+    @test PositionVelocityTime.inter_system_bias(offset_rows[3], GPST()) == offsets[3]
+    @test PositionVelocityTime.inter_system_bias(
+        offset_rows[3], GPST(), offset_rows[4].time) == offsets[4]
+    @test PositionVelocityTime.inter_system_bias(offset_rows[1], GPST()) == 0.0
+    @test isnan(PositionVelocityTime.inter_system_bias(offset_rows[4], GPST()))
+
+    # The primary system: the hub whenever there is one, otherwise the system with the
+    # most rows, a tie going to the one that appears first.
+    select = PositionVelocityTime.select_primary_system
+    @test select(offset_rows, nothing) == GPST()
+    @test select(offset_rows[2:4], nothing) == GST()
+    @test select(offset_rows[[3, 1, 2, 4]], nothing) == GST()
+    @test select(offset_rows, GST()) == GST()
+    @test select(offset_rows[1:0], GPST()) == GPST()
+    @test_throws ArgumentError select(offset_rows[1:0], nothing)
+    @test PositionVelocityTime.calc_hub_range_offsets(
+        offset_rows, PositionVelocityTime.SatelliteMeasurement[], nothing) == zeros(4)
+end
+
+@testset "PVT primary system is the most-populated GNSS" begin
+    # Galileo-majority independent mix (2 GPS + 5 Galileo): no GGTO collapse, so
+    # the primary system — which sets the reported time scale and time_correction
+    # — should be Galileo, the constellation with more satellites.
+    gps = gps_l1_states(0.0Hz)
+    gal = galileo_e1b_states(0.0Hz)
+    groups = (signal_group(gps[1:2]), signal_group(gal))
+    pvt = calc_pvt(groups; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    gal_only = calc_pvt(signal_group(gal); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+
+    @test pvt.reference_system == GST()
+    @test Set(keys(pvt.inter_system_biases)) == Set([GPST()])
+    # Independent clocks, one column per system in order of first appearance.
+    layout = PositionVelocityTime.decide_bias_layout(measurement_rows(groups))
+    @test layout.clock_systems == [GPST(), GST()]
+    @test layout.bias_columns.clock_bias_indices ==
+          [fill(1, length(gps[1:2])); fill(2, length(gal))]
+    @test pvt.time ≈ gal_only.time
+    @test norm(pvt.position - gal_only.position) < 10
+end

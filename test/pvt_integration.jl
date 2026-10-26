@@ -5,7 +5,7 @@
 # them, GNSSDecoder.jl decodes the navigation message, and `calc_pvt` turns the
 # resulting `SatelliteState`s into a position — which we check lands at the
 # recording site. This is the real-signal counterpart to the synthetic
-# `pvt.jl` / `pvt_iono_tropo.jl` unit tests, exercising the whole JuliaGNSS
+# `solver.jl` / `atmosphere/delays.jl` unit tests, exercising the whole JuliaGNSS
 # stack the way a receiver actually uses it.
 #
 # WHY THIS CAPTURE (and not the Tracking.jl / GNSSDecoder.jl "III-7a" one):

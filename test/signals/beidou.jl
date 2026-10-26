@@ -426,7 +426,7 @@
         # The two message families broadcast two different models, so each container
         # answers for exactly one of them: only the legacy D1/D2 one yields a
         # Klobuchar set, and only the B-CNAV ones yield BDGIM (see
-        # `test/ionosphere.jl` for the model itself).
+        # `test/atmosphere/` for the models themselves).
         @test PositionVelocityTime.klobuchar_params(d1) === nothing
         @test PositionVelocityTime.klobuchar_params(b2a) === nothing
         @test PositionVelocityTime.bdgim_params(d1) === nothing
@@ -440,7 +440,7 @@
         # A type of its own, not `KlobucharParams`: BDS-SIS-ICD-B1I-3.0 §5.2.4.7
         # prescribes BeiDou's own algorithm (geographic pierce-point latitude,
         # exact geometry, a period clamped from above too), with the delay defined
-        # at B1I rather than L1 (see `test/ionosphere.jl` for the model itself).
+        # at B1I rather than L1 (see `test/atmosphere/klobuchar.jl` for the model itself).
         @test p isa PositionVelocityTime.BeiDouKlobucharParams
         @test !(p isa PositionVelocityTime.KlobucharParams)
         @test (p.α_0, p.β_3) == (1.0e-8, 131072.0)
