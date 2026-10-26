@@ -443,17 +443,17 @@ function _solve_pvt!(
     end
 
     # The reference system's own bias is `clock_bias`.
-    inter_system_biases = empty!(solution.inter_system_biases)
+    inter_system_biases = empty_keeping_capacity!(solution.inter_system_biases)
     for (k, sys) in enumerate(clock_systems)
         sys === reference_system && continue
-        inter_system_biases[sys] = (ξ[3+k] - clock_bias) * m
+        set!(inter_system_biases, sys, (ξ[3+k] - clock_bias) * m)
     end
 
     # The reference band's delay is folded into the clock biases.
-    inter_frequency_biases = empty!(solution.inter_frequency_biases)
+    inter_frequency_biases = empty_keeping_capacity!(solution.inter_frequency_biases)
     for (i, band) in enumerate(extra_bands)
-        inter_frequency_biases[band] =
-            InterFrequencyBias(ξ[3+num_clock_biases+i] * m, reference_bands[i])
+        set!(inter_frequency_biases, band,
+            InterFrequencyBias(ξ[3+num_clock_biases+i] * m, reference_bands[i]))
     end
 
     return true,

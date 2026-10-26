@@ -106,9 +106,9 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   see `reference_system`.
 - `reference_system::Union{SupportedTimeSystem, Nothing}`: GNSS time system (e.g.
   `GNSSSignals.GPST()`, `GST()`) that `time` and `clock_bias` are referenced to.
-- `inter_system_biases::Dict{SupportedTimeSystem, typeof(1.0m)}`: For each GNSS time system
-  other than `reference_system`, the offset of that system's time scale relative to the reference
-  system's (meters) — the inter-system bias. This is a **system / space-segment** effect,
+- `inter_system_biases::Dictionary{SupportedTimeSystem, typeof(1.0m)}`: For each GNSS time
+  system other than `reference_system`, the offset of that system's time scale relative to
+  the reference system's (metres) — the inter-system bias. This is a **system / space-segment** effect,
   not a receiver one (this receiver has no inter-system hardware bias): it is the GNSS
   system-time offset, so the Galileo entry equals `−c · Δt_systems`, `Δt_systems = GST −
   GPST` (the GGTO), and the BeiDou entry likewise carries the BDT steering residual (the
@@ -120,7 +120,7 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   Reference-independent
   (the difference of two entries is the offset between those two systems); empty for a
   single-system solution.
-- `inter_frequency_biases::Dict{Symbol, InterFrequencyBias}`: For each frequency band
+- `inter_frequency_biases::Dictionary{Symbol, InterFrequencyBias}`: For each frequency band
   other than the reference band, the receiver inter-frequency bias relative to it — the
   differential hardware delay of that band's RF chain, estimated as an extra unknown
   when satellites are processed on more than one band. The key is the band
@@ -151,10 +151,10 @@ it reads.
     satellites::Dictionary{Tuple{Symbol,Int},SatelliteInfo} =
         Dictionary{Tuple{Symbol,Int},SatelliteInfo}()
     reference_system::Union{SupportedTimeSystem,Nothing} = nothing
-    inter_system_biases::Dict{SupportedTimeSystem,typeof(1.0m)} =
-        Dict{SupportedTimeSystem,typeof(1.0m)}()
-    inter_frequency_biases::Dict{Symbol,InterFrequencyBias} =
-        Dict{Symbol,InterFrequencyBias}()
+    inter_system_biases::Dictionary{SupportedTimeSystem,typeof(1.0m)} =
+        Dictionary{SupportedTimeSystem,typeof(1.0m)}()
+    inter_frequency_biases::Dictionary{Symbol,InterFrequencyBias} =
+        Dictionary{Symbol,InterFrequencyBias}()
 end
 
 """
@@ -234,15 +234,6 @@ function copy_container!(destination::Dictionary, source::Dictionary)
     destination
 end
 
-function copy_container!(destination::Dict, source::Dict)
-    destination === source && return destination
-    empty!(destination)
-    for (key, value) in source
-        destination[key] = value
-    end
-    destination
-end
-
 """
     empty_keeping_capacity!(dict::Dictionary) -> dict
     empty_keeping_capacity!(solution::PVTSolution) -> solution
@@ -252,9 +243,8 @@ as before allocates nothing. `empty!(::Dictionary)` hands the dictionary a fresh
 hash table instead, which a refill then reallocates and regrows.
 
 The [`PVTSolution`](@ref) form empties all three of a solution's containers that way —
-`satellites`, `inter_system_biases` and `inter_frequency_biases` (the last two Base `Dict`s,
-whose own `empty!` already keeps their capacity) — for a consumer that builds its own
-solutions into the containers of one it keeps, as [`calc_pvt!`](@ref) does.
+`satellites`, `inter_system_biases` and `inter_frequency_biases` — for a consumer that
+builds its own solutions into the containers of one it keeps, as [`calc_pvt!`](@ref) does.
 """
 function empty_keeping_capacity! end
 
@@ -277,8 +267,8 @@ end
 
 function empty_keeping_capacity!(solution::PVTSolution)
     empty_keeping_capacity!(solution.satellites)
-    empty!(solution.inter_system_biases)
-    empty!(solution.inter_frequency_biases)
+    empty_keeping_capacity!(solution.inter_system_biases)
+    empty_keeping_capacity!(solution.inter_frequency_biases)
     solution
 end
 
