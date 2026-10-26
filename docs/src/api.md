@@ -129,14 +129,16 @@ GNSSDecoder's `get_week`, `get_broadcast_ephemeris`, `get_group_delay` and
 `get_broadcast_time_offset`.
 
 Times returned or taken here are seconds-of-week counts on each satellite's own system
-scale unless a function says otherwise.
+scale unless a function says otherwise. The week arithmetic is GNSSSignals':
+`get_week_start_epoch` dates a week, `get_leap_second_offset` relates two systems'
+counts, and `fold_week_crossover` folds a difference of two counts across a week
+crossover.
 
 ```@docs
 PositionVelocityTime.SPEED_OF_LIGHT
 PositionVelocityTime.EARTH_ROTATION_RATE
 PositionVelocityTime.calc_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
-PositionVelocityTime.fold_week_crossover
 PositionVelocityTime.BiasColumns
 PositionVelocityTime.decide_bias_layout
 PositionVelocityTime.decide_bias_layout!
@@ -151,12 +153,9 @@ PositionVelocityTime.calc_dop!
 PositionVelocityTime.calc_pseudorange_rate
 PositionVelocityTime.estimate_velocity
 PositionVelocityTime.estimate_velocity!
-PositionVelocityTime.time_scale_offset_to_gpst
-PositionVelocityTime.calc_time_scale_offsets
 PositionVelocityTime.has_broadcast_time_offset
 PositionVelocityTime.broadcast_time_offset
 PositionVelocityTime.broadcast_inter_system_bias
-PositionVelocityTime.system_start_epoch
 PositionVelocityTime.predict_atmospheric_delays
 PositionVelocityTime.predict_atmospheric_delays!
 PositionVelocityTime.IonosphericModel

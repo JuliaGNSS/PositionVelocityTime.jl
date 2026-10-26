@@ -193,8 +193,6 @@
         # The BDT epoch is 2006-01-01, 26 years after GPS's, so the same week/SOW pair
         # dates to a different instant — this is what keeps BeiDou's reported time
         # honest without any 14 s fudge in the solver.
-        @test PositionVelocityTime.system_start_epoch(BeiDouB1I()) !=
-              PositionVelocityTime.system_start_epoch(GPSL1CA())
         @test GNSSSignals.get_system_start_time(BDT()) == DateTime(2006, 1, 1)
 
         # 13-bit BDT week, broadcast absolute: no 1024-week rollover to resolve, so
@@ -401,18 +399,14 @@
     @testset "the BDT second-of-week counts 14 s behind a GPS time of week" begin
         # Structural, from the time scales' own definitions rather than any broadcast
         # value: GPST and GST are both TAI − 19 s and so count alike, BDT is TAI − 33 s.
-        @test PositionVelocityTime.time_scale_offset_to_gpst(GPST()) == 0.0
-        @test PositionVelocityTime.time_scale_offset_to_gpst(GST()) == 0.0
-        @test PositionVelocityTime.time_scale_offset_to_gpst(BDT()) == -14.0
         # Per satellite it is the seconds to add to reach the *reference* system's count,
-        # applied whether or not a clock collapsed. Read off each measurement's
-        # precomputed `count_offset_to_gpst`, so a row carrying only that field is
-        # enough here. GPS-referenced: BeiDou needs +14 s.
-        row(system) = (;
-            count_offset_to_gpst = PositionVelocityTime.time_scale_offset_to_gpst(system),
-        )
+        # applied whether or not a clock collapsed. Only each measurement's
+        # `time_system` is read, so a stand-in carrying only that field is enough here.
+        # GPS-referenced: BeiDou needs +14 s.
+        stand_in(system) = (; time_system = system)
         offsets(systems, reference) =
-            PositionVelocityTime.calc_time_scale_offsets(map(row, systems), reference)
+            PositionVelocityTime.calc_leap_second_corrections!(Float64[],
+                map(stand_in, systems), reference)
         @test offsets([GPST(), BDT(), GST(), BDT()], GPST()) == [0.0, 14.0, 0.0, 14.0]
         # BeiDou-referenced: the sign reverses, and a BeiDou-only epoch needs nothing —
         # which is why anchoring on GPST instead of the reference system would have
@@ -428,8 +422,8 @@
         # functions the solve calls.
         #
         # GNSSDecoder reports `A_0` as broadcast, without the 14 s between the BDT and
-        # GPST counts, which `calc_time_scale_offsets` applies to the transmit times
-        # instead; the steering offset is the polynomial alone.
+        # GPST counts, which `calc_leap_second_corrections!` applies to the transmit
+        # times instead; the steering offset is the polynomial alone.
         to_gpst(decoder, t) = steering(decoder, GPST(), t)
 
         @test !has_offset(d1, GPST())
@@ -574,7 +568,7 @@
         # (800, t_rx) and GPST (2156, t_rx + 14); the broadcast GPS week is 10-bit, so
         # its field carries 2156 mod 1024 and `get_week` reconstructs the rest from
         # `approximate_year`. Agreement exercises what the circular check could not:
-        # that `system_start_epoch` places both origins on the atomic scale correctly,
+        # that `get_week_start_epoch` places both origins on the atomic scale correctly,
         # BDT's 33 s TAI offset against GPST's 19 s included.
         @test !isnothing(pvt.time)
         gps_matched = [
@@ -678,7 +672,7 @@
         #     publishes, which is what an inter-system bias should actually report.
         #
         # So the BeiDou reception time is `t_rx - 14 + Δ`. Without
-        # `calc_time_scale_range_offsets` the 14 s survives into the normal equations
+        # `calc_leap_second_corrections!` the 14 s survives into the normal equations
         # as a parameter nine orders of magnitude above the others: the separate-clock
         # solve reports a nonsense inter-system bias, and the collapsed solve — which
         # has no BeiDou clock column left to hide it in — fails outright.

@@ -1,17 +1,4 @@
 """
-    fold_week_crossover(t) -> Float64
-
-Fold a difference of two seconds-of-week counts into `(-302400, 302400]`: across a week
-crossover (IS-GPS-200's term) the raw difference is off by ±604800 s. Every difference of
-two counts within a week of each other, here and in a consumer, passes through this; one
-across whole weeks must not (the broadcast time offsets add the weeks back themselves).
-"""
-function fold_week_crossover(t)
-    half_week = SECONDS_PER_WEEK / 2
-    t + (t > half_week ? -2 * half_week : (t < -half_week ? 2 * half_week : 0.0))
-end
-
-"""
     calc_uncorrected_transmit_time(state::SatelliteState) -> Float64
 
 The satellite's *raw* transmit time, a seconds-of-week count on its own system's scale:
@@ -83,7 +70,7 @@ decoder's time of week plus the bit, code-phase and carrier-phase fractions, cor
 by the clock polynomial, the relativistic term and the ranging signal's group delay
 (GNSSDecoder's `get_broadcast_ephemeris` and `get_group_delay`; a group delay not yet
 decoded in full counts as zero, a metre or so on one signal). Every ephemeris and clock
-evaluation takes it unconverted (see [`time_scale_offset_to_gpst`](@ref)). The decoder must be
+evaluation takes it unconverted (see `calc_leap_second_corrections!`). The decoder must be
 complete for positioning.
 """
 calc_transmit_time(state::SatelliteState) = correct_clock(

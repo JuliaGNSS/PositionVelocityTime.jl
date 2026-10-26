@@ -32,8 +32,6 @@
         @test GNSSSignals.get_band_id(GalileoE5bI()) == :E5b
         @test GNSSSignals.get_band_id(GalileoE5bI()) != GNSSSignals.get_band_id(GalileoE1B())
         @test GNSSDecoder.get_week(e5b; approximate_year = 2024) == d.WN
-        @test PositionVelocityTime.system_start_epoch(GalileoE5bI()) ==
-              PositionVelocityTime.system_start_epoch(GalileoE1B())
         # No GEO branch for Galileo.
         @test !ephemeris(e5b).is_geostationary
     end

@@ -234,7 +234,7 @@ end
         measurements = measurements_of((gps = l1ca, galileo = e1b))
         ξ = [4.0186e6, 427035.0, 4.918e6, 0.0, 0.0]
         predict! = PositionVelocityTime.predict_atmospheric_delays!
-        epoch = week_start(GPST(), 2160) + 259200.0
+        epoch = get_week_start_epoch(GPST(), 2160) + 259200.0
         allocated_predict(delays, model) =
             @allocated predict!(delays, ξ, measurements, model, epoch, true)
         workspace = PVTWorkspace()

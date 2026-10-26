@@ -83,7 +83,7 @@
             el,
             az,
             LLAfromECEF(wgs84)(user),
-            week_start(GST(), 1100) + 200000.0,
+            get_week_start_epoch(GST(), 1100) + 200000.0,
         )
         @test delay > 0.0
         @test delay < 100.0   # a sane L1/E1 ionospheric delay magnitude (metres)

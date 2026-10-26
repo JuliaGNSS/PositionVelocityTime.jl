@@ -162,7 +162,7 @@ The type of [`SatelliteMeasurement`](@ref)'s `time_system` field, and of the key
 the reference system of a [`PVTSolution`](@ref).
 
 A closed `Union` rather than the abstract `GNSSSignals.TimeSystem` so that every call on
-a time system — hashing it into `inter_system_biases`, `time_scale_offset_to_gpst`, a
+a time system — hashing it into `inter_system_biases`, `get_leap_second_offset`, a
 hub's broadcast offset — is split into statically dispatched branches instead of being a
 dynamic dispatch, which a `juliac --trim` build rejects. The measurement it types stays one
 concrete type, so the solver still compiles once for every constellation mix. A time
@@ -196,9 +196,6 @@ compiles once for every mix.
   (`GPST()`, `GST()`, `BDT()`), the grouping key of the receiver clock biases. A small
   `Union` of singletons (see [`SupportedTimeSystem`](@ref)), so the measurement stays concrete
   and every call on the field splits statically.
-- `count_offset_to_gpst::Float64`: [`time_scale_offset_to_gpst`](@ref) of
-  `time_system`, precomputed, so the solver reads a number rather than branching on
-  the time system per satellite.
 - `transmit_time::Float64`: the corrected transmit time ([`calc_transmit_time`](@ref)) as a
   seconds-of-week count **on this satellite's own system's scale**.
 - `position::SVector{3,Float64}`: satellite ECEF position at `transmit_time` (m).
@@ -208,9 +205,8 @@ compiles once for every mix.
   Doppler wavelength, and the `1/f²` of every ionospheric model.
 - `clock_drift::Float64`: [`calc_satellite_clock_drift`](@ref) at `transmit_time` (s/s).
 - `week::Int`: the absolute week number of `time_system`, with the GPS L1 C/A
-  1024-week rollover already resolved against `approximate_year`.
-- `system_start_epoch::TAITime`: the TAI epoch of that system's week 0,
-  which dates the reported fix.
+  1024-week rollover already resolved against `approximate_year`; its start is
+  GNSSSignals' `get_week_start_epoch(measurement.time_system, measurement.week)`.
 - `time_offset_to_gpst`, `time_offset_to_gst`, `time_offset_to_bdt`: this satellite's
   broadcast time offsets toward GPS, Galileo and BeiDou Time (s), evaluated at
   `transmit_time` by GNSSDecoder's `get_broadcast_time_offset`, or `nothing` where none
@@ -222,7 +218,6 @@ struct SatelliteMeasurement
     signal_id::Symbol
     band_id::Symbol
     time_system::SupportedTimeSystem
-    count_offset_to_gpst::Float64
     transmit_time::Float64
     position::SVector{3,Float64}
     velocity::SVector{3,Float64}
@@ -230,7 +225,6 @@ struct SatelliteMeasurement
     center_frequency::Float64
     clock_drift::Float64
     week::Int
-    system_start_epoch::TAITime
     time_offset_to_gpst::Union{Nothing,Float64}
     time_offset_to_gst::Union{Nothing,Float64}
     time_offset_to_bdt::Union{Nothing,Float64}
@@ -245,13 +239,11 @@ function satellite_measurement(state::SatelliteState, approximate_year::Integer)
     transmit_time = correct_clock(ephemeris, group_delay(decoder, signal),
         calc_uncorrected_transmit_time(state))
     pos_and_vel = calc_satellite_position_and_velocity(ephemeris, transmit_time)
-    time_system = get_time_system(signal)
     SatelliteMeasurement(
         decoder.prn,
         get_signal_id(signal),
         get_band_id(signal),
-        time_system,
-        time_scale_offset_to_gpst(time_system),
+        get_time_system(signal),
         transmit_time,
         pos_and_vel.position,
         pos_and_vel.velocity,
@@ -259,7 +251,6 @@ function satellite_measurement(state::SatelliteState, approximate_year::Integer)
         ustrip(Hz, get_center_frequency(signal)),
         calc_satellite_clock_drift(ephemeris, transmit_time),
         something(get_week(decoder; approximate_year)),
-        system_start_epoch(signal),
         get_broadcast_time_offset(decoder, GPST(), transmit_time),
         get_broadcast_time_offset(decoder, GST(), transmit_time),
         get_broadcast_time_offset(decoder, BDT(), transmit_time),

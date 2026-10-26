@@ -52,13 +52,10 @@ steering(decoder, target, t) =
 ephemeris(decoder) = something(GNSSDecoder.get_broadcast_ephemeris(decoder))
 with_fields(ephemeris::BroadcastEphemeris; fields...) = BroadcastEphemeris(
     (get(fields, name, getfield(ephemeris, name)) for name in fieldnames(BroadcastEphemeris))...)
-# `week_start` is the TAI epoch at which `week` of a signal's or time system's count
-# begins. `gps_epoch` and `bdt_epoch` date a time of week in week 0 of GPS and BeiDou
-# Time, the epoch the ionospheric models take; the Klobuchar models read only its time of
-# week.
-week_start(system, week) = PositionVelocityTime.system_start_epoch(system) + week * 604800
-gps_epoch(time_of_week) = week_start(GPST(), 0) + time_of_week
-bdt_epoch(time_of_week) = week_start(BDT(), 0) + time_of_week
+# `gps_epoch` and `bdt_epoch` date a time of week in week 0 of GPS and BeiDou Time, the
+# epoch the ionospheric models take; the Klobuchar models read only its time of week.
+gps_epoch(time_of_week) = get_week_start_epoch(GPST(), 0) + time_of_week
+bdt_epoch(time_of_week) = get_week_start_epoch(BDT(), 0) + time_of_week
 # `carrier_hz` is a ranging signal's carrier as the plain `Float64` in Hz that
 # `ionospheric_delay` takes — the `center_frequency` field of a measurement.
 carrier_hz(system) = ustrip(Hz, get_center_frequency(system))

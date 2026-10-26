@@ -340,7 +340,7 @@ function _solve_pvt!(
 
     # The common reference cancels out of the reported time (the reference clock
     # bias absorbs it), so any latest-transmit-time reference works — but the times
-    # must first be put on one count (`calc_time_scale_offsets!`).
+    # must first be put on one count (`calc_leap_second_corrections!`).
     # A BeiDou second-of-week reads 14 s below a GPS time of week for the same instant,
     # so differencing them raw hands every BeiDou measurement 4.2e9 m of structural
     # offset: not merely a biased BeiDou clock column, but a parameter nine orders of
@@ -348,8 +348,8 @@ function _solve_pvt!(
     # for any single-constellation epoch.
     # The offsets are written straight into the pseudorange buffer, and the transmit
     # times added onto them, so no separate offset buffer is needed.
-    pseudoranges =
-        calc_time_scale_offsets!(workspace.pseudoranges, measurements, reference_system)
+    pseudoranges = calc_leap_second_corrections!(workspace.pseudoranges, measurements,
+        reference_system)
     for (j, measurement) in enumerate(measurements)
         pseudoranges[j] += measurement.transmit_time
     end
@@ -363,12 +363,12 @@ function _solve_pvt!(
         calc_hub_range_offsets!(workspace.hub_offsets, measurements, hub_rows, hub_system)
     pseudoranges .-= hub_offsets
 
-    # The reference system's week and start epoch date the epoch absolutely: the
-    # atmospheric delays' here, and the reported time after the solve.
+    # The reference week's start dates the epoch: the atmospheric delays' here, before the
+    # clock correction, and the reported time at the end.
     reference_measurement = measurements[reference_index]
-    week = reference_measurement.week
-    start_time = reference_measurement.system_start_epoch
-    epoch = start_time + week * SECONDS_PER_WEEK + reference_time
+    week_start =
+        get_week_start_epoch(reference_measurement.time_system, reference_measurement.week)
+    epoch = week_start + reference_time
 
     # Seed each clock bias from the previous solution, reconstructing a system's
     # absolute bias from the reference bias plus its stored inter-system bias. A
@@ -548,13 +548,7 @@ function _solve_pvt!(
         velocity,
         calc_course_over_ground(position, velocity),
         clock_bias * m,
-        # Assumes `start_time.fraction == 0` (true for GPS/Galileo: integer-second
-        # origins).
-        TAITime(
-            week * 7 * 24 * 60 * 60 + floor(Int, corrected_reference_time) +
-            start_time.second,
-            corrected_reference_time - floor(Int, corrected_reference_time),
-        ),
+        week_start + corrected_reference_time,
         user_velocity_and_clock_drift[4] / SPEED_OF_LIGHT,
         dop,
         satellites,

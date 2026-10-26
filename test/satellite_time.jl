@@ -1,11 +1,3 @@
-@testset "Week crossover" begin
-    @test PositionVelocityTime.fold_week_crossover(0) == 0
-
-    @test PositionVelocityTime.fold_week_crossover(350000) == 350000 - 604800
-
-    @test PositionVelocityTime.fold_week_crossover(-350000) == 604800 - 350000
-end
-
 # `calc_satellite_clock_drift` must be the time derivative of the clock correction that
 # `correct_clock` applies, so it has to be evaluated about the clock reference epoch
 # `t_0c` — not about `t`, which would offset the `a_f2` term by `2·a_f2·t_0c`.
@@ -59,7 +51,7 @@ end
 
     a_f1, a_f2 = 1e-11, 3.5e-15
     t_0c, t = 604000.0, 100.0
-    wrapped = t - t_0c + PositionVelocityTime.SECONDS_PER_WEEK
+    wrapped = t - t_0c + GNSSSignals.SECONDS_PER_WEEK
     @test wrapped == 900.0
 
     # The correction `correct_clock` applies, differenced against an otherwise identical

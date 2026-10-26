@@ -10,7 +10,7 @@
     α = (35.0, -1.5, 2.25, 0.75, -0.5, 0.25, -0.125, 0.375, -0.625)
     lla = LLA(48.0, 11.0, 550.0)
     week, tow = 911, 302400.0   # BDT week 911, Wednesday noon → 2023-06-21T12:00
-    epoch = week_start(BDT(), week) + tow
+    epoch = get_week_start_epoch(BDT(), week) + tow
     mjd = 60116.5 + 33 / 86_400   # 2023-06-21T12:00:33, on the TAI label
 
     # -- Transcription safety -------------------------------------------------

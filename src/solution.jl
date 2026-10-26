@@ -113,7 +113,7 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   system-time offset, so the Galileo entry equals `−c · Δt_systems`, `Δt_systems = GST −
   GPST` (the GGTO), and the BeiDou entry likewise carries the BDT steering residual (the
   BGTO's subject) — never the defined 14 s count offset, which is a convention already
-  removed from the measurements (see [`calc_time_scale_offsets`](@ref)). It is
+  removed from the measurements (GNSSSignals' `get_leap_second_offset`). It is
   **estimated directly from the geometry whenever observable** (no broadcast error); the
   broadcast GGTO/BGTO is used to derive it only as a fallback (the offset-aided
   collapse), as that broadcast value may be erroneous. Reference-independent

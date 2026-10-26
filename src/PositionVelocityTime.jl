@@ -11,8 +11,8 @@ using CoordinateTransformations,
 using Unitful: s, Hz, m, °, ustrip
 using Dictionaries: Dictionary, IndexError, set!
 
-# GNSSSignals' week length, documented but unexported there.
-using GNSSSignals: SECONDS_PER_WEEK
+# GNSSSignals' week arithmetic, documented but unexported there.
+using GNSSSignals: fold_week_crossover
 
 export calc_pvt,
     calc_pvt!,
