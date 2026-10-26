@@ -259,7 +259,7 @@ else
         # (GPS week 1811) — a genuine, parity-/ephemeris-validated end-to-end
         # decode, not just a plausible-looking geometry.
         @test all(
-            s -> PositionVelocityTime.get_week(s.decoder; approximate_year = 2014) ==
+            s -> GNSSDecoder.get_week(s.decoder; approximate_year = 2014) ==
                 L125_GPS_WEEK,
             states,
         )

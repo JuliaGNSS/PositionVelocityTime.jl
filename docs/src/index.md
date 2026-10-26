@@ -115,7 +115,7 @@ satellites for `M` distinct systems. The per-system clock offsets are reported a
     `SatelliteState`s plus parallel classification vectors. See
     [The Measurement-Model Surface](@ref).
 
-    `pvt.time` is a [`TAITime`](@ref) rather than an AstroTime `TAIEpoch`, and AstroTime
+    `pvt.time` is a `TAITime` rather than an AstroTime `TAIEpoch`, and AstroTime
     is no longer loaded with this package: `using AstroTime` and `TAIEpoch(pvt.time)`
     converts it exactly. `position` and `velocity` are `ECEF{Float64}`, and the keys of
     `inter_system_biases` (and `reference_system`) are

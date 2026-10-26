@@ -20,7 +20,7 @@
         GNSSDecoder.GalileoE5bDecoderState(e1b.prn);
         data = data,
         raw_data = data,
-        num_bits_after_valid_syncro_sequence = e1b.num_bits_after_valid_syncro_sequence,
+        num_symbols_since_sync = e1b.num_symbols_since_sync,
     )
     e5b = as_e5b()
 
@@ -31,21 +31,21 @@
         # what keeps it from being grouped with E1 the way E1B and E1C are.
         @test GNSSSignals.get_band_id(GalileoE5bI()) == :E5b
         @test GNSSSignals.get_band_id(GalileoE5bI()) != GNSSSignals.get_band_id(GalileoE1B())
-        @test PositionVelocityTime.get_week(e5b) == d.WN
+        @test GNSSDecoder.get_week(e5b; approximate_year = 2024) == d.WN
         @test PositionVelocityTime.system_start_epoch(GalileoE5bI()) ==
               PositionVelocityTime.system_start_epoch(GalileoE1B())
         # No GEO branch for Galileo.
-        @test !PositionVelocityTime.is_geo_orbit(e5b)
+        @test !ephemeris(e5b).is_geostationary
     end
 
     @testset "orbit and clock are bit-for-bit the E1B ones" begin
         # Same container, same constants values, so the shared propagator must not
         # merely agree to a tolerance — it must return the identical numbers.
         for t in (132000.0, 132769.0, 135000.0)
-            @test PositionVelocityTime.calc_satellite_position_and_velocity(e5b, t) ==
-                  PositionVelocityTime.calc_satellite_position_and_velocity(e1b, t)
-            @test PositionVelocityTime.calc_satellite_clock_drift(e5b, t) ==
-                  PositionVelocityTime.calc_satellite_clock_drift(e1b, t)
+            @test PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(e5b), t) ==
+                  PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(e1b), t)
+            @test PositionVelocityTime.calc_satellite_clock_drift(ephemeris(e5b), t) ==
+                  PositionVelocityTime.calc_satellite_clock_drift(ephemeris(e1b), t)
         end
     end
 
@@ -53,26 +53,24 @@
         # I/NAV's clock is referred to the E1/E5b ionosphere-free combination, so an
         # E1 range applies BGD(E1,E5b) as broadcast and an E5b range applies
         # `(f_E1/f_E5b)²·BGD(E1,E5b)` (OS SIS ICD Issue 2.2 §5.1.5).
-        scaling = PositionVelocityTime.galileo_group_delay_scaling(GalileoE5bI())
+        scaling = (carrier_hz(GalileoE1B()) / carrier_hz(GalileoE5bI()))^2
         @test scaling ≈ (1575.42 / 1207.14)^2
         @test scaling > 1
         for signal in (GalileoE5bI(), GalileoE5bQ())
-            @test PositionVelocityTime.correct_by_group_delay(e5b, signal, 100.0) ≈
+            @test (100.0 - GNSSDecoder.get_group_delay(e5b, signal)) ≈
                   100.0 - scaling * d.BGD_E1_E5b
         end
         # The same I/NAV message on its other band applies the bare BGD: the scaling is
         # a property of the ranging band, not of the message.
-        @test PositionVelocityTime.correct_by_group_delay(e1b, GalileoE1B(), 100.0) ≈
+        @test (100.0 - GNSSDecoder.get_group_delay(e1b, GalileoE1B())) ≈
               100.0 - d.BGD_E1_E5b
         # I/NAV also broadcasts BGD(E1,E5a), but no method reads it: an E5a range is
         # generated on E5a-I and so carries an F/NAV decoder, never an I/NAV one.
         # Cross-band pairings cannot arise, and are an error rather than a
         # plausible-looking wrong number.
-        @test_throws MethodError PositionVelocityTime.correct_by_group_delay(
-            e5b, GalileoE5aI(), 100.0)
+        @test_throws MethodError (100.0 - GNSSDecoder.get_group_delay(e5b, GalileoE5aI()))
         # E6 carries no BGD at all, so there is no right answer to give for it either.
-        @test_throws MethodError PositionVelocityTime.correct_by_group_delay(
-            e5b, GalileoE6B(), 100.0)
+        @test_throws MethodError (100.0 - GNSSDecoder.get_group_delay(e5b, GalileoE6B()))
     end
 
     @testset "health reports the E5b facet, not the E1-B/C one" begin
@@ -100,15 +98,15 @@
         reference = calc_pvt(signal_group(e1b_states); kw...)
         @test length(reference.satellites) >= 4
 
-        # Split a transmit time into the decoder's bit count plus a sub-symbol code
+        # Split a transmit time into the decoder's bit count plus a sub-bit code
         # phase, the way `calc_uncorrected_transmit_time` reads them back (it reduces the code
-        # phase modulo one data symbol, so the whole-symbol part must go in the count).
+        # phase modulo one bit, so the whole-bit part must go in the count).
         function bits_and_code_phase(system, tow, target)
-            datafreq = Float64(GNSSSignals.get_data_frequency(system) / Hz)
-            codefreq = Float64(GNSSSignals.get_code_frequency(system) / Hz)
+            bit_rate = Float64(GNSSSignals.get_bit_rate(system) / Hz)
+            chip_rate = Float64(GNSSSignals.get_chip_rate(system) / Hz)
             elapsed = target - tow
-            num_bits = floor(Int, elapsed * datafreq)
-            (num_bits, (elapsed - num_bits / datafreq) * codefreq)
+            num_bits = floor(Int, elapsed * bit_rate)
+            (num_bits, (elapsed - num_bits / bit_rate) * chip_rate)
         end
 
         # An E5b copy of each satellite, transmit-time-consistent with its E1B original.
@@ -123,7 +121,7 @@
             # inter-frequency bias instead of the ~0 it is checking for.
             target =
                 PositionVelocityTime.calc_uncorrected_transmit_time(state) +
-                (1 - PositionVelocityTime.galileo_group_delay_scaling(GalileoE5bI())) *
+                (1 - (carrier_hz(GalileoE1B()) / carrier_hz(GalileoE5bI()))^2) *
                 decoder.data.BGD_E1_E5b
             num_bits, code_phase =
                 bits_and_code_phase(GalileoE5bI(), decoder.data.TOW, target)
@@ -132,7 +130,7 @@
                     GNSSDecoder.GalileoE5bDecoderState(decoder.prn);
                     data = decoder.data,
                     raw_data = decoder.data,
-                    num_bits_after_valid_syncro_sequence = num_bits,
+                    num_symbols_since_sync = num_bits,
                 ),
                 signal = GalileoE5bI(),
                 code_phase = code_phase,
@@ -169,7 +167,7 @@ end
         GNSSDecoder.GalileoE6BDecoderState(4);
         data = e6b_data,
         raw_data = e6b_data,
-        num_bits_after_valid_syncro_sequence = 16,
+        num_symbols_since_sync = 16,
     )
     e6b_state = SatelliteState(;
         decoder = e6b,
@@ -203,12 +201,12 @@ end
         # `AbstractGalileoEphemerisData`, and keying on the narrower supertype is what
         # makes these answer "no" rather than raise a `FieldError` on a field that was
         # never broadcast.
-        @test PositionVelocityTime.time_offset_available(e6b, GPST()) == false
-        @test PositionVelocityTime.ntcm_g_params(e6b) === nothing
-        @test PositionVelocityTime.klobuchar_params(e6b) === nothing
-        # A week number genuinely does not exist for C/NAV, so this is a MethodError
-        # rather than a wrong answer — the honest outcome for a question that has none.
-        @test_throws MethodError PositionVelocityTime.get_week(e6b)
+        @test has_offset(e6b, GPST()) == false
+        @test GNSSDecoder.get_nequick_g_parameters(e6b) === nothing
+        @test GNSSDecoder.get_klobuchar_parameters(e6b) === nothing
+        # C/NAV broadcasts no week number, so GNSSDecoder answers `nothing` rather than
+        # a wrong week.
+        @test isnothing(GNSSDecoder.get_week(e6b; approximate_year = 2024))
     end
 
     @testset "calc_pvt ignores it without touching its missing fields" begin
@@ -239,8 +237,9 @@ end
 # ---------------------------------------------------------------------------
 # The group-delay method table, checked as a whole rather than case by case.
 #
-# `correct_by_group_delay` dispatches on (decoded message, ranging signal), and a
-# missing cell is silent: it shows only as a MethodError from inside `calc_pvt`, on
+# GNSSDecoder's `get_group_delay`, which `calc_pvt` applies, dispatches on (decoded
+# message, ranging signal), and a missing cell is silent: it shows only as a MethodError
+# from inside `calc_pvt`, on
 # whatever pairing a user happens to bring. That is how four GPS cells stayed empty
 # for years — every test paired a decoder with a signal of its own band, which is the
 # only pairing that occurs, so nothing ever probed the rest of the table.
@@ -296,8 +295,8 @@ end
         for signal in all_signals[constellation(D)]
             id = GNSSSignals.get_signal_id(signal)
             has = hasmethod(
-                PositionVelocityTime.correct_by_group_delay,
-                Tuple{GNSSDecoder.GNSSDecoderState{<:D},typeof(signal),Float64},
+                GNSSDecoder.get_group_delay,
+                Tuple{GNSSDecoder.GNSSDecoderState{<:D},typeof(signal)},
             )
             # Compared as triples so a failure names the offending cell.
             @test (nameof(D), id, has) == (nameof(D), id, id in served)

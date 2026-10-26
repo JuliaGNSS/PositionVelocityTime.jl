@@ -10,7 +10,8 @@
     α = (35.0, -1.5, 2.25, 0.75, -0.5, 0.25, -0.125, 0.375, -0.625)
     lla = LLA(48.0, 11.0, 550.0)
     week, tow = 911, 302400.0   # BDT week 911, Wednesday noon → 2023-06-21T12:00
-    mjd = PVT._bdgim_modified_julian_date(week, tow)
+    epoch = week_start(BDT(), week) + tow
+    mjd = 60116.5 + 33 / 86_400   # 2023-06-21T12:00:33, on the TAI label
 
     # -- Transcription safety -------------------------------------------------
     #
@@ -137,13 +138,16 @@
         @test last(PVT._bdgim_solar_geomagnetic(0.0, π, 60116.0)) ≈ 0.0 atol = 1e-12
     end
 
-    @testset "BDT week/TOW → Modified Julian Date" begin
-        # BDT week 0 starts 2006-01-01, MJD 53736.
-        @test PVT._bdgim_modified_julian_date(0, 0.0) == 53736.0
-        @test PVT._bdgim_modified_julian_date(0, 43200.0) == 53736.5
-        @test PVT._bdgim_modified_julian_date(1, 0.0) == 53743.0
-        # Cross-checked against Dates: MJD is JD − 2400000.5.
-        @test mjd ≈ datetime2julian(DateTime(2023, 6, 21, 12)) - 2400000.5 atol = 1e-9
+    @testset "the Modified Julian Date off the epoch's TAI calendar label" begin
+        # BDT week 0 starts 2006-01-01T00:00:33 TAI, MJD 53736 + 33 s on the TAI label.
+        bdt_start = 53736.0 + 33 / 86_400
+        p, f, el = GNSSDecoder.BDGIMParameters(α...), carrier_hz(BeiDouB1C_D()), deg2rad(30)
+        for (week, tow, expected) in ((0, 0.0, bdt_start), (0, 43200.0, bdt_start + 0.5),
+            (1, 0.0, bdt_start + 7), (911, 302400.0, mjd))
+            epoch = get_week_start_epoch(BDT(), week) + tow
+            @test PVT.ionospheric_delay(p, f, el, 0.0, lla, epoch) ≈
+                  40.28 / f^2 * PVT.bdgim_stec(el, 0.0, lla, expected, α) * 1.0e16 rtol = 1e-9
+        end
     end
 
     @testset "prediction reference epoch t_p (Eq. 7-15)" begin
@@ -232,12 +236,12 @@
         @test PVT.bdgim_vtec(deg2rad(48), deg2rad(11), mjd, zeros9) == 0.0
         @test PVT.bdgim_stec(deg2rad(30), 0.0, lla, mjd, zeros9) == 0.0
         @test PVT.ionospheric_delay(
-            PVT.BDGIMParams(zeros9..., week),
+            GNSSDecoder.BDGIMParameters(zeros9...),
             carrier_hz(BeiDouB1C_D()),
             deg2rad(30),
             0.0,
             lla,
-            tow,
+            epoch,
         ) == 0.0
         # Still zero, not negative, when a small positive α₁ does not quite lift it.
         small = (5.0, ntuple(_ -> 0.0, 8)...)
@@ -247,8 +251,8 @@
     end
 
     @testset "delay scales exactly as 1/f² across signals" begin
-        p = PVT.BDGIMParams(α..., week)
-        geometry = (deg2rad(35), deg2rad(120), lla, tow)
+        p = GNSSDecoder.BDGIMParameters(α...)
+        geometry = (deg2rad(35), deg2rad(120), lla, epoch)
         d_b1c = PVT.ionospheric_delay(p, carrier_hz(BeiDouB1C_D()), geometry...)
         d_b2a = PVT.ionospheric_delay(p, carrier_hz(BeiDouB2aI()), geometry...)
         d_b2b = PVT.ionospheric_delay(p, carrier_hz(BeiDouB2bI()), geometry...)
@@ -265,20 +269,20 @@
     end
 
     @testset "magnitude sanity for a plausible daytime coefficient set" begin
-        p = PVT.BDGIMParams(α..., week)
+        p = GNSSDecoder.BDGIMParameters(α...)
         # ~26 TECu of vertical TEC (α₁ = 35 minus the negative A_0 here) is ~4 m at
         # B1C; a low-elevation ray through the same ionosphere is a few metres more.
         # The family stays in the decimetres-to-metres band a single-frequency L-band
         # correction should, and never in the tens of metres.
-        d_zenith = PVT.ionospheric_delay(p, carrier_hz(BeiDouB1C_D()), π / 2, 0.0, lla, tow)
+        d_zenith = PVT.ionospheric_delay(p, carrier_hz(BeiDouB1C_D()), π / 2, 0.0, lla, epoch)
         @test 1.0 < d_zenith < 8.0
-        d_low = PVT.ionospheric_delay(p, carrier_hz(BeiDouB1C_D()), deg2rad(10), 0.0, lla, tow)
+        d_low = PVT.ionospheric_delay(p, carrier_hz(BeiDouB1C_D()), deg2rad(10), 0.0, lla, epoch)
         @test d_low > d_zenith
         @test d_low < 25.0
         # A quieter ionosphere — the same shape with α₁ down to 12 TECu — lands in the
         # decimetres instead.
-        quiet = PVT.BDGIMParams(12.0, α[2:9]..., week)
-        @test 0.1 < PVT.ionospheric_delay(quiet, carrier_hz(BeiDouB1C_D()), π / 2, 0.0, lla, tow) < 1.5
+        quiet = GNSSDecoder.BDGIMParameters(12.0, α[2:9]...)
+        @test 0.1 < PVT.ionospheric_delay(quiet, carrier_hz(BeiDouB1C_D()), π / 2, 0.0, lla, epoch) < 1.5
     end
 
     @testset "regression pins" begin
@@ -286,17 +290,17 @@
         # no worked example for BDGIM. They exist so a refactor that changes a number
         # has to say so out loud.
         vtec = PVT.bdgim_vtec(deg2rad(48), deg2rad(11), mjd, α)
-        @test vtec ≈ 25.9776383593909 rtol = 1e-10
+        @test vtec ≈ 25.96344240190354 rtol = 1e-10
         stec = PVT.bdgim_stec(deg2rad(20), deg2rad(135), lla, mjd, α)
-        @test stec ≈ 60.5472505715464 rtol = 1e-10
+        @test stec ≈ 60.52654918338202 rtol = 1e-10
         @test PVT.ionospheric_delay(
-            PVT.BDGIMParams(α..., week),
+            GNSSDecoder.BDGIMParameters(α...),
             carrier_hz(BeiDouB1C_D()),
             deg2rad(20),
             deg2rad(135),
             lla,
-            tow,
-        ) ≈ 9.8263262553667 rtol = 1e-10
+            epoch,
+        ) ≈ 9.822966588459941 rtol = 1e-10
         # The prediction path on its own: the Fourier amplitudes β_j of Eq. 7-15 at a
         # fixed t_p, which is where the whole of Table 7-12 lands. Pinned unfloored,
         # unlike the VTEC above.
@@ -325,39 +329,6 @@
             GNSSDecoder.BeiDouB2bData(; WN, bdgim_fields(α)...)
         end
         GNSSDecoder.GNSSDecoderState(state; data, raw_data = data)
-    end
-
-    @testset "parameter extraction from B-CNAV decoders" begin
-        for kind in (:b1c, :b2a, :b2b)
-            p = PositionVelocityTime.bdgim_params(bdgim_decoder(kind, α, Int64(911)))
-            @test p isa PositionVelocityTime.BDGIMParams
-            @test (p.α_1, p.α_2, p.α_3, p.α_4, p.α_5, p.α_6, p.α_7, p.α_8, p.α_9) == α
-            @test p.week_number == 911
-            # A fresh decoder of the same kind has nothing yet.
-            @test PositionVelocityTime.bdgim_params(
-                bdgim_decoder(kind, ntuple(_ -> nothing, 9), nothing),
-            ) === nothing
-            # All nine coefficients *and* the week number are required: the week is
-            # decoded in a different subframe/message type, so half-populated is the
-            # ordinary transient state.
-            @test PositionVelocityTime.bdgim_params(bdgim_decoder(kind, α, nothing)) ===
-                  nothing
-            partial = ntuple(i -> i == 5 ? nothing : α[i], 9)
-            @test PositionVelocityTime.bdgim_params(
-                bdgim_decoder(kind, partial, Int64(911)),
-            ) === nothing
-        end
-        # Constellations and message families that broadcast no BDGIM set fall to the
-        # generic method rather than dispatching on fields they do not have.
-        @test PositionVelocityTime.bdgim_params(GNSSDecoderState(GPSL1CA(), 1)) === nothing
-        @test PositionVelocityTime.bdgim_params(GNSSDecoderState(GalileoE1B(), 1)) ===
-              nothing
-        @test PositionVelocityTime.bdgim_params(GNSSDecoderState(BeiDouB1I(), 1)) ===
-              nothing
-        # ... and a B-CNAV decoder yields no Klobuchar or NTCM-G set.
-        b1c = bdgim_decoder(:b1c, α, Int64(911))
-        @test PositionVelocityTime.klobuchar_params(b1c) === nothing
-        @test PositionVelocityTime.ntcm_g_params(b1c) === nothing
     end
 
     @testset "selection order: NTCM-G > BDGIM > GPS Klobuchar > BeiDou Klobuchar" begin
@@ -421,26 +392,26 @@
         # preference rungs below are asserted against.
         one(state) = signal_group([state])
         # BDGIM alone corrects a BDS-3-only epoch, which used to get nothing at all.
-        @test select(one(bds3)) isa PositionVelocityTime.BDGIMParams
+        @test select(one(bds3)) isa GNSSDecoder.BDGIMParameters
         # It beats both Klobuchar sources, and loses to NTCM-G.
-        @test select((one(bds3), one(gps))) isa PositionVelocityTime.BDGIMParams
-        @test select((one(gps), one(bds3))) isa PositionVelocityTime.BDGIMParams
-        @test select((one(bds3), one(bds2))) isa PositionVelocityTime.BDGIMParams
-        @test select((one(bds2), one(bds3))) isa PositionVelocityTime.BDGIMParams
-        @test select((one(bds3), one(gal))) isa PositionVelocityTime.NTCMGParams
-        @test select((one(gal), one(bds3))) isa PositionVelocityTime.NTCMGParams
+        @test select((one(bds3), one(gps))) isa GNSSDecoder.BDGIMParameters
+        @test select((one(gps), one(bds3))) isa GNSSDecoder.BDGIMParameters
+        @test select((one(bds3), one(bds2))) isa GNSSDecoder.BDGIMParameters
+        @test select((one(bds2), one(bds3))) isa GNSSDecoder.BDGIMParameters
+        @test select((one(bds3), one(gal))) isa GNSSDecoder.NeQuickGParameters
+        @test select((one(gal), one(bds3))) isa GNSSDecoder.NeQuickGParameters
         @test select((one(gal), one(bds3), one(gps), one(bds2))) isa
-              PositionVelocityTime.NTCMGParams
+              GNSSDecoder.NeQuickGParameters
         # Without a BDS-3 satellite the previous order is untouched, and each
         # Klobuchar source keeps its own variant of the model.
-        @test select((one(gps), one(bds2))) isa PositionVelocityTime.KlobucharParams
-        @test select(one(bds2)) isa PositionVelocityTime.BeiDouKlobucharParams
+        @test select((one(gps), one(bds2))) isa GNSSDecoder.KlobucharParameters
+        @test select(one(bds2)) isa GNSSDecoder.BeiDouKlobucharParameters
         # The BeiDou branch asks both accessors: a legacy satellite alongside a BDS-3
         # one contributes its Klobuchar set without shadowing the BDGIM one. The two
         # legacy satellites are deliberately in separate groups, which is what puts one
         # of them *after* the BDS-3 satellite in scan order.
         @test select((one(bds2), one(bds3), one(bds2_second))) isa
-              PositionVelocityTime.BDGIMParams
+              GNSSDecoder.BDGIMParameters
         # An epoch with no groups at all — the receiver tracking nothing yet.
         @test select(()) === nothing
     end

@@ -92,7 +92,7 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
 - `clock_bias::typeof(1.0m)`: Estimated receiver clock bias of the reference GNSS
   (meters). For a multi-GNSS solution this is the bias of `reference_system`;
   other systems' biases are `clock_bias + inter_system_biases[system]`.
-- `time::Union{TAITime, Nothing}`: Estimated time as a TAI epoch (see [`TAITime`](@ref);
+- `time::Union{TAITime, Nothing}`: Estimated time as a TAI epoch (GNSSSignals' `TAITime`;
   with AstroTime loaded, `TAIEpoch(time)` converts it)
 - `relative_clock_drift::Float64`: Relative receiver clock drift (dimensionless)
 - `dop::Union{DOP, Nothing}`: Dilution of precision values

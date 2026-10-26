@@ -15,14 +15,14 @@
     # Central difference of the propagated position, in BigFloat: `t ≈ 1.3e5 s` against a
     # ~3.6e6 m coordinate leaves too little Float64 headroom for a metre-level difference.
     function numeric_velocity(decoder, t; h = big(1.0))
-        pos(x) = calc_satellite_position_and_velocity(decoder, x).position
+        pos(x) = PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(decoder), x).position
         (pos(big(t) + h) - pos(big(t) - h)) / (2h)
     end
 
     @testset "matches a central difference of the position at M_0 = $M_0" for M_0 in
                                                                              (0.0, 0.7, Float64(π), 4.2)
         decoder = at_mean_anomaly(M_0)
-        velocity = PositionVelocityTime.calc_satellite_position_and_velocity(decoder, t_0e).velocity
+        velocity = PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(decoder), t_0e).velocity
         @test all(isfinite, velocity)
         @test velocity ≈ Float64.(numeric_velocity(decoder, t_0e)) rtol = 1e-6
     end
@@ -34,7 +34,7 @@
         for M_0 in (0.0, Float64(π))
             decoder = at_mean_anomaly(M_0)
             velocities = [
-                PositionVelocityTime.calc_satellite_position_and_velocity(decoder, t).velocity
+                PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(decoder), t).velocity
                 for t in range(t_0e - 1, t_0e + 1; length = 101)
             ]
             @test all(v -> all(isfinite, v), velocities)

@@ -103,31 +103,6 @@ end
         carrier_doppler = 0.0Hz,
     )
 
-    @testset "parameter extraction from decoders" begin
-        # Fresh decoders carry no coefficients
-        @test PositionVelocityTime.klobuchar_params(GNSSDecoderState(GPSL1CA(), 1)) ===
-              nothing
-        @test PositionVelocityTime.ntcm_g_params(GNSSDecoderState(GalileoE1B(), 1)) ===
-              nothing
-        # Broadcast α/β are extracted into KlobucharParams
-        kp = PositionVelocityTime.klobuchar_params(gps_decoder_with(α, β))
-        @test kp isa PositionVelocityTime.KlobucharParams
-        @test (kp.α_0, kp.α_1, kp.α_2, kp.α_3) == α
-        @test (kp.β_0, kp.β_1, kp.β_2, kp.β_3) == β
-        # Broadcast a_i0..a_i2 + WN are extracted into NTCMGParams
-        np = PositionVelocityTime.ntcm_g_params(
-            galileo_decoder_with(236.831641, -0.39362878, 0.00402826613, 1100),
-        )
-        @test np isa PositionVelocityTime.NTCMGParams
-        @test np.a_i0 == 236.831641
-        @test np.week_number == 1100
-        # Wrong-system decoders never yield the other model's params
-        @test PositionVelocityTime.ntcm_g_params(gps_decoder_with(α, β)) === nothing
-        @test PositionVelocityTime.klobuchar_params(
-            galileo_decoder_with(100.0, 0.0, 0.0, 1100),
-        ) === nothing
-    end
-
     @testset "constellation-wide model selection" begin
         # Distinct PRNs within a constellation: a signal group is keyed by PRN, so the
         # bare and the coefficient-carrying satellite of one signal have to be two
@@ -143,19 +118,19 @@ end
         # Only Klobuchar → Klobuchar. Both satellites are on one signal, so they are
         # one group.
         @test select(signal_group([gps_klob, gps_bare])) isa
-              PositionVelocityTime.KlobucharParams
+              GNSSDecoder.KlobucharParameters
         # Only Galileo → NTCM-G
         @test select(signal_group([gal_ntcm, gal_bare])) isa
-              PositionVelocityTime.NTCMGParams
+              GNSSDecoder.NeQuickGParameters
         # Both available → NTCM-G wins (more accurate)
         @test select((signal_group([gps_klob]), signal_group([gal_ntcm]))) isa
-              PositionVelocityTime.NTCMGParams
+              GNSSDecoder.NeQuickGParameters
     end
 
     @testset "selected model applied to every satellite" begin
         user = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         sat = ECEF(user[1] + 1.0e7, user[2] + 1.0e7, user[3] + 2.0e7)
-        klob = PositionVelocityTime.KlobucharParams(α..., β...)
+        klob = GNSSDecoder.KlobucharParameters(α..., β...)
         # Line-of-sight geometry (same user/sat for every call below)
         el, az = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
         lla = LLAfromECEF(wgs84)(user)
@@ -167,7 +142,7 @@ end
             el,
             az,
             lla,
-            50400.0,
+            gps_epoch(50400.0),
         ) == 0.0
         @test PositionVelocityTime.ionospheric_delay(
             nothing,
@@ -175,20 +150,20 @@ end
             el,
             az,
             lla,
-            50400.0,
+            gps_epoch(50400.0),
         ) == 0.0
         # Klobuchar applied to GPS *and* Galileo (E1 shares the L1 frequency, so
         # the delay is identical for both systems)
         d_gps =
-            PositionVelocityTime.ionospheric_delay(klob, carrier_hz(GPSL1CA()), el, az, lla, 50400.0)
+            PositionVelocityTime.ionospheric_delay(klob, carrier_hz(GPSL1CA()), el, az, lla, gps_epoch(50400.0))
         d_gal =
-            PositionVelocityTime.ionospheric_delay(klob, carrier_hz(GalileoE1B()), el, az, lla, 50400.0)
+            PositionVelocityTime.ionospheric_delay(klob, carrier_hz(GalileoE1B()), el, az, lla, gps_epoch(50400.0))
         @test d_gps > 0.0
         @test d_gps ≈ d_gal rtol = 1e-12
 
         # The delay scales as 1/f², so the same coefficients applied on a lower band
         # (here GPS L5, 1176.45 MHz) give the correct larger delay, not the L1 value.
-        d_l5 = PositionVelocityTime.ionospheric_delay(klob, carrier_hz(GPSL5I()), el, az, lla, 50400.0)
+        d_l5 = PositionVelocityTime.ionospheric_delay(klob, carrier_hz(GPSL5I()), el, az, lla, gps_epoch(50400.0))
         # ratio of two Hz quantities is dimensionless
         f_ratio =
             GNSSSignals.get_center_frequency(GPSL1CA()) /
@@ -270,19 +245,19 @@ end
     end
 
     @testset "the delay is defined at B1I and rescales by 1/f²" begin
-        p = PVT.BeiDouKlobucharParams(α..., β...)
+        p = GNSSDecoder.BeiDouKlobucharParameters(α..., β...)
         lla = LLA(48.0, 11.0, 550.0)
         el, az, t = deg2rad(35.0), deg2rad(120.0), 50000.0
         # At B1I itself the metre conversion is exactly c times the ICD's I_B1I.
-        d_b1i = PVT.ionospheric_delay(p, carrier_hz(BeiDouB1I()), el, az, lla, t)
+        d_b1i = PVT.ionospheric_delay(p, carrier_hz(BeiDouB1I()), el, az, lla, bdt_epoch(t))
         seconds = PVT.beidou_klobuchar_group_delay(
             deg2rad(lla.lat), deg2rad(lla.lon), el, az, t, α, β)
         @test d_b1i ≈ 299792458.0 * seconds rtol = 1e-14
         # Every other carrier gets that delay rescaled by 1/f² from B1I — including
         # non-BeiDou satellites, since one model corrects the whole solve.
         f(s) = GNSSSignals.get_center_frequency(s)
-        d_b3i = PVT.ionospheric_delay(p, carrier_hz(BeiDouB3I()), el, az, lla, t)
-        d_l1 = PVT.ionospheric_delay(p, carrier_hz(GPSL1CA()), el, az, lla, t)
+        d_b3i = PVT.ionospheric_delay(p, carrier_hz(BeiDouB3I()), el, az, lla, bdt_epoch(t))
+        d_l1 = PVT.ionospheric_delay(p, carrier_hz(GPSL1CA()), el, az, lla, bdt_epoch(t))
         @test d_b3i / d_b1i ≈ (f(BeiDouB1I()) / f(BeiDouB3I()))^2 rtol = 1e-12
         @test d_l1 / d_b1i ≈ (f(BeiDouB1I()) / f(GPSL1CA()))^2 rtol = 1e-12
         @test d_l1 < d_b1i < d_b3i    # 1575.42 > 1561.098 > 1268.52 MHz

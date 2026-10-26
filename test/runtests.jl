@@ -40,6 +40,25 @@ signal_group(states) = signal_group(first(states).signal, states)
 # GPS L1 C/A's week number is 10 bits.
 measurements_of(groups; approximate_year = 2021) =
     first(PositionVelocityTime.collect_measurements(groups; approximate_year))
+# `has_offset` is whether GNSSDecoder reports a broadcast time offset toward `target`
+# (at any time of week: whether there is one does not depend on it); `steering` evaluates
+# it at the time of week `t` of the decoder's week.
+has_offset(decoder, target) =
+    !isnothing(GNSSDecoder.get_broadcast_time_offset(decoder, target, 0.0))
+steering(decoder, target, t) =
+    something(GNSSDecoder.get_broadcast_time_offset(decoder, target, t))
+# `ephemeris` is a decoder's broadcast ephemeris and clock, the record the propagator and
+# the clock model read; `with_fields` is a copy of one with some of its fields replaced.
+ephemeris(decoder) = something(GNSSDecoder.get_broadcast_ephemeris(decoder))
+with_fields(ephemeris::BroadcastEphemeris; fields...) = BroadcastEphemeris(
+    (get(fields, name, getfield(ephemeris, name)) for name in fieldnames(BroadcastEphemeris))...)
+# `week_start` is the TAI epoch at which `week` of a signal's or time system's count
+# begins. `gps_epoch` and `bdt_epoch` date a time of week in week 0 of GPS and BeiDou
+# Time, the epoch the ionospheric models take; the Klobuchar models read only its time of
+# week.
+week_start(system, week) = PositionVelocityTime.system_start_epoch(system) + week * 604800
+gps_epoch(time_of_week) = week_start(GPST(), 0) + time_of_week
+bdt_epoch(time_of_week) = week_start(BDT(), 0) + time_of_week
 # `carrier_hz` is a ranging signal's carrier as the plain `Float64` in Hz that
 # `ionospheric_delay` takes — the `center_frequency` field of a measurement.
 carrier_hz(system) = ustrip(Hz, get_center_frequency(system))
@@ -53,16 +72,7 @@ inferred_return_type(f, types) = only(Base.return_types(f, types))
 # the PRN — it identifies a satellite, as the `satellites`-dict key and for the layout's
 # distinct-satellite count — so this isolates that identity from the measurements.
 function with_prn(state, prn)
-    d = state.decoder
-    new_decoder = GNSSDecoder.GNSSDecoderState(;
-        prn = prn,
-        raw_data = d.raw_data,
-        data = d.data,
-        constants = d.constants,
-        cache = d.cache,
-        num_bits_after_valid_syncro_sequence = d.num_bits_after_valid_syncro_sequence,
-        is_shifted_by_180_degrees = d.is_shifted_by_180_degrees,
-    )
+    new_decoder = GNSSDecoder.GNSSDecoderState(state.decoder; prn)
     SatelliteState(;
         decoder = new_decoder,
         signal = state.signal,
@@ -95,11 +105,9 @@ end
 central_difference(f, t, h) = (f(t + h) - f(t - h)) / 2h
 
 include("aqua.jl")
-include("tai_time.jl")
 include("fixtures.jl")
 # One file per source file, in the source's order.
 include("collection.jl")
-include("time_systems.jl")
 include("solution.jl")
 include("bias_layout.jl")
 include("measurement_model.jl")

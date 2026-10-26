@@ -219,23 +219,24 @@ end
         # None of the fixtures above carries broadcast coefficients, so each model is
         # driven directly: the in-place prediction must match the allocating one, and
         # a solve through each must allocate nothing.
-        models = (
-            PositionVelocityTime.KlobucharParams(
+        parameter_sets = (
+            GNSSDecoder.KlobucharParameters(
                 1.118e-8, 7.451e-9, -5.961e-8, -5.961e-8, 90112.0, 0.0, -196608.0,
                 -65536.0),
-            PositionVelocityTime.BeiDouKlobucharParams(
+            GNSSDecoder.BeiDouKlobucharParameters(
                 1.118e-8, 7.451e-9, -5.961e-8, -5.961e-8, 90112.0, 0.0, -196608.0,
                 -65536.0),
-            PositionVelocityTime.NTCMGParams(236.831641, -0.39362878, 0.00402826613, 1130),
-            PositionVelocityTime.BDGIMParams(
-                5.25, 3.0, -0.75, 1.5, -2.0, 0.5, 0.25, -0.125, 0.5, 800),
+            GNSSDecoder.NeQuickGParameters(236.831641, -0.39362878, 0.00402826613),
+            GNSSDecoder.BDGIMParameters(
+                5.25, 3.0, -0.75, 1.5, -2.0, 0.5, 0.25, -0.125, 0.5),
             nothing,
         )
-        rows = measurements_of((gps = l1ca, galileo = e1b))
+        measurements = measurements_of((gps = l1ca, galileo = e1b))
         ξ = [4.0186e6, 427035.0, 4.918e6, 0.0, 0.0]
         predict! = PositionVelocityTime.predict_atmospheric_delays!
+        epoch = week_start(GPST(), 2160) + 259200.0
         allocated_predict(delays, model) =
-            @allocated predict!(delays, ξ, rows, model, 259200.0, 151, true)
+            @allocated predict!(delays, ξ, measurements, model, epoch, true)
         workspace = PVTWorkspace()
         solution = PVTSolution()
         calc_pvt!(solution, workspace, (gps = l1ca, galileo = e1b), PVTSolution(); kw...)
@@ -243,16 +244,16 @@ end
         solve!(model) = PositionVelocityTime._solve_pvt!(
             solution, workspace, PositionVelocityTime.IonosphericModel(model), cold, true)
         allocated_solve!(model) = @allocated solve!(model)
-        for correction in models
-            model = PositionVelocityTime.IonosphericModel(correction)
+        for parameters in parameter_sets
+            model = PositionVelocityTime.IonosphericModel(parameters)
             delays = Float64[]
-            predict!(delays, ξ, rows, model, 259200.0, 151, true)
+            predict!(delays, ξ, measurements, model, epoch, true)
             @test delays == PositionVelocityTime.predict_atmospheric_delays(
-                ξ, rows, correction, 259200.0, 151, true)
+                ξ, measurements, model, epoch, true)
             @test all(isfinite, delays)
             @test allocated_predict(delays, model) == 0
-            @test first(solve!(correction))
-            @test allocated_solve!(correction) == 0
+            @test first(solve!(parameters))
+            @test allocated_solve!(parameters) == 0
         end
     end
 
@@ -289,27 +290,28 @@ end
         @test !isempty(solution.satellites)
         @test !isempty(solution.inter_system_biases)
         @test !isempty(solution.inter_frequency_biases)
-        satellites = solution.satellites
+        sats = solution.satellites
         @test PositionVelocityTime.empty_keeping_capacity!(solution) === solution
-        @test solution.satellites === satellites
+        @test solution.satellites === sats
         @test isempty(solution.satellites)
         @test isempty(solution.inter_system_biases)
         @test isempty(solution.inter_frequency_biases)
     end
 
-    @testset "the rows are collected without allocating" begin
+    @testset "the measurements are collected without allocating" begin
         groups = (gps = l1ca, galileo = e1b)
-        rows = PositionVelocityTime.SatelliteMeasurement[]
-        correction = PositionVelocityTime.collect_measurement_rows!(
-            rows, groups; approximate_year = 2021)
-        expected_rows, expected_correction =
+        measurements = PositionVelocityTime.SatelliteMeasurement[]
+        parameters = PositionVelocityTime.collect_measurement_rows!(
+            measurements, groups; approximate_year = 2021)
+        expected_measurements, expected_parameters =
             PositionVelocityTime.collect_measurements(groups; approximate_year = 2021)
-        @test rows == expected_rows
-        @test correction == expected_correction
-        collect_rows!(rows, groups) = @allocated PositionVelocityTime.collect_measurement_rows!(
-            rows, groups; approximate_year = 2021)
-        collect_rows!(rows, groups)
-        @test collect_rows!(rows, groups) == 0
+        @test measurements == expected_measurements
+        @test parameters == expected_parameters
+        collect_into!(measurements, groups) = @allocated(
+            PositionVelocityTime.collect_measurement_rows!(measurements, groups;
+                approximate_year = 2021))
+        collect_into!(measurements, groups)
+        @test collect_into!(measurements, groups) == 0
     end
 
     @testset "the allocating forms delegate to the in-place ones" begin
@@ -347,8 +349,6 @@ end
               calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
 
         # Anything but one of the four coefficient sets (or `nothing`) is refused.
-        rows = measurements_of(l1ca)
-        @test_throws ArgumentError PositionVelocityTime.predict_atmospheric_delays(
-            [4.0186e6, 427035.0, 4.918e6, 0.0], rows, 1.0, 259200.0, 151, true)
+        @test_throws MethodError PositionVelocityTime.IonosphericModel(1.0)
     end
 end

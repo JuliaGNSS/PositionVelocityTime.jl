@@ -272,17 +272,17 @@ function retimed_state(state, transmit_time, doppler)
     # `correct_clock` is a slowly varying offset, so a few fixed-point steps invert it.
     for _ in 1:5
         uncorrected += transmit_time -
-                       PositionVelocityTime.correct_clock(state.decoder, state.signal, uncorrected)
+                       PositionVelocityTime.correct_clock(ephemeris(state.decoder), GNSSDecoder.get_group_delay(state.decoder, state.signal), uncorrected)
     end
-    rate = ustrip(Hz, get_data_frequency(state.decoder))
-    chips = ustrip(Hz, get_code_frequency(state.signal))
-    offset = state.decoder.num_bits_after_valid_syncro_sequence / rate +
+    rate = ustrip(Hz, get_bit_rate(state.decoder))
+    chips = ustrip(Hz, get_chip_rate(state.signal))
+    offset = state.decoder.num_symbols_since_sync / rate +
              mod(state.code_phase, chips / rate) / chips +
              uncorrected - PositionVelocityTime.calc_uncorrected_transmit_time(state)
     num_bits = floor(Int, offset * rate)
     SatelliteState(;
         decoder = GNSSDecoder.GNSSDecoderState(state.decoder;
-            num_bits_after_valid_syncro_sequence = num_bits),
+            num_symbols_since_sync = num_bits),
         signal = state.signal,
         code_phase = (offset - num_bits / rate) * chips,
         carrier_doppler = doppler * Hz,
@@ -309,13 +309,13 @@ end
     reception = maximum(PositionVelocityTime.calc_transmit_time, states) + 0.075
 
     exact_states = map(states) do state
-        orbit_at(t_t) = calc_satellite_position_and_velocity(state.decoder, t_t).position
+        orbit_at(t_t) = calc_satellite_position_and_velocity(ephemeris(state.decoder), t_t).position
         # The transmit time that puts this satellite on the true position…
         _, transmit_time = modelled_pseudorange(orbit_at, t_t -> 0.0, t -> user_pos,
             t -> clock_bias, reception)
         # …and the exact Doppler: the negated rate of the pseudorange there, with the
         # receiver moving and drifting and the satellite clock running at its drift.
-        sat_clock_drift = PositionVelocityTime.calc_satellite_clock_drift(state.decoder,
+        sat_clock_drift = PositionVelocityTime.calc_satellite_clock_drift(ephemeris(state.decoder),
             transmit_time)
         pseudorange(t) = first(modelled_pseudorange(orbit_at,
             t_t -> c * sat_clock_drift * (t_t - transmit_time),
@@ -324,7 +324,7 @@ end
         λ = c / ustrip(Hz, get_center_frequency(state.signal))
         doppler = -central_difference(pseudorange, reception, 0.1) / λ
         # The public model at the true state is the exact rate, satellite by satellite.
-        sat = calc_satellite_position_and_velocity(state.decoder, transmit_time)
+        sat = calc_satellite_position_and_velocity(ephemeris(state.decoder), transmit_time)
         @test PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel, clock_drift,
             sat.position, sat.velocity, sat_clock_drift) ≈ -doppler * λ atol = 1e-5
         retimed_state(state, transmit_time, doppler)

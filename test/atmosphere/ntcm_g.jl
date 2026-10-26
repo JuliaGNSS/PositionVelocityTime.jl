@@ -41,12 +41,16 @@
         @test PositionVelocityTime._ntcm_g_azpar(0.0, 0.0, 0.0) == 0.0
     end
 
-    @testset "GST week/TOW → day-of-year and UT" begin
-        # 1 week + 12 h past the GST epoch (1999-08-21T23:59:47 UTC) → 1999-08-29
-        # at 11:59:47 (the epoch is 13 s before midnight, so 13 s before noon here).
-        doy, ut = PositionVelocityTime._galileo_doy_and_ut(1, 12 * 3600)
-        @test doy == dayofyear(Date(1999, 8, 29))
-        @test ut ≈ 11 + 59 / 60 + 47 / 3600
+    @testset "the day of year and UT off the epoch's TAI calendar label" begin
+        # 1 week + 12 h past the GST epoch (1999-08-22T00:00:19 TAI) → 1999-08-29
+        # at 12:00:19 on the TAI calendar label the date is read off.
+        lla = LLA(48.0, 11.0, 550.0)
+        el, az, f = deg2rad(30), deg2rad(60), carrier_hz(GalileoE1B())
+        delay = PositionVelocityTime.ionospheric_delay(GNSSDecoder.NeQuickGParameters(HI...),
+            f, el, az, lla, get_week_start_epoch(GST(), 1) + 12 * 3600)
+        stec = PositionVelocityTime.ntcm_g_stec(el, az, lla,
+            dayofyear(Date(1999, 8, 29)), 12 + 19 / 3600, HI...)
+        @test delay ≈ 40.3 / f^2 * stec * 1.0e16
     end
 
     @testset "selection and delay from a Galileo decoder" begin
@@ -70,16 +74,16 @@
             code_phase = 0.0,
             carrier_doppler = 0.0Hz,
         )
-        correction = PositionVelocityTime.select_ionospheric_parameters(signal_group([state]))
-        @test correction isa PositionVelocityTime.NTCMGParams
+        parameters = PositionVelocityTime.select_ionospheric_parameters(signal_group([state]))
+        @test parameters isa GNSSDecoder.NeQuickGParameters
         el, az = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
         delay = PositionVelocityTime.ionospheric_delay(
-            correction,
+            parameters,
             carrier_hz(GalileoE1B()),
             el,
             az,
             LLAfromECEF(wgs84)(user),
-            200000.0,
+            week_start(GST(), 1100) + 200000.0,
         )
         @test delay > 0.0
         @test delay < 100.0   # a sane L1/E1 ionospheric delay magnitude (metres)

@@ -28,7 +28,7 @@
 using PrecompileTools: @setup_workload, @compile_workload
 
 # Quasi-Keplerian reference values of the CNAV user algorithm; the broadcast
-# fields are deltas off these (IS-GPS-200N, mirrored in `orbital_elements`).
+# fields are deltas off these (IS-GPS-200N).
 const _PRECOMPILE_A_REF = 26_559_710.0
 const _PRECOMPILE_Ω_DOT_REF = -2.6e-9 * π
 
@@ -124,10 +124,10 @@ navigation data converted by `make_data`.
 
 The observables were recorded on `source_signal` (GPS L1 C/A or Galileo E1B).
 Expressing them on another signal of the same satellite has to preserve the
-transmit epoch, which [`calc_uncorrected_transmit_time`](@ref) builds as `TOW + n_bits/data_rate + (code_phase reduced to one data symbol)/chip_rate`. So the
+transmit epoch, which [`calc_uncorrected_transmit_time`](@ref) builds as `TOW + n_bits/bit_rate + (code_phase reduced to one bit)/chip_rate`. So the
 sub-TOW offset is converted as a whole: taken off the source signal, then split
-again into whole data symbols and a code phase in the target's own units.
-Scaling the two terms independently would be wrong — a signal whose data symbol
+again into whole bits and a code phase in the target's own units.
+Scaling the two terms independently would be wrong — a signal whose bit
 is shorter has to carry part of the code phase in its bit count instead.
 """
 function _precompile_states(signal, table, make_data, source_signal)
@@ -143,18 +143,18 @@ function _precompile_states(signal, table, make_data, source_signal)
             raw_data = s.data,
             data = s.data,
         )
-        source_rate = ustrip(Hz, get_data_frequency(source))
-        source_chips = ustrip(Hz, get_code_frequency(source_signal))
+        source_rate = ustrip(Hz, get_bit_rate(source))
+        source_chips = ustrip(Hz, get_chip_rate(source_signal))
         offset =
             s.num_bits / source_rate +
             mod(s.code_phase, source_chips / source_rate) / source_chips
-        rate = ustrip(Hz, get_data_frequency(target))
-        chips = ustrip(Hz, get_code_frequency(signal))
+        rate = ustrip(Hz, get_bit_rate(target))
+        chips = ustrip(Hz, get_chip_rate(signal))
         num_bits = floor(Int, offset * rate)
         SatelliteState(;
             decoder = GNSSDecoder.GNSSDecoderState(
                 target;
-                num_bits_after_valid_syncro_sequence = num_bits,
+                num_symbols_since_sync = num_bits,
             ),
             signal,
             code_phase = (offset - num_bits / rate) * chips,

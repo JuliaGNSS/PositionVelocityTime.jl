@@ -363,13 +363,12 @@ function _solve_pvt!(
         calc_hub_range_offsets!(workspace.hub_offsets, measurements, hub_rows, hub_system)
     pseudoranges .-= hub_offsets
 
-    # The reference system's week and start epoch date the epoch absolutely: the day of
-    # year feeds the tropospheric mapping's seasonal term here, and week/start epoch
-    # date the reported time after the solve.
+    # The reference system's week and start epoch date the epoch absolutely: the
+    # atmospheric delays' here, and the reported time after the solve.
     reference_measurement = measurements[reference_index]
     week = reference_measurement.week
     start_time = reference_measurement.system_start_epoch
-    doy = day_of_year(reference_measurement.system_start_time, week, reference_time)
+    epoch = start_time + week * SECONDS_PER_WEEK + reference_time
 
     # Seed each clock bias from the previous solution, reconstructing a system's
     # absolute bias from the reference bias plus its stored inter-system bias. A
@@ -422,7 +421,7 @@ function _solve_pvt!(
     function corrected_ranges(ξ_prediction)
         delays = predict_atmospheric_delays!(
             workspace.atmospheric_delays, ξ_prediction, measurements, ionospheric_model,
-            reference_time, doy, enable_tropospheric_correction)
+            epoch, enable_tropospheric_correction)
         resize!(workspace.corrected_ranges, num_sats) .= pseudoranges .- delays
     end
     least_squares = workspace.least_squares

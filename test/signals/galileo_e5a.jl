@@ -27,15 +27,15 @@
     @testset "classification / signal id / week / start time" begin
         @test GNSSSignals.get_time_system(GNSSSignals.GalileoE5aI()) == GNSSSignals.GST()
         @test GNSSSignals.get_signal_id(GalileoE5aI()) == :GalileoE5aI
-        @test PositionVelocityTime.get_week(e5a) == d.WN                          # full WN, no rollover
+        @test GNSSDecoder.get_week(e5a; approximate_year = 2024) == d.WN                          # full WN, no rollover
         @test PositionVelocityTime.system_start_epoch(GNSSSignals.GalileoE5aI()) ==
               PositionVelocityTime.system_start_epoch(GNSSSignals.GalileoE1B())
     end
 
     @testset "orbit matches the equivalent E1B Keplerian" begin
         for t in (132000.0, 132769.0, 135000.0)
-            pe = PositionVelocityTime.calc_satellite_position_and_velocity(base_e1b, t)
-            pa = PositionVelocityTime.calc_satellite_position_and_velocity(e5a, t)
+            pe = PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(base_e1b), t)
+            pa = PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(e5a), t)
             @test pa.position ≈ pe.position atol = 1e-6
             @test pa.velocity ≈ pe.velocity atol = 1e-9
         end
@@ -53,34 +53,32 @@
         e5a_scaling =
             (get_center_frequency(GalileoE1B) / get_center_frequency(GalileoE5aI()))^2
         @test e5a_scaling ≈ (1575.42 / 1176.45)^2
-        @test PositionVelocityTime.correct_by_group_delay(e5a, GalileoE5aI(), 100.0) ≈
+        @test (100.0 - GNSSDecoder.get_group_delay(e5a, GalileoE5aI())) ≈
               100.0 - e5a_scaling * e5a.data.BGD_E1_E5a
-        @test PositionVelocityTime.correct_by_group_delay(e5a, GalileoE5aQ(), 100.0) ≈
+        @test (100.0 - GNSSDecoder.get_group_delay(e5a, GalileoE5aQ())) ≈
               100.0 - e5a_scaling * e5a.data.BGD_E1_E5a
         # F/NAV is decoded on E5a-I only, so E5a is the one band it can be asked about:
         # an E1 range is generated on E1-B and carries an I/NAV decoder. The
         # cross-band pairing is an error rather than a wrong number.
-        @test_throws MethodError PositionVelocityTime.correct_by_group_delay(
-            e5a, GalileoE1B(), 100.0)
+        @test_throws MethodError (100.0 - GNSSDecoder.get_group_delay(e5a, GalileoE1B()))
         # The E1B I/NAV path applies the E1–E5b BGD instead — a different field.
-        @test PositionVelocityTime.correct_by_group_delay(base_e1b, GalileoE1B(), 100.0) ≈
+        @test (100.0 - GNSSDecoder.get_group_delay(base_e1b, GalileoE1B())) ≈
               100.0 - base_e1b.data.BGD_E1_E5b
     end
 
     @testset "NTCM-G coefficients (shared model with E1B)" begin
-        @test PositionVelocityTime.ntcm_g_params(e5a) === nothing            # none broadcast above
+        @test GNSSDecoder.get_nequick_g_parameters(e5a) === nothing            # none broadcast above
         with_iono = swap(GNSSDecoder.GalileoE5aData(e5a_eph; a_i0 = 45.0, a_i1 = 0.1, a_i2 = 0.01))
-        p = PositionVelocityTime.ntcm_g_params(with_iono)
-        @test p isa PositionVelocityTime.NTCMGParams
-        @test (p.a_i0, p.a_i1, p.a_i2, p.week_number) == (45.0, 0.1, 0.01, d.WN)
+        p = GNSSDecoder.get_nequick_g_parameters(with_iono)
+        @test p isa GNSSDecoder.NeQuickGParameters
+        @test (p.a_i0, p.a_i1, p.a_i2) == (45.0, 0.1, 0.01)
     end
 
     @testset "GGTO (shared word-type-10 layout with E1B)" begin
-        @test !PositionVelocityTime.time_offset_available(e5a, GPST())
+        @test !has_offset(e5a, GPST())
         g = swap(GNSSDecoder.GalileoE5aData(e5a_eph; A_0G = 5e-9, A_1G = 1e-15, t_0G = 100, WN_0G = 1134))
-        @test PositionVelocityTime.time_offset_available(g, GPST())
-        @test PositionVelocityTime.calc_steering_offset(
-            PositionVelocityTime.broadcast_time_offset(g, GPST()), 132000.0) ≈
+        @test has_offset(g, GPST())
+        @test steering(g, GPST(), 132000.0) ≈
               5e-9 + 1e-15 * (132000.0 - 100 + 604800 * mod(d.WN - 1134, 64))
     end
 end

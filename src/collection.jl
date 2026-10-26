@@ -148,9 +148,8 @@ end
     PositionVelocityTime.CANDIDATE_HUB_SYSTEMS
 
 The GNSS time systems a clock collapse can be anchored on, in the fixed order
-[`decide_bias_layout`](@ref) tries them: `(GPST(), GST(), BDT())`. Each
-[`SatelliteMeasurement`](@ref)'s `time_offsets` tuple is indexed by this order, so a
-hub's broadcast offset is a tuple index rather than a dictionary lookup.
+[`decide_bias_layout`](@ref) tries them: `(GPST(), GST(), BDT())`. Every
+[`SatelliteMeasurement`](@ref) carries its broadcast time offset toward each.
 """
 const CANDIDATE_HUB_SYSTEMS = (GPST(), GST(), BDT())
 
@@ -164,65 +163,14 @@ the reference system of a [`PVTSolution`](@ref).
 
 A closed `Union` rather than the abstract `GNSSSignals.TimeSystem` so that every call on
 a time system — hashing it into `inter_system_biases`, `time_scale_offset_to_gpst`, a
-hub's offset index — is split into statically dispatched branches instead of being a
+hub's broadcast offset — is split into statically dispatched branches instead of being a
 dynamic dispatch, which a `juliac --trim` build rejects. The measurement it types stays one
 concrete type, so the solver still compiles once for every constellation mix. A time
-system GNSSSignals adds later has to be added to `CANDIDATE_HUB_SYSTEMS` anyway (the
-`time_offsets` tuple is indexed by it), and this follows.
+system GNSSSignals adds later has to be added to `CANDIDATE_HUB_SYSTEMS` anyway (a
+measurement carries a field for the offset toward it, which
+[`broadcast_time_offset`](@ref) returns), and this follows.
 """
 const SupportedTimeSystem = Union{map(typeof, CANDIDATE_HUB_SYSTEMS)...}
-
-# Position of a time system in `CANDIDATE_HUB_SYSTEMS`, or `nothing` for a system no
-# broadcast offset can target. Every element is a distinct singleton, so this folds to
-# a constant whenever the argument type is known.
-hub_system_index(target::GNSSSignals.TimeSystem) =
-    findfirst(==(target), CANDIDATE_HUB_SYSTEMS)
-
-"""
-    BroadcastTimeOffset
-
-One constellation's broadcast offset toward one target GNSS time system, flattened out
-of the navigation message into an `isbits` record so that evaluating it costs no dispatch
-and no decoder field access. One per entry of [`CANDIDATE_HUB_SYSTEMS`](@ref) is
-carried by every [`SatelliteMeasurement`](@ref).
-
-The polynomial *coefficients* are stored rather than an evaluated offset because
-[`calc_hub_range_offsets`](@ref) evaluates one system-wide offset at **each
-satellite's own transmit time**; an evaluated scalar per satellite would change that
-(negligibly in metres, but visibly against the tolerances the steering tests pin).
-
-# Fields
-- `available::Bool`: whether this satellite's message carries a usable offset toward
-  the target at all — the flattened [`time_offset_available`](@ref). Every other field
-  is meaningless when `false`, and the coefficients are then `NaN`, so that
-  [`calc_steering_offset`](@ref) of an unavailable offset is `NaN`.
-- `A_0`, `A_1`, `A_2::Float64`: the broadcast polynomial's constant, rate and
-  acceleration terms.
-- `t_0::Float64`: the offset's reference time of week, or `NaN` where the message
-  carries none (BeiDou D1/D2, whose two-term offset has no reference epoch — there the
-  polynomial argument is the time of week itself).
-- `week_term::Float64`: `SECONDS_PER_WEEK * (own week − WN_0)`, precomputed, so the
-  polynomial argument needs no week lookup. `0.0` where `t_0` is `NaN`.
-- `count_anchor::Float64`: `time_scale_offset_to_gpst(own) −
-  time_scale_offset_to_gpst(target)`, the *defined* whole-second part
-  `GNSSDecoder.GNSSTimeOffset.A_0` folds in and [`calc_steering_offset`](@ref) takes
-  back out (see there).
-"""
-struct BroadcastTimeOffset
-    available::Bool
-    A_0::Float64
-    A_1::Float64
-    A_2::Float64
-    t_0::Float64
-    week_term::Float64
-    count_anchor::Float64
-end
-
-# The "this satellite broadcasts nothing toward that system" entry. The coefficients and
-# the count anchor are NaN so that a misuse propagates a NaN rather than a plausible
-# zero. A NaN `t_0` alone would not: `calc_steering_offset` reads it as the BeiDou
-# D1/D2 "no reference epoch" marker and evaluates the polynomial on `t` instead.
-const NO_TIME_OFFSET = BroadcastTimeOffset(false, NaN, NaN, NaN, NaN, 0.0, NaN)
 
 """
     SatelliteMeasurement
@@ -263,10 +211,11 @@ compiles once for every mix.
   1024-week rollover already resolved against `approximate_year`.
 - `system_start_epoch::TAITime`: the TAI epoch of that system's week 0,
   which dates the reported fix.
-- `system_start_time::DateTime`: the same origin as a calendar date, for
-  [`day_of_year`](@ref).
-- `time_offsets::NTuple{3,BroadcastTimeOffset}`: this satellite's broadcast offsets
-  toward [`CANDIDATE_HUB_SYSTEMS`](@ref), in that order.
+- `time_offset_to_gpst`, `time_offset_to_gst`, `time_offset_to_bdt`: this satellite's
+  broadcast time offsets toward GPS, Galileo and BeiDou Time (s), evaluated at
+  `transmit_time` by GNSSDecoder's `get_broadcast_time_offset`, or `nothing` where none
+  is broadcast; [`broadcast_time_offset`](@ref) picks one by target. Fields of their own
+  rather than a tuple, whose `Union` elements would be stored boxed.
 """
 struct SatelliteMeasurement
     prn::Int
@@ -282,8 +231,9 @@ struct SatelliteMeasurement
     clock_drift::Float64
     week::Int
     system_start_epoch::TAITime
-    system_start_time::DateTime
-    time_offsets::NTuple{3,BroadcastTimeOffset}
+    time_offset_to_gpst::Union{Nothing,Float64}
+    time_offset_to_gst::Union{Nothing,Float64}
+    time_offset_to_bdt::Union{Nothing,Float64}
 end
 
 # One satellite state → one measurement. Every decoder- and signal-typed call of the
@@ -291,27 +241,28 @@ end
 function satellite_measurement(state::SatelliteState, approximate_year::Integer)
     decoder = state.decoder
     signal = state.signal
-    transmit_time = calc_transmit_time(state)
-    pos_and_vel = calc_satellite_position_and_velocity(decoder, transmit_time)
+    ephemeris = something(get_broadcast_ephemeris(decoder))
+    transmit_time = correct_clock(ephemeris, group_delay(decoder, signal),
+        calc_uncorrected_transmit_time(state))
+    pos_and_vel = calc_satellite_position_and_velocity(ephemeris, transmit_time)
     time_system = get_time_system(signal)
-    count_offset_to_gpst = time_scale_offset_to_gpst(time_system)
-    week = get_week(decoder; approximate_year)
     SatelliteMeasurement(
         decoder.prn,
         get_signal_id(signal),
         get_band_id(signal),
         time_system,
-        count_offset_to_gpst,
+        time_scale_offset_to_gpst(time_system),
         transmit_time,
         pos_and_vel.position,
         pos_and_vel.velocity,
         ustrip(Hz, state.carrier_doppler),
         ustrip(Hz, get_center_frequency(signal)),
-        calc_satellite_clock_drift(decoder, transmit_time),
-        week,
+        calc_satellite_clock_drift(ephemeris, transmit_time),
+        something(get_week(decoder; approximate_year)),
         system_start_epoch(signal),
-        get_system_start_time(signal),
-        broadcast_time_offsets(decoder, week, count_offset_to_gpst),
+        get_broadcast_time_offset(decoder, GPST(), transmit_time),
+        get_broadcast_time_offset(decoder, GST(), transmit_time),
+        get_broadcast_time_offset(decoder, BDT(), transmit_time),
     )
 end
 
@@ -340,7 +291,7 @@ The order of the measurements is group order × within-group order, and it is si
 function collect_measurements(groups; approximate_year::Integer = year(now(UTC)))
     measurements = SatelliteMeasurement[]
     # An epoch's satellite count is known before a single measurement is built, and one is
-    # ~320 bytes, so reserving the whole vector up front saves the geometric regrowth
+    # ~170 bytes, so reserving the whole vector up front saves the geometric regrowth
     # (five reallocations and copies for a dozen satellites). The reservation is the
     # unfiltered count — an unhealthy satellite leaves a little slack, never a regrowth.
     sizehint!(measurements, sum(group -> length(group.satellites),
