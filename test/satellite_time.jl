@@ -100,3 +100,27 @@ end
         φ in range(-Float64(π), Float64(π); length = 21)
     ) ≈ half_wavelength
 end
+# The pseudorange differencing must survive the week wrap: seconds-of-week counts
+# do not all wrap at once — within one constellation the wrap sweeps through the
+# transmit-time spread, and in a mixed solve the +14 s BDT scale alignment keeps
+# BeiDou times above 604800 for the first 14 s of every GPS week. Unfolded, every
+# difference across the wrap is off by a whole week (1.8e14 m).
+@testset "Transmit-time differences fold the week wrap" begin
+    # Metre-level tolerances: differencing ~6e5-magnitude counts in Float64 leaves
+    # ~1e-10 s ≈ 0.03 m of representation noise, and the failure being pinned is
+    # fourteen orders of magnitude above it.
+    c = PositionVelocityTime.SPEED_OF_LIGHT
+    trail(reference, t) = GNSSSignals.fold_week_crossover(reference - t) * c
+
+    # No wrap in sight: the plain difference.
+    @test trail(410000.005, 410000.001) ≈ 0.004 * c atol = 1.0
+
+    # One constellation, wrap inside the transmit-time spread: the wrapped satellite
+    # transmitted 2 ms *later*, so it trails by −2 ms · c, not a week.
+    @test trail(604799.999, 0.001) ≈ -0.002 * c atol = 1.0
+    @test trail(0.001, 604799.999) ≈ 0.002 * c atol = 1.0
+
+    # The mixed-constellation straddle: a BeiDou time on the GPS count (SOW + 14) just
+    # past 604800 against a GPS time just past 0 — the same instant.
+    @test trail(3.0, 604803.0) ≈ 0.0 atol = 1.0
+end

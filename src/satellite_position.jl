@@ -187,24 +187,3 @@ end
 calc_satellite_position_and_velocity(state::SatelliteState) =
     calc_satellite_position_and_velocity(something(get_broadcast_ephemeris(state.decoder)),
         calc_transmit_time(state))
-
-calc_pseudoranges(times) = calc_pseudoranges!(collect(Float64, times))
-
-# `calc_pseudoranges` in place: `times` is overwritten with the pseudoranges, and the
-# reference time is returned alongside them.
-function calc_pseudoranges!(times)
-    t_ref = maximum(times)
-    # Folded modulo the week, like the vector loop's `pseudorange_from_tows` and
-    # every other time difference in this package: the inputs are seconds-of-week
-    # counts, and a week crossover does not pass through all of them at once. Within
-    # one constellation it sweeps through the transmit-time spread (tens of
-    # milliseconds, once a week); in a mixed solve the scale alignment
-    # (`calc_leap_second_corrections!`) widens the straddle to the full defined offset —
-    # a BeiDou time reads `SOW + 14` on the GPS count, which exceeds 604800 for
-    # the first 14 s of every GPS week while the GPS times have already wrapped.
-    # Unfolded, every difference across the wrap is off by a week — 1.8e14 m.
-    for j in eachindex(times)
-        times[j] = fold_week_crossover(t_ref - times[j]) * SPEED_OF_LIGHT
-    end
-    return times, t_ref
-end

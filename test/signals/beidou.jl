@@ -603,6 +603,44 @@
         @test abs(two_band.inter_frequency_biases[:B3I].value) < 1e-2m
     end
 
+    @testset "a mixed fix across the GPS week wrap is dated in the right week" begin
+        # BDT counts 14 s behind GPST, so GPS week 2157, 5 s is BDT week 800, 604791 s.
+        # Seen by GPS and BeiDou together, the BeiDou transmit times on the GPS count
+        # (SOW + 14) lie past 604800 s while the GPS ones have wrapped to a few seconds;
+        # the reported time must still be GPS week 2157, 5 s.
+        # GPS has more satellites, so it is the reference system.
+        gps = [
+            ranging_state(
+                GNSSDecoder.GNSSDecoderState(
+                    state.decoder;
+                    data = GNSSDecoder.GPSL1CAData(
+                        state.decoder.data; WN = 2157 % 1024, TOW = Int64(0)),
+                ),
+                GPSL1CA(),
+                user,
+                5.0,
+            ) for state in gps_l1_states(0.0Hz)
+        ]
+        bds = [
+            ranging_state(
+                let decoder = dnav_decoder(state; prn = 20 + i)
+                    data = GNSSDecoder.BeiDouDNAVData(decoder.data; SOW = Int64(604790))
+                    GNSSDecoder.GNSSDecoderState(decoder; data, raw_data = data)
+                end,
+                BeiDouB1I(),
+                user,
+                604791.0,
+            ) for (i, state) in enumerate(galileo[1:4])
+        ]
+        expected = get_week_start_epoch(GPST(), 2157) + 5.0
+        gps_only = calc_pvt(signal_group(gps); kw...)
+        @test gps_only.time - expected ≈ 0.0 atol = 1e-3
+        mixed = calc_pvt((signal_group(gps), signal_group(bds)); kw...)
+        @test mixed.reference_system == GPST()
+        @test norm(mixed.position - user) < 1e-2
+        @test mixed.time - expected ≈ 0.0 atol = 1e-3
+    end
+
     @testset "ranging on the pilot recovers the same fix as ranging on the data" begin
         # This is the configuration a joint pilot/data tracking receiver actually
         # runs: both components tracked off one carrier/code loop, ranging on the

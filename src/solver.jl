@@ -219,16 +219,23 @@ function _solve_pvt!(
     # `something` keeps the index an `Int`: every clock column has a satellite.
     reference_index = something(findfirst(==(reference_clock_column), clock_columns))
 
-    # The transmit times on the reference system's count (see
-    # `calc_leap_second_corrections!`; raw, a BeiDou measurement would carry 4.2e9 m),
-    # then differenced. The corrections go into the pseudorange buffer and the times are
-    # added on.
+    # The pseudoranges: how far each transmit time trails the reference measurement's, on
+    # the reference system's count (see `calc_leap_second_corrections!`; raw, a BeiDou
+    # measurement would carry 4.2e9 m) and folded across a week crossover. A crossover can
+    # fall between the times: within the transmit-time spread, or, in a mixed solve,
+    # between BeiDou times on the GPS count (`SOW + 14`, past 604800 for the first 14 s of
+    # a GPS week) and GPS times already wrapped. The common reference cancels into the
+    # receiver clock biases, which then date `reference_time`, the reference measurement's
+    # own transmit time, in its own week. The corrections go into the pseudorange buffer
+    # first.
+    reference_time = measurements[reference_index].transmit_time
     pseudoranges = calc_leap_second_corrections!(workspace.pseudoranges, measurements,
         reference_system)
     for (j, measurement) in enumerate(measurements)
-        pseudoranges[j] += measurement.transmit_time
+        pseudoranges[j] =
+            fold_week_crossover(reference_time - (pseudoranges[j] + measurement.transmit_time)) *
+            SPEED_OF_LIGHT
     end
-    _, reference_time = calc_pseudoranges!(pseudoranges)
     # The clock constraints' known values are observations too, after the satellites'.
     resize!(pseudoranges, num_sats + length(constraints))
     for (i, constraint) in enumerate(constraints)
