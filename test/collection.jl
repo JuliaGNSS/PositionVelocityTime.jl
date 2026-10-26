@@ -78,7 +78,7 @@
         @test occursin("SignalGroup(GPSL1CA()", message)
         # And it is raised at the entry point, not somewhere inside the solver.
         @test occursin("calc_pvt", message)
-        @test occursin("not a vector of `SatelliteState`s", message)
+        @test occursin("got a `Vector{", message)
     end
 
     @testset "groups of bare state vectors are refused, with the same directions" begin
