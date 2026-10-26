@@ -115,8 +115,8 @@ second of receiver clock, of what [`predict_pseudoranges!`](@ref) models. It is 
 state. Positive while the satellite recedes (see [`SatelliteInfo`](@ref)).
 
 Positions and velocities are ECEF `SVector{3}`s in m and m/s, the satellite's at
-transmission. `receiver_clock_drift` is in m/s; `sat_clock_drift` in s/s, as
-[`calc_satellite_clock_drift`](@ref) returns it.
+transmission. `receiver_clock_drift` is in m/s, as `PVTSolution.clock_drift`;
+`sat_clock_drift` in s/s, as [`calc_satellite_clock_drift`](@ref) returns it.
 
 Beyond the line-of-sight relative velocity it carries two terms of order `v/c`, each up
 to ~1 mm/s: the rate of the Earth-rotation angle, `ω_e·τ̇` with `τ̇ = û·(v_sat − v_user)/c`,

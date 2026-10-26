@@ -94,7 +94,9 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   other systems' biases are `clock_bias + inter_system_biases[system]`.
 - `time::Union{TAITime, Nothing}`: Estimated time as a TAI epoch (GNSSSignals' `TAITime`;
   with AstroTime loaded, `TAIEpoch(time)` converts it)
-- `relative_clock_drift::Float64`: Relative receiver clock drift (dimensionless)
+- `clock_drift::typeof(1.0m/s)`: Estimated receiver clock drift, as the rate of
+  `clock_bias` (metres per second); divided by the speed of light it is the relative
+  drift (s/s)
 - `dop::Union{DOP, Nothing}`: Dilution of precision values
 - `satellites::Dictionary{Tuple{Symbol, Int}, SatelliteInfo}`: Maps `(signal, PRN)` to satellite
   info — position, transmit time, and the post-fit pseudorange and range-rate
@@ -146,7 +148,7 @@ it reads.
     course_over_ground::typeof(1.0°) = 0.0°
     clock_bias::typeof(1.0m) = 0.0m
     time::Union{TAITime,Nothing} = nothing
-    relative_clock_drift::Float64 = 0
+    clock_drift::typeof(1.0m/s) = 0.0m/s
     dop::Union{DOP,Nothing} = nothing
     satellites::Dictionary{Tuple{Symbol,Int},SatelliteInfo} =
         Dictionary{Tuple{Symbol,Int},SatelliteInfo}()
@@ -191,7 +193,7 @@ Base.copy(pvt::PVTSolution) = PVTSolution(
     pvt.course_over_ground,
     pvt.clock_bias,
     pvt.time,
-    pvt.relative_clock_drift,
+    pvt.clock_drift,
     pvt.dop,
     copy(pvt.satellites),
     pvt.reference_system,
@@ -216,7 +218,7 @@ function copy_into(solution::PVTSolution, source::PVTSolution)
         source.course_over_ground,
         source.clock_bias,
         source.time,
-        source.relative_clock_drift,
+        source.clock_drift,
         source.dop,
         solution.satellites,
         source.reference_system,

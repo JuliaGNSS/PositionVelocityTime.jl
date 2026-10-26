@@ -184,7 +184,9 @@ end
         -> (velocity_and_drift::SVector{4}, rate_residuals)
 
 The user velocity and a single receiver clock drift, returned together with
-the per-satellite post-fit range-rate residuals as `([vx, vy, vz, ċ], rate_residuals)`.
+the per-satellite post-fit range-rate residuals as
+`([vx, vy, vz, ċ], rate_residuals)`. `ċ` is the clock drift in m/s, the rate of the clock
+bias in metres, as [`PVTSolution`](@ref)'s `clock_drift` reports it.
 Unlike the position solve — which estimates one clock *bias*
 per GNSS time system (the inter-system bias / GGTO is metre-level and must be
 resolved) — a single clock *drift* is shared by all satellites regardless of
@@ -269,7 +271,7 @@ function estimate_velocity!(rate_residuals, design, measurements,
         measurement = measurements[j]
         modelled, a = pseudorange_rate_and_gradient(position, prev_vel,
             prev_vel_and_drift[4],
-            measurement.position, measurement.velocity, measurement.clock_drift)
+            measurement.position, measurement.velocity, measurement.satellite_clock_drift)
         rⱼ = measured_pseudorange_rate(measurement) - modelled
         rate_residuals[j] = rⱼ
         design[j] = a

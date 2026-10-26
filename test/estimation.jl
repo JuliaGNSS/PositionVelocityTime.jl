@@ -153,7 +153,7 @@ end
         # pinned directly instead of only by magnitude.
         let user_vel = SVector(solution[1], solution[2], solution[3])
             A = reduce(vcat, [last(PositionVelocityTime.pseudorange_rate_and_gradient(user,
-                user_vel, solution[4], m.position, m.velocity, m.clock_drift))'
+                user_vel, solution[4], m.position, m.velocity, m.satellite_clock_drift))'
                               for m in rows])
             @test norm(A - design(spread)) < 1e-4
             @test norm(A' * rate_residuals) < 1e-6
@@ -258,7 +258,7 @@ end
     user_vel = SVector{3,Float64}(pvt.velocity)
     for row in measurements_of(groups)
         modelled = PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel,
-            pvt.relative_clock_drift * c, row.position, row.velocity, row.clock_drift)
+            ustrip(m / s, pvt.clock_drift), row.position, row.velocity, row.satellite_clock_drift)
         measured = -row.carrier_doppler * c / row.center_frequency
         residual = ustrip(m / s, pvt.satellites[(row.signal_id, row.prn)].rate_residual)
         @test abs(residual) > 1e-3
@@ -290,7 +290,7 @@ with_pseudorange_rate(measurement, rate) = PositionVelocityTime.SatelliteMeasure
         truth = SVector(user_vel..., clock_drift)
         exact = [with_pseudorange_rate(row,
             PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel, clock_drift,
-                row.position, row.velocity, row.clock_drift)) for row in rows]
+                row.position, row.velocity, row.satellite_clock_drift)) for row in rows]
         # From rest: hundreds of m/s and kilometres per second of drift in one step.
         solved, residuals =
             PositionVelocityTime.estimate_velocity(exact, user_pos)

@@ -201,7 +201,8 @@ compiles once for every mix.
 - `carrier_doppler::Float64`: the measured carrier Doppler (Hz, unitless).
 - `center_frequency::Float64`: the ranging signal's carrier (Hz, unitless) — the
   Doppler wavelength, and the `1/f²` of every ionospheric model.
-- `clock_drift::Float64`: [`calc_satellite_clock_drift`](@ref) at `transmit_time` (s/s).
+- `satellite_clock_drift::Float64`: [`calc_satellite_clock_drift`](@ref) at `transmit_time`
+  (s/s).
 - `week::Int`: the absolute week number of `time_system`, with the GPS L1 C/A
   1024-week rollover already resolved against `approximate_year`; its start is
   GNSSSignals' `get_week_start_epoch(measurement.time_system, measurement.week)`.
@@ -221,7 +222,7 @@ struct SatelliteMeasurement
     velocity::SVector{3,Float64}
     carrier_doppler::Float64
     center_frequency::Float64
-    clock_drift::Float64
+    satellite_clock_drift::Float64
     week::Int
     time_offset_to_gpst::Union{Nothing,Float64}
     time_offset_to_gst::Union{Nothing,Float64}

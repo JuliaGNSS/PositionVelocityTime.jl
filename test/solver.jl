@@ -20,7 +20,8 @@
     # the Earth-rotation angle (see `estimate_velocity`), which moved this by ~3 mm/s
     # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
     # with the Doppler, so the frequency offsets now differ by a few mHz.
-    @test pvt.relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.64Hz + freq_offset) atol = 0.01Hz
+    relative_clock_drift = ustrip(m / s, pvt.clock_drift) / PositionVelocityTime.SPEED_OF_LIGHT
+    @test relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.64Hz + freq_offset) atol = 0.01Hz
 
     warm_pvt = calc_pvt(
         signal_group(states),
@@ -57,7 +58,8 @@ end
     # the Earth-rotation angle (see `estimate_velocity`), which moved this by ~3 mm/s
     # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
     # with the Doppler, so the frequency offsets now differ by a few mHz.
-    @test pvt.relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.61Hz + freq_offset) atol = 0.01Hz
+    relative_clock_drift = ustrip(m / s, pvt.clock_drift) / PositionVelocityTime.SPEED_OF_LIGHT
+    @test relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.61Hz + freq_offset) atol = 0.01Hz
 
     warm_pvt = calc_pvt(
         signal_group(states),
@@ -121,8 +123,8 @@ end
     # A single receiver clock drift is estimated for the whole constellation
     # (one oscillator), so the combined drift agrees with each single-system drift
     # — to well within the inter-system spread, not split per system.
-    @test pvt.relative_clock_drift ≈ gps_only.relative_clock_drift atol = 5e-8
-    @test pvt.relative_clock_drift ≈ gal_only.relative_clock_drift atol = 5e-8
+    @test pvt.clock_drift ≈ gps_only.clock_drift atol = 5e-8 * PositionVelocityTime.SPEED_OF_LIGHT * m / s
+    @test pvt.clock_drift ≈ gal_only.clock_drift atol = 5e-8 * PositionVelocityTime.SPEED_OF_LIGHT * m / s
 
     # Satellites are keyed by (signal, PRN), so both constellations are represented
     # and nothing is merged or dropped across systems: the combined count equals the
@@ -335,7 +337,7 @@ end
     # ~2 cm of range — so the position is exact only to millimetres.
     @test norm(pvt.position - user_pos) < 1e-2
     @test norm(pvt.velocity - user_vel) < 1e-5
-    @test pvt.relative_clock_drift * c ≈ clock_drift atol = 1e-5
+    @test ustrip(m / s, pvt.clock_drift) ≈ clock_drift atol = 1e-5
     @test maximum(info -> abs(ustrip(m / s, info.rate_residual)), pvt.satellites) < 1e-5
 end
 
@@ -350,11 +352,11 @@ end
     warm = calc_pvt(groups, cold; kwargs...)
     rate_residuals(pvt) = [ustrip(m / s, info.rate_residual) for info in pvt.satellites]
     @test norm(warm.velocity - cold.velocity) < 1e-9
-    @test warm.relative_clock_drift ≈ cold.relative_clock_drift atol = 1e-9 / 3e8
+    @test warm.clock_drift ≈ cold.clock_drift atol = 1e-9m / s
     @test maximum(abs, rate_residuals(warm) - rate_residuals(cold)) < 1e-9
 
     # A previous solution with a non-finite velocity is the cold start.
     broken = PVTSolution(; position = cold.position, dop = cold.dop,
-        velocity = ECEF(NaN, NaN, NaN), relative_clock_drift = NaN)
+        velocity = ECEF(NaN, NaN, NaN), clock_drift = NaN * m / s)
     @test calc_pvt(groups, broken; kwargs...).velocity ≈ cold.velocity atol = 1e-9
 end

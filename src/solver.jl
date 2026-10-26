@@ -409,7 +409,7 @@ function _solve_pvt!(
     # The velocity solve starts from the previous solution where the position solve trusts
     # it, from rest otherwise (see `estimate_velocity` for why one step suffices).
     previous_velocity_and_drift = SVector(prev_pvt.velocity[1], prev_pvt.velocity[2],
-        prev_pvt.velocity[3], prev_pvt.relative_clock_drift * SPEED_OF_LIGHT)
+        prev_pvt.velocity[3], ustrip(m / s, prev_pvt.clock_drift))
     velocity_start =
         !distrusted && all(isfinite, previous_velocity_and_drift) ?
         previous_velocity_and_drift : zero(SVector{4,Float64})
@@ -463,7 +463,7 @@ function _solve_pvt!(
         calc_course_over_ground(position, velocity),
         clock_bias * m,
         week_start + corrected_reference_time,
-        user_velocity_and_clock_drift[4] / SPEED_OF_LIGHT,
+        user_velocity_and_clock_drift[4] * (m / s),
         dop,
         satellites,
         reference_system,

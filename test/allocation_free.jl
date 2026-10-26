@@ -22,7 +22,7 @@ function same_solution(a::PVTSolution, b::PVTSolution)
     a.position == b.position && a.velocity == b.velocity &&
         a.course_over_ground == b.course_over_ground &&
         a.clock_bias == b.clock_bias && a.time == b.time &&
-        a.relative_clock_drift == b.relative_clock_drift && a.dop == b.dop &&
+        a.clock_drift == b.clock_drift && a.dop == b.dop &&
         collect(pairs(a.satellites)) == collect(pairs(b.satellites)) &&
         a.reference_system === b.reference_system &&
         a.inter_system_biases == b.inter_system_biases &&
