@@ -11,9 +11,9 @@ using PositionVelocityTime: SVector
 # spanning several signals is written as several groups — a NamedTuple where the names
 # carry meaning, a bare tuple (numbered `group1`, `group2`, …) where they do not.
 #
-# `SignalGroup` stays fully qualified here and everywhere below: `Tracking` exports a
-# type of the same name, and `test/pvt_integration.jl` loads Tracking, so the
-# deliberate collision can be live in this very session.
+# `SignalGroup` stays fully qualified here and everywhere below, as it must wherever
+# `Tracking`, which exports a type of the same name, is loaded too (as in
+# `test/integration`).
 function signal_group(signal, states)
     ids = unique(get_signal_id(state.signal) for state in states)
     all(id -> id === get_signal_id(signal), ids) || error(
@@ -118,12 +118,12 @@ include("atmosphere/bdgim.jl")
 include("atmosphere/troposphere.jl")
 include("atmosphere/delays.jl")
 include("solver.jl")
-# Across the source files: each supported signal end to end, the allocation-free
-# contract, and a real capture through Tracking.jl.
+# Across the source files: each supported signal end to end, and the allocation-free
+# contract. A real capture through Tracking.jl is `test/integration`'s, in its own
+# environment.
 include("signals/cnav.jl")
 include("signals/gps_l2c.jl")
 include("signals/galileo_e5a.jl")
 include("signals/galileo_e5b_e6b.jl")
 include("signals/beidou.jl")
 include("allocation_free.jl")
-include("pvt_integration.jl")
