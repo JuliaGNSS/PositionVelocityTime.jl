@@ -32,11 +32,11 @@ sat_state = SatelliteState(
     signal = gpsl1,
     code_phase = code_phase,
     carrier_doppler = carrier_doppler,
-    carrier_phase = carrier_phase # optional, in radians
+    carrier_phase = carrier_phase # optional, in cycles
 )
 ```
 The `carrier_phase` is optional, as its effect on the user position is small.
-`code_phase` is in chips and `carrier_phase` in radians, matching `Tracking`'s
+`code_phase` is in chips and `carrier_phase` in cycles, matching `Tracking`'s
 `get_code_phase` and `get_carrier_phase`.
 
 With Tracking.jl loaded, a `Tracking.TrackedSat` can be passed to `SatelliteState`

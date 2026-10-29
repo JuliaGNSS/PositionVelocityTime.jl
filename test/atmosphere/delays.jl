@@ -107,7 +107,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = gpsl1,
                 code_phase = 7457.6350011159975,
                 carrier_doppler = 945.8683607586818Hz,
-                carrier_phase = -0.22095823550737081,
+                carrier_phase = -0.03516659539786121,
             ),
             SatelliteState(;
                 decoder = GNSSDecoderState(
@@ -210,7 +210,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = gpsl1,
                 code_phase = 6078.218551898637,
                 carrier_doppler = -3276.264988960822Hz,
-                carrier_phase = 0.7638002718956874,
+                carrier_phase = 0.12156258880713232,
             ),
             SatelliteState(;
                 decoder = GNSSDecoderState(
@@ -312,7 +312,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = gpsl1,
                 code_phase = 17299.53480240955,
                 carrier_doppler = -189.2252575679783Hz,
-                carrier_phase = 2.7456602492891107,
+                carrier_phase = 0.4369854007252876,
             ),
             SatelliteState(;
                 decoder = GNSSDecoderState(
@@ -414,7 +414,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = gpsl1,
                 code_phase = 4175.34652009604,
                 carrier_doppler = -3554.3272562888696Hz,
-                carrier_phase = 1.7547749028909547,
+                carrier_phase = 0.2792810998086961,
             ),
         ]
         # Constellation-wide model selection picks Klobuchar: the GPS decoders
@@ -536,7 +536,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = galileo_e1b,
                 code_phase = 1134.9227691611316,
                 carrier_doppler = -1048.4103530464388Hz,
-                carrier_phase = -1.1559529083133402,
+                carrier_phase = -0.18397561933952059,
             ),
             SatelliteState(;
                 decoder = GNSSDecoderState(
@@ -624,7 +624,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = galileo_e1b,
                 code_phase = 552.8323205662532,
                 carrier_doppler = -2401.7199003375345Hz,
-                carrier_phase = -0.5865229251135221,
+                carrier_phase = -0.0933480227685346,
             ),
             SatelliteState(;
                 decoder = GNSSDecoderState(
@@ -713,7 +713,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = galileo_e1b,
                 code_phase = 1998.2750592825137,
                 carrier_doppler = 1342.86940202154Hz,
-                carrier_phase = -1.9500644306669892,
+                carrier_phase = -0.31036239348833394,
             ),
             SatelliteState(;
                 decoder = GNSSDecoderState(
@@ -802,7 +802,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = galileo_e1b,
                 code_phase = 2721.0058329387184,
                 carrier_doppler = -3042.4604297211754Hz,
-                carrier_phase = -0.5604621503191517,
+                carrier_phase = -0.08920032163920588,
             ),
         ]
         # NTCM-G is selected from the Effective Ionisation Level coefficients

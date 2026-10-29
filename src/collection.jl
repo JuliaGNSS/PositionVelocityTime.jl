@@ -18,7 +18,7 @@ One satellite's decoder state together with its code and carrier measurements.
   `decoder` decoded from the band's data component.
 - `code_phase::CP`: code phase in chips.
 - `carrier_doppler`: carrier Doppler in Hz.
-- `carrier_phase::CP`: carrier phase in radians, as `Tracking.get_carrier_phase`
+- `carrier_phase::CP`: carrier phase in cycles, as `Tracking.get_carrier_phase`
   (default `0.0`).
 
 # Constructors

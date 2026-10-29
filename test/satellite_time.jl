@@ -72,9 +72,9 @@ end
 end
 
 # The carrier-phase term refines the transmit time by a fraction of a carrier cycle.
-# `SatelliteState.carrier_phase` is in radians (`Tracking.get_carrier_phase`), so it must
-# be converted to cycles before being divided by the centre frequency.
-@testset "Carrier-phase transmit-time term treats carrier_phase as radians" begin
+# `SatelliteState.carrier_phase` is in cycles (`Tracking.get_carrier_phase`), so it is
+# divided by the centre frequency as it is.
+@testset "Carrier-phase transmit-time term treats carrier_phase as cycles" begin
     signal = GPSL1CA()
     decoder = GNSSDecoder.GNSSDecoderState(
         GNSSDecoderState(signal, 1);
@@ -88,16 +88,16 @@ end
     )
 
     for cycles in (0.25, 0.5, -0.5)
-        @test time_of(cycles * 2π) ≈ cycles / ustrip(Hz, get_center_frequency(signal))
+        @test time_of(cycles) ≈ cycles / ustrip(Hz, get_center_frequency(signal))
     end
     # The wrapped carrier phase spans one cycle, so the term is bounded by half a carrier
-    # wavelength of range — ~9.5 cm on L1, not the ~60 cm a radians-as-cycles reading gives.
+    # wavelength of range — ~9.5 cm on L1, not the ~60 cm reading radians as cycles gives.
     half_wavelength =
         0.5 * PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(signal))
     @test half_wavelength ≈ 0.0952 atol = 1e-4
     @test maximum(
         abs(time_of(φ) * PositionVelocityTime.SPEED_OF_LIGHT) for
-        φ in range(-Float64(π), Float64(π); length = 21)
+        φ in range(-0.5, 0.5; length = 21)
     ) ≈ half_wavelength
 end
 # The pseudorange differencing must survive the week wrap: seconds-of-week counts

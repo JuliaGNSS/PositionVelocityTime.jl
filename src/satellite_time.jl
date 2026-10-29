@@ -22,8 +22,8 @@ function calc_uncorrected_transmit_time(state::SatelliteState)
     chips_per_bit =
         ustrip(Hz, get_chip_rate(signal)) / ustrip(Hz, get_bit_rate(state.decoder))
     t_code_phase = mod(state.code_phase, chips_per_bit) / get_chip_rate(signal) * Hz
-    # `carrier_phase` is in radians, as `Tracking.get_carrier_phase` reports it.
-    t_carrier_phase = state.carrier_phase / 2π / get_center_frequency(signal) * Hz
+    # `carrier_phase` is in cycles, as `Tracking.get_carrier_phase` reports it.
+    t_carrier_phase = state.carrier_phase / get_center_frequency(signal) * Hz
 
     t_tow + t_bits + t_code_phase + t_carrier_phase
 end

@@ -98,7 +98,7 @@ function galileo_e1b_states(freq_offset)
             signal = galileo_e1b,
             carrier_doppler = 1617.3312825078192Hz + freq_offset,
             code_phase = 2216.5793761534956,
-            carrier_phase = -1.461823180908076,
+            carrier_phase = -0.23265638516783826,
         ),
         sat_state(;
             decoder = GNSSDecoderState(
@@ -181,7 +181,7 @@ function galileo_e1b_states(freq_offset)
             signal = galileo_e1b,
             carrier_doppler = 4055.9318556579988Hz + freq_offset,
             code_phase = 48.75149191469789,
-            carrier_phase = -2.3877702498883373,
+            carrier_phase = -0.38002543823749907,
         ),
         sat_state(;
             decoder = GNSSDecoderState(
@@ -263,7 +263,7 @@ function galileo_e1b_states(freq_offset)
             signal = galileo_e1b,
             carrier_doppler = 209.7024609093128Hz + freq_offset,
             code_phase = 69.54389556899758,
-            carrier_phase = -1.4138935647217596,
+            carrier_phase = -0.2250281498312887,
         ),
         sat_state(;
             decoder = GNSSDecoderState(
@@ -346,7 +346,7 @@ function galileo_e1b_states(freq_offset)
             signal = galileo_e1b,
             carrier_doppler = -974.6289079820336Hz + freq_offset,
             code_phase = 1701.8894620076721,
-            carrier_phase = -1.721713905186919,
+            carrier_phase = -0.274019278600549,
         ),
         sat_state(;
             decoder = GNSSDecoderState(
@@ -429,7 +429,7 @@ function galileo_e1b_states(freq_offset)
             signal = galileo_e1b,
             carrier_doppler = 4089.415808665647Hz + freq_offset,
             code_phase = 4015.495436832823,
-            carrier_phase = -2.8554107708683047,
+            carrier_phase = -0.45445273874153,
         ),
     ]
 end
@@ -522,7 +522,7 @@ function gps_l1_states(freq_offset)
             signal = gpsl1,
             carrier_doppler = 2669.8440799388595Hz + freq_offset,
             code_phase = 4876.431542382193,
-            carrier_phase = 0.09402551301430394,
+            carrier_phase = 0.014964625172977808,
         ),
         sat_state(;
             decoder = GNSSDecoderState(
@@ -608,7 +608,7 @@ function gps_l1_states(freq_offset)
             signal = gpsl1,
             carrier_doppler = 4704.3549972665805Hz + freq_offset,
             code_phase = 8455.107739656896,
-            carrier_phase = 2.7614518715603946,
+            carrier_phase = 0.4394987154692025,
         ),
         sat_state(;
             decoder = GNSSDecoderState(
@@ -695,7 +695,7 @@ function gps_l1_states(freq_offset)
             signal = gpsl1,
             carrier_doppler = 4603.179391134832Hz + freq_offset,
             code_phase = 10510.15670303955,
-            carrier_phase = -0.7447786034769108,
+            carrier_phase = -0.11853519625242903,
         ),
         sat_state(;
             decoder = GNSSDecoderState(
@@ -781,7 +781,7 @@ function gps_l1_states(freq_offset)
             signal = gpsl1,
             carrier_doppler = 3144.174219887768Hz + freq_offset,
             code_phase = 3618.5099300503684,
-            carrier_phase = -0.22375187424152987,
+            carrier_phase = -0.03561121681161561,
         ),
         sat_state(;
             decoder = GNSSDecoderState(
@@ -867,7 +867,7 @@ function gps_l1_states(freq_offset)
             signal = gpsl1,
             carrier_doppler = 595.7926881306387Hz + freq_offset,
             code_phase = 17600.66651489137,
-            carrier_phase = 2.59152430602131,
+            carrier_phase = 0.4124539034460851,
         ),
         sat_state(;
             decoder = GNSSDecoderState(
@@ -954,7 +954,7 @@ function gps_l1_states(freq_offset)
             signal = gpsl1,
             carrier_doppler = -794.0022484221436Hz + freq_offset,
             code_phase = 14504.587373634655,
-            carrier_phase = -0.7416765461612318,
+            carrier_phase = -0.11804148849688434,
         ),
         sat_state(;
             decoder = GNSSDecoderState(
@@ -1041,7 +1041,7 @@ function gps_l1_states(freq_offset)
             signal = gpsl1,
             carrier_doppler = 2826.783251528247Hz + freq_offset,
             code_phase = 14394.465193705755,
-            carrier_phase = -0.7597910878699417,
+            carrier_phase = -0.12092450735166982,
         ),
         sat_state(;
             decoder = GNSSDecoderState(
@@ -1128,7 +1128,7 @@ function gps_l1_states(freq_offset)
             signal = gpsl1,
             carrier_doppler = -1083.2317687377372Hz + freq_offset,
             code_phase = 13905.233170289455,
-            carrier_phase = -2.1444956909602526,
+            carrier_phase = -0.3413070896555938,
         ),
         sat_state(;
             decoder = GNSSDecoderState(
@@ -1214,7 +1214,7 @@ function gps_l1_states(freq_offset)
             signal = gpsl1,
             carrier_doppler = 3393.7445379085816Hz + freq_offset,
             code_phase = 16861.02713837273,
-            carrier_phase = -0.9185401811870872,
+            carrier_phase = -0.14619021026445012,
         ),
     ]
 end
