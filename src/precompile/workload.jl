@@ -59,7 +59,7 @@ _precompile_cnav(d) = _precompile_modern_nav(
 )
 
 # CNAV-2 counts time as a two-hour interval plus an 18 s time of interval
-# (IS-GPS-800J §3.5.3), which `get_tow` reassembles.
+# (IS-GPS-800J §3.5.3), which GNSSDecoder's `get_broadcast_time_of_week` reassembles.
 _precompile_cnav2(d) = _precompile_modern_nav(
     GNSSDecoder.GPSL1C_DData,
     d;
@@ -134,7 +134,7 @@ function _precompile_states(signal, table, make_data, source_signal)
         SatelliteState(;
             decoder = GNSSDecoder.GNSSDecoderState(
                 target;
-                num_symbols_since_sync = num_bits,
+                num_bits_since_sync = num_bits,
             ),
             signal,
             code_phase = (offset - num_bits / rate) * chips,

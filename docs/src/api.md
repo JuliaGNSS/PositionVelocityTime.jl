@@ -100,9 +100,9 @@ satellite's values. Only
 read a decoder, through a [`SatelliteState`](@ref), and
 [`calc_satellite_clock_drift`](@ref PositionVelocityTime.calc_satellite_clock_drift) takes
 GNSSDecoder's `BroadcastEphemeris`, for a consumer building or amending a measurement
-itself; the decoder's week, ephemeris, group delays and broadcast time offsets are
-GNSSDecoder's `get_week`, `get_broadcast_ephemeris`, `get_group_delay` and
-`get_broadcast_time_offset`. Times are seconds-of-week counts on each satellite's own
+itself; the decoder's week, time of week, ephemeris, group delays and broadcast time
+offsets are GNSSDecoder's `get_broadcast_week`, `get_broadcast_time_of_week`,
+`get_broadcast_ephemeris`, `get_group_delay` and `get_broadcast_time_offset`. Times are seconds-of-week counts on each satellite's own
 system unless a function says otherwise;
 [`calc_leap_second_correction`](@ref PositionVelocityTime.calc_leap_second_correction)
 moves one onto another system's count and

@@ -11,12 +11,12 @@ function calc_uncorrected_transmit_time(state::SatelliteState)
     signal = state.signal
     # Time of week at the navigation-frame reference epoch, from GNSSDecoder (which
     # reconstructs it where a message has no seconds-of-week field, as L1C-D and B1C).
-    t_tow = get_time_of_week(state.decoder)
+    t_tow = get_broadcast_time_of_week(state.decoder)
     # The bits are counted at the decoder's bit rate, not the ranging `signal`'s:
     # the range may be generated on a dataless pilot (L1C-P, E1C) whose rate is 0 Hz.
-    # GNSSDecoder's `num_symbols_since_sync` counts these tracked bits.
+    # GNSSDecoder's `num_bits_since_sync` counts these tracked bits.
     t_bits =
-        state.decoder.num_symbols_since_sync / get_bit_rate(state.decoder) * Hz
+        state.decoder.num_bits_since_sync / get_bit_rate(state.decoder) * Hz
     # With joint same-band tracking the code phase can run up to a whole bit,
     # which `t_bits` already counts; keep only the residual within one bit.
     chips_per_bit =

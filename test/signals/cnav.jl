@@ -14,11 +14,11 @@
         @test !has_offset(l1cd, GPST())
     end
 
-    @testset "get_week uses full broadcast WN (no rollover)" begin
+    @testset "get_broadcast_week uses full broadcast WN (no rollover)" begin
         # approximate_year must be ignored for CNAV (full 13-bit WN).
-        @test GNSSDecoder.get_week(swap(l5, GNSSDecoder.GPSCNAVData(; WN = 2200)); approximate_year = 2042) ==
+        @test GNSSDecoder.get_broadcast_week(swap(l5, GNSSDecoder.GPSCNAVData(; WN = 2200)); approximate_year = 2042) ==
               2200
-        @test GNSSDecoder.get_week(swap(l1cd, GNSSDecoder.GPSL1C_DData(; WN = 2200)); approximate_year = 2010) ==
+        @test GNSSDecoder.get_broadcast_week(swap(l1cd, GNSSDecoder.GPSL1C_DData(; WN = 2200)); approximate_year = 2010) ==
               2200
     end
 
@@ -61,7 +61,7 @@
     @testset "pilot ranging signal: transmit time well-defined" begin
         d = GNSSDecoder.GPSL1C_DData(; ITOW = 18, toi = 10)
         dec = GNSSDecoder.GNSSDecoderState(l1cd; data = d, raw_data = d,
-            num_symbols_since_sync = 50)
+            num_bits_since_sync = 50)
         common = (; decoder = dec, code_phase = 123.0,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
         t_data =

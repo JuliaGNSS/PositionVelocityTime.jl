@@ -78,7 +78,7 @@ end
     signal = GPSL1CA()
     decoder = GNSSDecoder.GNSSDecoderState(
         GNSSDecoderState(signal, 1);
-        num_symbols_since_sync = 0,
+        num_bits_since_sync = 0,
         data = GNSSDecoder.GPSL1CAData(; TOW = 0),
         raw_data = GNSSDecoder.GPSL1CAData(; TOW = 0),
     )

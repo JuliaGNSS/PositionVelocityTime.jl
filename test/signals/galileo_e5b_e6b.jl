@@ -20,7 +20,7 @@
         GNSSDecoder.GalileoE5bDecoderState(e1b.prn);
         data = data,
         raw_data = data,
-        num_symbols_since_sync = e1b.num_symbols_since_sync,
+        num_bits_since_sync = e1b.num_bits_since_sync,
     )
     e5b = as_e5b()
 
@@ -31,7 +31,7 @@
         # what keeps it from being grouped with E1 the way E1B and E1C are.
         @test GNSSSignals.get_band_id(GalileoE5bI()) == :E5b
         @test GNSSSignals.get_band_id(GalileoE5bI()) != GNSSSignals.get_band_id(GalileoE1B())
-        @test GNSSDecoder.get_week(e5b; approximate_year = 2024) == d.WN
+        @test GNSSDecoder.get_broadcast_week(e5b; approximate_year = 2024) == d.WN
         # No GEO branch for Galileo.
         @test !ephemeris(e5b).is_geostationary
     end
@@ -128,7 +128,7 @@
                     GNSSDecoder.GalileoE5bDecoderState(decoder.prn);
                     data = decoder.data,
                     raw_data = decoder.data,
-                    num_symbols_since_sync = num_bits,
+                    num_bits_since_sync = num_bits,
                 ),
                 signal = GalileoE5bI(),
                 code_phase = code_phase,
@@ -165,7 +165,7 @@ end
         GNSSDecoder.GalileoE6BDecoderState(4);
         data = e6b_data,
         raw_data = e6b_data,
-        num_symbols_since_sync = 16,
+        num_bits_since_sync = 16,
     )
     e6b_state = SatelliteState(;
         decoder = e6b,
@@ -204,7 +204,7 @@ end
         @test GNSSDecoder.get_klobuchar_parameters(e6b) === nothing
         # C/NAV broadcasts no week number, so GNSSDecoder answers `nothing` rather than
         # a wrong week.
-        @test isnothing(GNSSDecoder.get_week(e6b; approximate_year = 2024))
+        @test isnothing(GNSSDecoder.get_broadcast_week(e6b; approximate_year = 2024))
     end
 
     @testset "calc_pvt ignores it without touching its missing fields" begin

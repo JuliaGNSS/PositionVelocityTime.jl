@@ -201,7 +201,7 @@ function satellite_measurement(state::SatelliteState, approximate_year::Integer)
         ustrip(Hz, state.carrier_doppler),
         ustrip(Hz, get_center_frequency(signal)),
         calc_satellite_clock_drift(ephemeris, transmit_time),
-        something(get_week(decoder; approximate_year)),
+        something(get_broadcast_week(decoder; approximate_year)),
         get_broadcast_time_offset(decoder, GPST(), transmit_time),
         get_broadcast_time_offset(decoder, GST(), transmit_time),
         get_broadcast_time_offset(decoder, BDT(), transmit_time),

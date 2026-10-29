@@ -49,7 +49,7 @@
         num_bits, code_phase = bits_and_code_phase(GalileoE5aI(), e5a_data.TOW, target)
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GalileoE5aDecoderState(state.decoder.prn);
             data = e5a_data, raw_data = e5a_data,
-            num_symbols_since_sync = num_bits)
+            num_bits_since_sync = num_bits)
         SatelliteState(; decoder = dec, signal = GalileoE5aI(), code_phase = code_phase,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end
@@ -63,7 +63,7 @@
         A_REF = 26_559_710.0
         Ωdot_REF = -2.6e-9 * π
         l2c_data = GNSSDecoder.GPSCNAVData(;
-            WN = GNSSDecoder.get_week(state.decoder; approximate_year = 2021),
+            WN = GNSSDecoder.get_broadcast_week(state.decoder; approximate_year = 2021),
             TOW = d.TOW, t_0e = d.t_0e, M_0 = d.M_0, e = d.e, ΔA = d.sqrt_A^2 - A_REF,
             A_dot = 0.0, Δn_0 = d.Δn, Δn_0_dot = 0.0, Ω_0 = d.Ω_0, i_0 = d.i_0, ω = d.ω,
             i_dot = d.i_dot, ΔΩ_dot = d.Ω_dot - Ωdot_REF, C_uc = d.C_uc, C_us = d.C_us,
@@ -74,7 +74,7 @@
         num_bits, code_phase = bits_and_code_phase(GPSL2CM(), l2c_data.TOW, target)
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GPSL2CMDecoderState(state.decoder.prn);
             data = l2c_data, raw_data = l2c_data,
-            num_symbols_since_sync = num_bits)
+            num_bits_since_sync = num_bits)
         SatelliteState(; decoder = dec, signal = GPSL2CM(), code_phase = code_phase,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end
@@ -92,7 +92,7 @@
         num_bits, code_phase = bits_and_code_phase(GPSL5I(), l5_data.TOW, target)
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GPSL5IDecoderState(state.decoder.prn);
             data = l5_data, raw_data = l5_data,
-            num_symbols_since_sync = num_bits)
+            num_bits_since_sync = num_bits)
         SatelliteState(; decoder = dec, signal = GPSL5I(), code_phase = code_phase,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end

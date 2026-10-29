@@ -95,7 +95,7 @@ tropospheric delay with a blind model (see [`tropospheric_delay`](@ref)).
 
 # Keyword Arguments
 - `approximate_year`: the calendar year of the observation, within ±9 years, which
-  resolves the GPS L1 C/A 1024-week rollover (see GNSSDecoder's `get_week`). The default,
+  resolves the GPS L1 C/A 1024-week rollover (see GNSSDecoder's `get_broadcast_week`). The default,
   the current year, suits live signals; pass the rough year of an archived recording.
 - `enable_ionospheric_correction`: `false` skips the ionospheric correction.
 - `enable_tropospheric_correction`: `false` skips the tropospheric correction.

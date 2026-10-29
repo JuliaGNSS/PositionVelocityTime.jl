@@ -197,17 +197,17 @@
 
         # 13-bit BDT week, broadcast absolute: no 1024-week rollover to resolve, so
         # `approximate_year` cannot change the answer.
-        @test GNSSDecoder.get_week(d1; approximate_year = 2024) == 800
-        @test GNSSDecoder.get_week(d1; approximate_year = 1999) == 800
-        @test GNSSDecoder.get_week(b2a; approximate_year = 2024) == 800
+        @test GNSSDecoder.get_broadcast_week(d1; approximate_year = 2024) == 800
+        @test GNSSDecoder.get_broadcast_week(d1; approximate_year = 1999) == 800
+        @test GNSSDecoder.get_broadcast_week(b2a; approximate_year = 2024) == 800
     end
 
     @testset "time of week comes from the decoder, on every BeiDou signal" begin
         # GNSSDecoder answers this now, including B-CNAV1's reconstruction. Asserted
         # here because `calc_uncorrected_transmit_time` reads it for every signal, so a
         # `nothing` would propagate silently into a transmit time.
-        @test GNSSDecoder.get_time_of_week(d1) == d1.data.SOW
-        @test GNSSDecoder.get_time_of_week(b2a) == b2a.data.SOW
+        @test GNSSDecoder.get_broadcast_time_of_week(d1) == d1.data.SOW
+        @test GNSSDecoder.get_broadcast_time_of_week(b2a) == b2a.data.SOW
 
         # B-CNAV1 alone broadcasts no seconds of week: subframe 2 carries the hour of
         # week and subframe 1 the 18 s seconds-of-hour count
@@ -218,7 +218,7 @@
             data = b1c_data,
             raw_data = b1c_data,
         )
-        @test GNSSDecoder.get_time_of_week(b1c) == 36 * 3600 + 25 * 18
+        @test GNSSDecoder.get_broadcast_time_of_week(b1c) == 36 * 3600 + 25 * 18
     end
 
     # ---- Clock polynomial ----------------------------------------------------
@@ -507,7 +507,7 @@
         end
         bit_rate = Float64(GNSSSignals.get_bit_rate(decoder) / Hz)
         chip_rate = Float64(GNSSSignals.get_chip_rate(system) / Hz)
-        elapsed = t_uncorrected - GNSSDecoder.get_time_of_week(decoder)
+        elapsed = t_uncorrected - GNSSDecoder.get_broadcast_time_of_week(decoder)
         num_bits = floor(Int, elapsed * bit_rate)
         code_phase = (elapsed - num_bits / bit_rate) * chip_rate
         (num_bits, code_phase)
@@ -529,7 +529,7 @@
         num_bits, code_phase = observables_for(decoder, system, t_tx)
         SatelliteState(;
             decoder = GNSSDecoder.GNSSDecoderState(
-                decoder; num_symbols_since_sync = num_bits),
+                decoder; num_bits_since_sync = num_bits),
             signal = system,
             code_phase = code_phase,
             carrier_doppler = 0.0Hz,
@@ -567,7 +567,7 @@
         # 2006-01-01 00:00:00 UTC, which is 14 s into GPS week 1356 because 14 leap
         # seconds had accrued since the GPS epoch. So the same instant is BDT
         # (800, t_rx) and GPST (2156, t_rx + 14); the broadcast GPS week is 10-bit, so
-        # its field carries 2156 mod 1024 and `get_week` reconstructs the rest from
+        # its field carries 2156 mod 1024 and `get_broadcast_week` reconstructs the rest from
         # `approximate_year`. Agreement exercises what the circular check could not:
         # that `get_week_start_epoch` places both origins on the atomic scale correctly,
         # BDT's 33 s TAI offset against GPST's 19 s included.
@@ -585,7 +585,7 @@
             ) for state in gps_l1_states(0.0Hz)
         ]
         pvt_gps = calc_pvt(signal_group(gps_matched); kw...)
-        @test GNSSDecoder.get_week(gps_matched[1].decoder;
+        @test GNSSDecoder.get_broadcast_week(gps_matched[1].decoder;
             approximate_year = 2021) == 2156
         @test norm(pvt_gps.position - user) < 1e-2
         # One instant, two constellations, two epochs, two TAI offsets: one answer.

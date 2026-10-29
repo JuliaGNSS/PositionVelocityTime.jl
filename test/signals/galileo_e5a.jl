@@ -27,7 +27,7 @@
     @testset "classification / signal id / week" begin
         @test GNSSSignals.get_time_system(GNSSSignals.GalileoE5aI()) == GNSSSignals.GST()
         @test GNSSSignals.get_signal_id(GalileoE5aI()) == :GalileoE5aI
-        @test GNSSDecoder.get_week(e5a; approximate_year = 2024) == d.WN                          # full WN, no rollover
+        @test GNSSDecoder.get_broadcast_week(e5a; approximate_year = 2024) == d.WN                          # full WN, no rollover
     end
 
     @testset "orbit matches the equivalent E1B Keplerian" begin

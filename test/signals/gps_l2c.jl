@@ -27,9 +27,9 @@
               GNSSSignals.get_bit_rate(GNSSSignals.GPSL5I())
     end
 
-    @testset "get_week uses full broadcast WN (no rollover)" begin
+    @testset "get_broadcast_week uses full broadcast WN (no rollover)" begin
         # approximate_year must be ignored for CNAV (full 13-bit WN).
-        @test GNSSDecoder.get_week(swap(l2c, GNSSDecoder.GPSCNAVData(; WN = 2200));
+        @test GNSSDecoder.get_broadcast_week(swap(l2c, GNSSDecoder.GPSCNAVData(; WN = 2200));
             approximate_year = 2042) == 2200
     end
 
