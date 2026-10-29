@@ -70,7 +70,7 @@ decoder's time of week plus the bit, code-phase and carrier-phase fractions, cor
 by the clock polynomial, the relativistic term and the ranging signal's group delay
 (GNSSDecoder's `get_broadcast_ephemeris` and `get_group_delay`; a group delay not yet
 decoded in full counts as zero, a metre or so on one signal). Every ephemeris and clock
-evaluation takes it unconverted (see `calc_leap_second_corrections!`). The decoder must be
+evaluation takes it unconverted (see `calc_leap_second_correction`). The decoder must be
 complete for positioning.
 """
 calc_transmit_time(state::SatelliteState) = correct_clock(

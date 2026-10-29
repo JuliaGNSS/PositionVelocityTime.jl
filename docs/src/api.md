@@ -103,16 +103,19 @@ GNSSDecoder's `BroadcastEphemeris`, for a consumer building or amending a measur
 itself; the decoder's week, ephemeris, group delays and broadcast time offsets are
 GNSSDecoder's `get_week`, `get_broadcast_ephemeris`, `get_group_delay` and
 `get_broadcast_time_offset`. Times are seconds-of-week counts on each satellite's own
-system unless a function says otherwise; the week arithmetic is GNSSSignals':
-`get_week_start_epoch` dates a week, `get_leap_second_offset` relates two systems'
-counts, and `fold_week_crossover` folds a difference of two counts across a week
-crossover.
+system unless a function says otherwise;
+[`calc_leap_second_correction`](@ref PositionVelocityTime.calc_leap_second_correction)
+moves one onto another system's count and
+[`calc_pseudorange`](@ref PositionVelocityTime.calc_pseudorange) differences two across a
+week crossover, and GNSSSignals' `get_week_start_epoch` dates a week.
 
 ```@docs
 PositionVelocityTime.SPEED_OF_LIGHT
 PositionVelocityTime.calc_transmit_time
 PositionVelocityTime.calc_uncorrected_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
+PositionVelocityTime.calc_leap_second_correction
+PositionVelocityTime.calc_pseudorange
 PositionVelocityTime.BiasColumns
 PositionVelocityTime.num_parameters
 PositionVelocityTime.ClockConstraint
@@ -125,6 +128,7 @@ PositionVelocityTime.select_reference_system
 PositionVelocityTime.predict_pseudoranges!
 PositionVelocityTime.calc_design_matrix
 PositionVelocityTime.calc_design_matrix!
+PositionVelocityTime.calc_fit_covariance!
 PositionVelocityTime.calc_dop
 PositionVelocityTime.calc_dop!
 PositionVelocityTime.calc_pseudorange_rate

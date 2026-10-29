@@ -70,6 +70,16 @@
     @test d1.GDOP > 0
 end
 
+@testset "calc_fit_covariance!" begin
+    H = [1.0 0.0 1.0; 0.0 2.0 1.0; 1.0 1.0 1.0; -1.0 0.5 1.0]
+    normal_matrix = fill(NaN, 3, 3)
+    @test PositionVelocityTime.calc_fit_covariance!(normal_matrix, H)
+    # The upper triangle holds the inverse; the lower is left as the factorisation had it.
+    @test Symmetric(normal_matrix, :U) ≈ inv(H' * H)
+    @test !PositionVelocityTime.calc_fit_covariance!(normal_matrix,
+        repeat([1.0 0.0 1.0], 4))
+end
+
 # Regression: a degenerate geometry must be reported, not thrown out of a least-squares
 # solve as a SingularException. Observed while processing a dual-band recording, where an
 # epoch's geometry left the velocity normal equations singular and the 4×4 solve threw

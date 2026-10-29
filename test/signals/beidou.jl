@@ -404,9 +404,10 @@
         # `time_system` is read, so a stand-in carrying only that field is enough here.
         # GPS-referenced: BeiDou needs +14 s.
         stand_in(system) = (; time_system = system)
-        offsets(systems, reference) =
-            PositionVelocityTime.calc_leap_second_corrections!(Float64[],
-                map(stand_in, systems), reference)
+        offsets(systems, reference) = map(
+            system -> PositionVelocityTime.calc_leap_second_correction(stand_in(system),
+                reference),
+            systems)
         @test offsets([GPST(), BDT(), GST(), BDT()], GPST()) == [0.0, 14.0, 0.0, 14.0]
         # BeiDou-referenced: the sign reverses, and a BeiDou-only epoch needs nothing —
         # which is why anchoring on GPST instead of the reference system would have
@@ -422,7 +423,7 @@
         # functions the solve calls.
         #
         # GNSSDecoder reports `A_0` as broadcast, without the 14 s between the BDT and
-        # GPST counts, which `calc_leap_second_corrections!` applies to the transmit
+        # GPST counts, which `calc_leap_second_correction` applies to the transmit
         # times instead; the steering offset is the polynomial alone.
         to_gpst(decoder, t) = steering(decoder, GPST(), t)
 
@@ -710,7 +711,7 @@
         #     publishes, which is what an inter-system bias should actually report.
         #
         # So the BeiDou reception time is `t_rx - 14 + Δ`. Without
-        # `calc_leap_second_corrections` the 14 s survives into the normal equations
+        # `calc_leap_second_correction` the 14 s survives into the normal equations
         # as a parameter nine orders of magnitude above the others: the separate-clock
         # solve reports a nonsense inter-system bias, and the constrained solve — which
         # pins the BeiDou clock difference to the steering term — fails outright.

@@ -110,7 +110,7 @@ end
     # ~1e-10 s ≈ 0.03 m of representation noise, and the failure being pinned is
     # fourteen orders of magnitude above it.
     c = PositionVelocityTime.SPEED_OF_LIGHT
-    trail(reference, t) = GNSSSignals.fold_week_crossover(reference - t) * c
+    trail(reference, t) = PositionVelocityTime.calc_pseudorange(reference, t)
 
     # No wrap in sight: the plain difference.
     @test trail(410000.005, 410000.001) ≈ 0.004 * c atol = 1.0
@@ -123,4 +123,6 @@ end
     # The mixed-constellation straddle: a BeiDou time on the GPS count (SOW + 14) just
     # past 604800 against a GPS time just past 0 — the same instant.
     @test trail(3.0, 604803.0) ≈ 0.0 atol = 1.0
+    # The same, from the BeiDou satellite's own count and its leap-second correction.
+    @test PositionVelocityTime.calc_pseudorange(3.0, 604789.0, 14.0) ≈ 0.0 atol = 1.0
 end
