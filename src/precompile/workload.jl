@@ -61,7 +61,7 @@ _precompile_cnav(d) = _precompile_modern_nav(
 # CNAV-2 counts time as a two-hour interval plus an 18 s time of interval
 # (IS-GPS-800J §3.5.3), which GNSSDecoder's `get_broadcast_time_of_week` reassembles.
 _precompile_cnav2(d) = _precompile_modern_nav(
-    GNSSDecoder.GPSL1C_DData,
+    GNSSDecoder.GPSCNAV2Data,
     d;
     ITOW = something(d.TOW) ÷ 7200,
     toi = (something(d.TOW) % 7200) ÷ 18,
@@ -71,7 +71,7 @@ _precompile_cnav2(d) = _precompile_modern_nav(
 
 # Galileo F/NAV carries the same ephemeris as I/NAV, with the E5a health and
 # group delay in place of the E1B/E5b ones.
-_precompile_fnav(d) = GNSSDecoder.GalileoE5aData(;
+_precompile_fnav(d) = GNSSDecoder.GalileoFNAVData(;
     WN = d.WN,
     TOW = d.TOW,
     t_0e = d.t_0e,
@@ -134,7 +134,7 @@ function _precompile_states(signal, table, make_data, source_signal)
         SatelliteState(;
             decoder = GNSSDecoder.GNSSDecoderState(
                 target;
-                num_bits_since_sync = num_bits,
+                num_bits_since_time_reference = num_bits,
             ),
             signal,
             code_phase = (offset - num_bits / rate) * chips,

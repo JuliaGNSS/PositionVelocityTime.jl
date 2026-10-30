@@ -114,7 +114,7 @@ Position, velocity and time solved from GNSS measurements.
   system, its clock bias minus the reference system's (m). It is a system effect, not a
   receiver one — the offset between the two system times, so the Galileo entry is
   `−c · Δt` with `Δt = GST − GPST` (the GGTO), and the BeiDou one carries BDT's steering
-  residual, never the defined 14 s (GNSSSignals' `get_leap_second_offset`). It is
+  residual, never the defined 14 s (GNSSSignals' `get_time_scale_offset`). It is
   estimated from the geometry wherever observable; a broadcast GGTO or BGTO fixes it only
   where the satellites cannot (see [`decide_bias_layout`](@ref)). The difference of two
   entries is the bias between those two systems; empty for a single-system solution.

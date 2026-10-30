@@ -1,4 +1,4 @@
-# GPS CNAV (L5, GPSCNAVData) and CNAV-2 (L1C-D, GPSL1C_DData) support.
+# GPS CNAV (L5, GPSCNAVData) and CNAV-2 (L1C-D, GPSCNAV2Data) support.
 #
 # No real CNAV capture is available, so the orbit is validated by self-consistency:
 # the analytic velocity must match a finite difference of the position.
@@ -18,12 +18,12 @@
         # approximate_year must be ignored for CNAV (full 13-bit WN).
         @test GNSSDecoder.get_broadcast_week(swap(l5, GNSSDecoder.GPSCNAVData(; WN = 2200)); approximate_year = 2042) ==
               2200
-        @test GNSSDecoder.get_broadcast_week(swap(l1cd, GNSSDecoder.GPSL1C_DData(; WN = 2200)); approximate_year = 2010) ==
+        @test GNSSDecoder.get_broadcast_week(swap(l1cd, GNSSDecoder.GPSCNAV2Data(; WN = 2200)); approximate_year = 2010) ==
               2200
     end
 
     @testset "Klobuchar parameters from CNAV α_0…β_3" begin
-        for (state, T) in ((l5, GNSSDecoder.GPSCNAVData), (l1cd, GNSSDecoder.GPSL1C_DData))
+        for (state, T) in ((l5, GNSSDecoder.GPSCNAVData), (l1cd, GNSSDecoder.GPSCNAV2Data))
             d = T(; α_0 = 1e-8, α_1 = 2e-8, α_2 = 3e-8, α_3 = 4e-8,
                 β_0 = 1e4, β_1 = 2e4, β_2 = 3e4, β_3 = 4e4)
             kp = GNSSDecoder.get_klobuchar_parameters(swap(state, d))
@@ -59,9 +59,9 @@
     # use the decoder's data-signal rate instead, so ranging the band on the L1C pilot
     # gives the same (finite) uncorrected time as ranging on the L1C data component.
     @testset "pilot ranging signal: transmit time well-defined" begin
-        d = GNSSDecoder.GPSL1C_DData(; ITOW = 18, toi = 10)
+        d = GNSSDecoder.GPSCNAV2Data(; ITOW = 18, toi = 10)
         dec = GNSSDecoder.GNSSDecoderState(l1cd; data = d, raw_data = d,
-            num_bits_since_sync = 50)
+            num_bits_since_time_reference = 50)
         common = (; decoder = dec, code_phase = 123.0,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
         t_data =

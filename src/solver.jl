@@ -220,7 +220,7 @@ function _solve_pvt!(
     reference_index = something(findfirst(==(reference_clock_column), clock_columns))
 
     # The pseudoranges: how far each transmit time trails the reference measurement's, on
-    # the reference system's count (`calc_leap_second_correction`; raw, a BeiDou
+    # the reference system's count (`calc_time_scale_offset`; raw, a BeiDou
     # measurement would carry 4.2e9 m) and folded across a week crossover
     # (`calc_pseudorange`). The common reference cancels into the receiver clock biases,
     # which then date `reference_time`, the reference measurement's own transmit time, in
@@ -229,7 +229,7 @@ function _solve_pvt!(
     pseudoranges = resize!(workspace.pseudoranges, num_sats + length(constraints))
     for (j, measurement) in enumerate(measurements)
         pseudoranges[j] = calc_pseudorange(reference_time, measurement.transmit_time,
-            calc_leap_second_correction(measurement, reference_system))
+            calc_time_scale_offset(measurement, reference_system))
     end
     # The clock constraints' known values are observations too, after the satellites'.
     for (i, constraint) in enumerate(constraints)

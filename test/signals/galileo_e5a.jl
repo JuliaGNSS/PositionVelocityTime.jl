@@ -1,4 +1,4 @@
-# Galileo E5a F/NAV (GNSSDecoder.GalileoE5aData) support.
+# Galileo E5a F/NAV (GNSSDecoder.GalileoFNAVData) support.
 #
 # E5a is a separate frequency band from E1, so a satellite tracked on both yields
 # two independent measurements. E5a F/NAV shares the Galileo Keplerian ephemeris,
@@ -12,7 +12,7 @@
     base_e1b = galileo_e1b_states(0.0Hz)[1].decoder
     d = base_e1b.data
     e5a_state = GNSSDecoder.GalileoE5aDecoderState(2)
-    e5a_eph = GNSSDecoder.GalileoE5aData(;
+    e5a_eph = GNSSDecoder.GalileoFNAVData(;
         WN = d.WN, TOW = d.TOW, t_0e = d.t_0e, M_0 = d.M_0, e = d.e, sqrt_A = d.sqrt_A,
         Ω_0 = d.Ω_0, i_0 = d.i_0, ω = d.ω, i_dot = d.i_dot, Ω_dot = d.Ω_dot, Δn = d.Δn,
         C_uc = d.C_uc, C_us = d.C_us, C_rc = d.C_rc, C_rs = d.C_rs, C_ic = d.C_ic,
@@ -66,7 +66,7 @@
 
     @testset "NTCM-G coefficients (shared model with E1B)" begin
         @test GNSSDecoder.get_nequick_g_parameters(e5a) === nothing            # none broadcast above
-        with_iono = swap(GNSSDecoder.GalileoE5aData(e5a_eph; a_i0 = 45.0, a_i1 = 0.1, a_i2 = 0.01))
+        with_iono = swap(GNSSDecoder.GalileoFNAVData(e5a_eph; a_i0 = 45.0, a_i1 = 0.1, a_i2 = 0.01))
         p = GNSSDecoder.get_nequick_g_parameters(with_iono)
         @test p isa GNSSDecoder.NeQuickGParameters
         @test (p.a_i0, p.a_i1, p.a_i2) == (45.0, 0.1, 0.01)
@@ -74,7 +74,7 @@
 
     @testset "GGTO (shared word-type-10 layout with E1B)" begin
         @test !has_offset(e5a, GPST())
-        g = swap(GNSSDecoder.GalileoE5aData(e5a_eph; A_0G = 5e-9, A_1G = 1e-15, t_0G = 100, WN_0G = 1134))
+        g = swap(GNSSDecoder.GalileoFNAVData(e5a_eph; A_0G = 5e-9, A_1G = 1e-15, t_0G = 100, WN_0G = 1134))
         @test has_offset(g, GPST())
         @test steering(g, GPST(), 132000.0) ≈
               5e-9 + 1e-15 * (132000.0 - 100 + 604800 * mod(d.WN - 1134, 64))

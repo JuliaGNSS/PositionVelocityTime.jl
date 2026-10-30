@@ -78,7 +78,7 @@ end
 # rejects.
 function with_health_bad(state)
     d = state.decoder
-    unhealthy(data) = GNSSDecoder.GPSL1CAData(data; sv_health = 0b100000)
+    unhealthy(data) = GNSSDecoder.GPSLNAVData(data; sv_health = 0b100000)
     new_decoder = GNSSDecoder.GNSSDecoderState(
         d; raw_data = unhealthy(d.raw_data), data = unhealthy(d.data))
     SatelliteState(;
@@ -287,13 +287,13 @@ function retimed_state(state, transmit_time, doppler)
     end
     rate = ustrip(Hz, get_bit_rate(state.decoder))
     chips = ustrip(Hz, get_chip_rate(state.signal))
-    offset = state.decoder.num_bits_since_sync / rate +
+    offset = state.decoder.num_bits_since_time_reference / rate +
              mod(state.code_phase, chips / rate) / chips +
              uncorrected - PositionVelocityTime.calc_uncorrected_transmit_time(state)
     num_bits = floor(Int, offset * rate)
     SatelliteState(;
         decoder = GNSSDecoder.GNSSDecoderState(state.decoder;
-            num_bits_since_sync = num_bits),
+            num_bits_since_time_reference = num_bits),
         signal = state.signal,
         code_phase = (offset - num_bits / rate) * chips,
         carrier_doppler = doppler * Hz,

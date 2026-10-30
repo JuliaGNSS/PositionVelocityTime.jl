@@ -36,7 +36,7 @@
     function as_e5a(state; ifb_shift_s = 0.0, ggto = nothing)
         d = state.decoder.data
         ggto_fields = isnothing(ggto) ? (;) : (; A_0G = ggto, A_1G = 0.0, t_0G = 0, WN_0G = d.WN)
-        e5a_data = GNSSDecoder.GalileoE5aData(; WN = d.WN, TOW = d.TOW, t_0e = d.t_0e,
+        e5a_data = GNSSDecoder.GalileoFNAVData(; WN = d.WN, TOW = d.TOW, t_0e = d.t_0e,
             M_0 = d.M_0, e = d.e, sqrt_A = d.sqrt_A, Ω_0 = d.Ω_0, i_0 = d.i_0, ω = d.ω,
             i_dot = d.i_dot, Ω_dot = d.Ω_dot, Δn = d.Δn, C_uc = d.C_uc, C_us = d.C_us,
             C_rc = d.C_rc, C_rs = d.C_rs, C_ic = d.C_ic, C_is = d.C_is, t_0c = d.t_0c,
@@ -49,7 +49,7 @@
         num_bits, code_phase = bits_and_code_phase(GalileoE5aI(), e5a_data.TOW, target)
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GalileoE5aDecoderState(state.decoder.prn);
             data = e5a_data, raw_data = e5a_data,
-            num_bits_since_sync = num_bits)
+            num_bits_since_time_reference = num_bits)
         SatelliteState(; decoder = dec, signal = GalileoE5aI(), code_phase = code_phase,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end
@@ -74,7 +74,7 @@
         num_bits, code_phase = bits_and_code_phase(GPSL2CM(), l2c_data.TOW, target)
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GPSL2CMDecoderState(state.decoder.prn);
             data = l2c_data, raw_data = l2c_data,
-            num_bits_since_sync = num_bits)
+            num_bits_since_time_reference = num_bits)
         SatelliteState(; decoder = dec, signal = GPSL2CM(), code_phase = code_phase,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end
@@ -92,7 +92,7 @@
         num_bits, code_phase = bits_and_code_phase(GPSL5I(), l5_data.TOW, target)
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GPSL5IDecoderState(state.decoder.prn);
             data = l5_data, raw_data = l5_data,
-            num_bits_since_sync = num_bits)
+            num_bits_since_time_reference = num_bits)
         SatelliteState(; decoder = dec, signal = GPSL5I(), code_phase = code_phase,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end
@@ -111,7 +111,7 @@
                 data = without_isc, raw_data = without_isc),
             signal = state.signal, code_phase = state.code_phase,
             carrier_doppler = state.carrier_doppler, carrier_phase = state.carrier_phase)
-        @test GNSSDecoder.is_decoding_completed_for_positioning(missing_isc.decoder)
+        @test GNSSDecoder.has_positioning_data(missing_isc.decoder)
         @test isnothing(GNSSDecoder.get_group_delay(missing_isc.decoder, GPSL2CM()))
         uncorrected = PositionVelocityTime.calc_uncorrected_transmit_time(missing_isc)
         @test PositionVelocityTime.calc_transmit_time(missing_isc) ==

@@ -260,7 +260,7 @@ end
 function collect_group!(measurements, group::SignalGroup, approximate_year::Integer)
     candidates = NO_IONOSPHERIC_CANDIDATES
     for state in group.satellites
-        is_decoding_completed_for_positioning(state.decoder) || continue
+        has_positioning_data(state.decoder) || continue
         is_sat_healthy(state.decoder) || continue
         push!(measurements, satellite_measurement(state, approximate_year))
         candidates = update_ionospheric_candidates(candidates, state.decoder)

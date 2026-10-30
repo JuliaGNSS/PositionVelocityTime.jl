@@ -101,10 +101,10 @@ read a decoder, through a [`SatelliteState`](@ref), and
 [`calc_satellite_clock_drift`](@ref PositionVelocityTime.calc_satellite_clock_drift) takes
 GNSSDecoder's `BroadcastEphemeris`, for a consumer building or amending a measurement
 itself; the decoder's week, time of week, ephemeris, group delays and broadcast time
-offsets are GNSSDecoder's `get_broadcast_week`, `get_broadcast_time_of_week`,
+offsets are GNSSDecoder's `get_broadcast_week`, `get_decoded_time_of_week`,
 `get_broadcast_ephemeris`, `get_group_delay` and `get_broadcast_time_offset`. Times are seconds-of-week counts on each satellite's own
 system unless a function says otherwise;
-[`calc_leap_second_correction`](@ref PositionVelocityTime.calc_leap_second_correction)
+[`calc_time_scale_offset`](@ref PositionVelocityTime.calc_time_scale_offset)
 moves one onto another system's count and
 [`calc_pseudorange`](@ref PositionVelocityTime.calc_pseudorange) differences two across a
 week crossover, and GNSSSignals' `get_week_start_epoch` dates a week.
@@ -114,7 +114,7 @@ PositionVelocityTime.SPEED_OF_LIGHT
 PositionVelocityTime.calc_transmit_time
 PositionVelocityTime.calc_uncorrected_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
-PositionVelocityTime.calc_leap_second_correction
+PositionVelocityTime.calc_time_scale_offset
 PositionVelocityTime.calc_pseudorange
 PositionVelocityTime.BiasColumns
 PositionVelocityTime.num_parameters

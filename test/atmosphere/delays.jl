@@ -10,7 +10,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
             SatelliteState(;
                 decoder = GNSSDecoderState(
                     GNSSDecoder.GPSL1CADecoderState(9);
-                    raw_data = GNSSDecoder.GPSL1CAData(
+                    raw_data = GNSSDecoder.GPSLNAVData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -56,7 +56,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = nothing,
                         β_3 = nothing,
                     ),
-                    data = GNSSDecoder.GPSL1CAData(
+                    data = GNSSDecoder.GPSLNAVData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -102,7 +102,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = -65536.0,
                         β_3 = -393216.0,
                     ),
-                    num_bits_since_sync = 173,
+                    num_bits_since_time_reference = 173,
                 ),
                 signal = gpsl1,
                 code_phase = 7457.6350011159975,
@@ -112,7 +112,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
             SatelliteState(;
                 decoder = GNSSDecoderState(
                     GNSSDecoder.GPSL1CADecoderState(11);
-                    raw_data = GNSSDecoder.GPSL1CAData(
+                    raw_data = GNSSDecoder.GPSLNAVData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -158,7 +158,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = nothing,
                         β_3 = nothing,
                     ),
-                    data = GNSSDecoder.GPSL1CAData(
+                    data = GNSSDecoder.GPSLNAVData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -204,7 +204,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = -65536.0,
                         β_3 = -393216.0,
                     ),
-                    num_bits_since_sync = 173,
+                    num_bits_since_time_reference = 173,
                     is_shifted_by_180_degrees = true,
                 ),
                 signal = gpsl1,
@@ -215,7 +215,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
             SatelliteState(;
                 decoder = GNSSDecoderState(
                     GNSSDecoder.GPSL1CADecoderState(17);
-                    raw_data = GNSSDecoder.GPSL1CAData(
+                    raw_data = GNSSDecoder.GPSLNAVData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -261,7 +261,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = nothing,
                         β_3 = nothing,
                     ),
-                    data = GNSSDecoder.GPSL1CAData(
+                    data = GNSSDecoder.GPSLNAVData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -307,7 +307,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = -65536.0,
                         β_3 = -393216.0,
                     ),
-                    num_bits_since_sync = 173,
+                    num_bits_since_time_reference = 173,
                 ),
                 signal = gpsl1,
                 code_phase = 17299.53480240955,
@@ -317,7 +317,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
             SatelliteState(;
                 decoder = GNSSDecoderState(
                     GNSSDecoder.GPSL1CADecoderState(27);
-                    raw_data = GNSSDecoder.GPSL1CAData(
+                    raw_data = GNSSDecoder.GPSLNAVData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -363,7 +363,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = nothing,
                         β_3 = nothing,
                     ),
-                    data = GNSSDecoder.GPSL1CAData(
+                    data = GNSSDecoder.GPSLNAVData(
                         last_subframe_id = 2,
                         integrity_status_flag = false,
                         TOW = 259242,
@@ -409,7 +409,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         β_2 = -65536.0,
                         β_3 = -393216.0,
                     ),
-                    num_bits_since_sync = 173,
+                    num_bits_since_time_reference = 173,
                 ),
                 signal = gpsl1,
                 code_phase = 4175.34652009604,
@@ -481,7 +481,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         IOD_nav3 = 0x0000000000000030,
                         IOD_nav4 = 0x0000000000000030,
                         num_pages_after_last_TOW = 4,
-                        num_bits_since_last_TOW = 1010,
+                        tow_anchor_bit_count = 1010,
                         E1B_SHS = GNSSDecoder.signal_ok,
                         E5b_SHS = GNSSDecoder.signal_ok,
                         E1B_DVS = GNSSDecoder.navigation_data_valid,
@@ -520,7 +520,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         IOD_nav3 = 0x0000000000000030,
                         IOD_nav4 = 0x0000000000000030,
                         num_pages_after_last_TOW = 4,
-                        num_bits_since_last_TOW = 1010,
+                        tow_anchor_bit_count = 1010,
                         E1B_SHS = GNSSDecoder.signal_ok,
                         E5b_SHS = GNSSDecoder.signal_ok,
                         E1B_DVS = GNSSDecoder.navigation_data_valid,
@@ -531,7 +531,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         a_i1 = 0.0,
                         a_i2 = 0.0,
                     ),
-                    num_bits_since_sync = 1391,
+                    num_bits_since_time_reference = 1391,
                 ),
                 signal = galileo_e1b,
                 code_phase = 1134.9227691611316,
@@ -569,7 +569,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         IOD_nav3 = 0x0000000000000030,
                         IOD_nav4 = 0x0000000000000030,
                         num_pages_after_last_TOW = 4,
-                        num_bits_since_last_TOW = 1010,
+                        tow_anchor_bit_count = 1010,
                         E1B_SHS = GNSSDecoder.signal_ok,
                         E5b_SHS = GNSSDecoder.signal_ok,
                         E1B_DVS = GNSSDecoder.navigation_data_valid,
@@ -608,7 +608,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         IOD_nav3 = 0x0000000000000030,
                         IOD_nav4 = 0x0000000000000030,
                         num_pages_after_last_TOW = 4,
-                        num_bits_since_last_TOW = 1010,
+                        tow_anchor_bit_count = 1010,
                         E1B_SHS = GNSSDecoder.signal_ok,
                         E5b_SHS = GNSSDecoder.signal_ok,
                         E1B_DVS = GNSSDecoder.navigation_data_valid,
@@ -619,7 +619,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         a_i1 = 0.0,
                         a_i2 = 0.0,
                     ),
-                    num_bits_since_sync = 1388,
+                    num_bits_since_time_reference = 1388,
                 ),
                 signal = galileo_e1b,
                 code_phase = 552.8323205662532,
@@ -657,7 +657,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         IOD_nav3 = 0x0000000000000030,
                         IOD_nav4 = 0x0000000000000030,
                         num_pages_after_last_TOW = 4,
-                        num_bits_since_last_TOW = 1010,
+                        tow_anchor_bit_count = 1010,
                         E1B_SHS = GNSSDecoder.signal_ok,
                         E5b_SHS = GNSSDecoder.signal_ok,
                         E1B_DVS = GNSSDecoder.navigation_data_valid,
@@ -696,7 +696,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         IOD_nav3 = 0x0000000000000030,
                         IOD_nav4 = 0x0000000000000030,
                         num_pages_after_last_TOW = 4,
-                        num_bits_since_last_TOW = 1010,
+                        tow_anchor_bit_count = 1010,
                         E1B_SHS = GNSSDecoder.signal_ok,
                         E5b_SHS = GNSSDecoder.signal_ok,
                         E1B_DVS = GNSSDecoder.navigation_data_valid,
@@ -707,7 +707,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         a_i1 = 0.0,
                         a_i2 = 0.0,
                     ),
-                    num_bits_since_sync = 1388,
+                    num_bits_since_time_reference = 1388,
                     is_shifted_by_180_degrees = true,
                 ),
                 signal = galileo_e1b,
@@ -746,7 +746,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         IOD_nav3 = 0x0000000000000030,
                         IOD_nav4 = 0x0000000000000030,
                         num_pages_after_last_TOW = 4,
-                        num_bits_since_last_TOW = 1010,
+                        tow_anchor_bit_count = 1010,
                         E1B_SHS = GNSSDecoder.signal_ok,
                         E5b_SHS = GNSSDecoder.signal_ok,
                         E1B_DVS = GNSSDecoder.navigation_data_valid,
@@ -785,7 +785,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         IOD_nav3 = 0x0000000000000030,
                         IOD_nav4 = 0x0000000000000030,
                         num_pages_after_last_TOW = 4,
-                        num_bits_since_last_TOW = 1010,
+                        tow_anchor_bit_count = 1010,
                         E1B_SHS = GNSSDecoder.signal_ok,
                         E5b_SHS = GNSSDecoder.signal_ok,
                         E1B_DVS = GNSSDecoder.navigation_data_valid,
@@ -796,7 +796,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                         a_i1 = 0.0,
                         a_i2 = 0.0,
                     ),
-                    num_bits_since_sync = 1388,
+                    num_bits_since_time_reference = 1388,
                     is_shifted_by_180_degrees = true,
                 ),
                 signal = galileo_e1b,

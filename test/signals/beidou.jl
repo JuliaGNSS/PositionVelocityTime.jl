@@ -74,7 +74,7 @@
     function b2a_decoder(state; sat_type = 3, extra...)
         d = state.decoder.data
         A_ref = sat_type == 3 ? 27_906_100.0 : 42_162_200.0
-        data = GNSSDecoder.BeiDouB2aData(;
+        data = GNSSDecoder.BeiDouCNAV2Data(;
             SOW = Int64(d.TOW),
             WN = Int64(800),
             HS = Int64(0),
@@ -129,7 +129,7 @@
         # B-CNAV1 sends the hour of week and the 18 s seconds-of-hour count instead of
         # a seconds-of-week field, so the fixture's time of week has to be split.
         sow = Int64(d.TOW)
-        data = GNSSDecoder.BeiDouB1CData(;
+        data = GNSSDecoder.BeiDouCNAV1Data(;
             HOW = sow ÷ 3600,
             soh = Int((sow % 3600) ÷ 18),
             WN = Int64(800),
@@ -212,7 +212,7 @@
         # B-CNAV1 alone broadcasts no seconds of week: subframe 2 carries the hour of
         # week and subframe 1 the 18 s seconds-of-hour count
         # (BDS-SIS-ICD-B1C-1.0 §7.3), so SOW = HOW·3600 + SOH·18.
-        b1c_data = GNSSDecoder.BeiDouB1CData(; HOW = Int64(36), soh = 25)
+        b1c_data = GNSSDecoder.BeiDouCNAV1Data(; HOW = Int64(36), soh = 25)
         b1c = GNSSDecoder.GNSSDecoderState(
             GNSSDecoder.BeiDouB1CDecoderState(20);
             data = b1c_data,
@@ -405,7 +405,7 @@
         # GPS-referenced: BeiDou needs +14 s.
         stand_in(system) = (; time_system = system)
         offsets(systems, reference) = map(
-            system -> PositionVelocityTime.calc_leap_second_correction(stand_in(system),
+            system -> PositionVelocityTime.calc_time_scale_offset(stand_in(system),
                 reference),
             systems)
         @test offsets([GPST(), BDT(), GST(), BDT()], GPST()) == [0.0, 14.0, 0.0, 14.0]
@@ -423,7 +423,7 @@
         # functions the solve calls.
         #
         # GNSSDecoder reports `A_0` as broadcast, without the 14 s between the BDT and
-        # GPST counts, which `calc_leap_second_correction` applies to the transmit
+        # GPST counts, which `calc_time_scale_offset` applies to the transmit
         # times instead; the steering offset is the polynomial alone.
         to_gpst(decoder, t) = steering(decoder, GPST(), t)
 
@@ -452,7 +452,7 @@
         end
 
         # B-CNAV3 uses the same fields ...
-        b2b_data = GNSSDecoder.BeiDouB2bData(;
+        b2b_data = GNSSDecoder.BeiDouCNAV3Data(;
             WN = Int64(800), GNSS_ID = Int64(1), WN_0BGTO = Int64(799),
             t_0BGTO = Int64(100), A_0BGTO = 5.0e-9, A_1BGTO = 0.0, A_2BGTO = 0.0)
         b2b = GNSSDecoder.GNSSDecoderState(
@@ -462,7 +462,7 @@
 
         # ... while B-CNAV1 pages one record per GNSS into a dictionary, so the GPS
         # one is looked up by key instead of gated on a field.
-        b1c_data = GNSSDecoder.BeiDouB1CData(;
+        b1c_data = GNSSDecoder.BeiDouCNAV1Data(;
             WN = Int64(800),
             bgtos = Dictionary(
                 [1, 2],
@@ -480,7 +480,7 @@
         # The GPS record, not the Galileo one that also sits in the dictionary.
         @test to_gpst(b1c, 132000.0) ≈ 5.0e-9
         # A satellite carrying only a Galileo offset has nothing to convert to GPS.
-        galileo_only = GNSSDecoder.BeiDouB1CData(b1c_data;
+        galileo_only = GNSSDecoder.BeiDouCNAV1Data(b1c_data;
             bgtos = Dictionary([2], [b1c_data.bgtos[2]]))
         @test !has_offset(
             GNSSDecoder.GNSSDecoderState(b1c; data = galileo_only, raw_data = galileo_only),
@@ -529,7 +529,7 @@
         num_bits, code_phase = observables_for(decoder, system, t_tx)
         SatelliteState(;
             decoder = GNSSDecoder.GNSSDecoderState(
-                decoder; num_bits_since_sync = num_bits),
+                decoder; num_bits_since_time_reference = num_bits),
             signal = system,
             code_phase = code_phase,
             carrier_doppler = 0.0Hz,
@@ -576,7 +576,7 @@
             ranging_state(
                 GNSSDecoder.GNSSDecoderState(
                     state.decoder;
-                    data = GNSSDecoder.GPSL1CAData(
+                    data = GNSSDecoder.GPSLNAVData(
                         state.decoder.data; WN = 2156 % 1024, TOW = Int64(t_rx) + 14),
                 ),
                 GPSL1CA(),
@@ -614,7 +614,7 @@
             ranging_state(
                 GNSSDecoder.GNSSDecoderState(
                     state.decoder;
-                    data = GNSSDecoder.GPSL1CAData(
+                    data = GNSSDecoder.GPSLNAVData(
                         state.decoder.data; WN = 2157 % 1024, TOW = Int64(0)),
                 ),
                 GPSL1CA(),
@@ -711,7 +711,7 @@
         #     publishes, which is what an inter-system bias should actually report.
         #
         # So the BeiDou reception time is `t_rx - 14 + Δ`. Without
-        # `calc_leap_second_correction` the 14 s survives into the normal equations
+        # `calc_time_scale_offset` the 14 s survives into the normal equations
         # as a parameter nine orders of magnitude above the others: the separate-clock
         # solve reports a nonsense inter-system bias, and the constrained solve — which
         # pins the BeiDou clock difference to the steering term — fails outright.
@@ -912,7 +912,7 @@
 
         # A constraint is not GPS-specific. A GPS-free scarce epoch ties BeiDou to
         # Galileo instead: the BGTO's GNSS_ID names Galileo (2) as well as GPS (1)
-        # — BDS-SIS-ICD-B1C-1.0 §7.13.1. (The leap-second offset of BDT against GST is
+        # — BDS-SIS-ICD-B1C-1.0 §7.13.1. (The time-scale offset of BDT against GST is
         # the same 14 s as against GPST — both GPST and GST are TAI − 19 s — so the same
         # `structural` and steering values apply.)
         beidou_gal_bgto = ranging_state(

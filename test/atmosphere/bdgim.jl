@@ -320,13 +320,13 @@
     function bdgim_decoder(kind, α, WN)
         state, data = if kind === :b1c
             GNSSDecoder.BeiDouB1CDecoderState(20),
-            GNSSDecoder.BeiDouB1CData(; WN, bdgim_fields(α)...)
+            GNSSDecoder.BeiDouCNAV1Data(; WN, bdgim_fields(α)...)
         elseif kind === :b2a
             GNSSDecoder.BeiDouB2aDecoderState(20),
-            GNSSDecoder.BeiDouB2aData(; WN, bdgim_fields(α)...)
+            GNSSDecoder.BeiDouCNAV2Data(; WN, bdgim_fields(α)...)
         else
             GNSSDecoder.BeiDouB2bDecoderState(20),
-            GNSSDecoder.BeiDouB2bData(; WN, bdgim_fields(α)...)
+            GNSSDecoder.BeiDouCNAV3Data(; WN, bdgim_fields(α)...)
         end
         GNSSDecoder.GNSSDecoderState(state; data, raw_data = data)
     end
@@ -343,7 +343,7 @@
         gps = mk(
             GNSSDecoder.GNSSDecoderState(
                 GNSSDecoderState(GPSL1CA(), 1);
-                data = GNSSDecoder.GPSL1CAData(
+                data = GNSSDecoder.GPSLNAVData(
                     GNSSDecoderState(GPSL1CA(), 1).data;
                     α_0 = klob_α[1], α_1 = klob_α[2], α_2 = klob_α[3], α_3 = klob_α[4],
                     β_0 = klob_β[1], β_1 = klob_β[2], β_2 = klob_β[3], β_3 = klob_β[4],

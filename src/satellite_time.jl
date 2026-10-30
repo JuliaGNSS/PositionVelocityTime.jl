@@ -6,26 +6,23 @@ the decoder's time of week plus the bit, code-phase and carrier-phase fractions,
 the clock polynomial, relativistic and group-delay corrections that
 [`calc_transmit_time`](@ref) applies. It is the time a RINEX pseudorange is measured
 against, as a RINEX reader applies the broadcast clock correction itself.
+The decoded time retains its carry past the end of the broadcast week.
 """
 function calc_uncorrected_transmit_time(state::SatelliteState)
     signal = state.signal
-    # Time of week at the navigation-frame reference epoch, from GNSSDecoder (which
-    # reconstructs it where a message has no seconds-of-week field, as L1C-D and B1C).
-    t_tow = get_broadcast_time_of_week(state.decoder)
-    # The bits are counted at the decoder's bit rate, not the ranging `signal`'s:
-    # the range may be generated on a dataless pilot (L1C-P, E1C) whose rate is 0 Hz.
-    # GNSSDecoder's `num_bits_since_sync` counts these tracked bits.
-    t_bits =
-        state.decoder.num_bits_since_sync / get_bit_rate(state.decoder) * Hz
+    # GNSSDecoder advances the validated navigation stamp to the latest decoded bit.
+    # Preserve its week carry; the broadcast week still belongs to the stamp.
+    t_decoded = something(get_decoded_time_of_week(state.decoder))
     # With joint same-band tracking the code phase can run up to a whole bit,
-    # which `t_bits` already counts; keep only the residual within one bit.
+    # which `t_decoded` already counts; keep only the residual within one bit.
+    # Use the decoder's bit rate: the range may be on a dataless pilot (L1C-P, E1C).
     chips_per_bit =
         ustrip(Hz, get_chip_rate(signal)) / ustrip(Hz, get_bit_rate(state.decoder))
     t_code_phase = mod(state.code_phase, chips_per_bit) / get_chip_rate(signal) * Hz
     # `carrier_phase` is in cycles, as `Tracking.get_carrier_phase` reports it.
     t_carrier_phase = state.carrier_phase / get_center_frequency(signal) * Hz
 
-    t_tow + t_bits + t_code_phase + t_carrier_phase
+    t_decoded + t_code_phase + t_carrier_phase
 end
 
 # The relativistic clock term `F · e · √A · sin E` at `t`.
@@ -70,7 +67,7 @@ decoder's time of week plus the bit, code-phase and carrier-phase fractions, cor
 by the clock polynomial, the relativistic term and the ranging signal's group delay
 (GNSSDecoder's `get_broadcast_ephemeris` and `get_group_delay`; a group delay not yet
 decoded in full counts as zero, a metre or so on one signal). Every ephemeris and clock
-evaluation takes it unconverted (see `calc_leap_second_correction`). The decoder must be
+evaluation takes it unconverted (see `calc_time_scale_offset`). The decoder must be
 complete for positioning.
 """
 calc_transmit_time(state::SatelliteState) = correct_clock(

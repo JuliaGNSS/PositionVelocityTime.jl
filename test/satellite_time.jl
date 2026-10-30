@@ -38,6 +38,25 @@
     end
 end
 
+# The decoder's time is relative to the broadcast week, even when its counter crosses
+# into the following week. Add only the residual code and carrier phase to that time.
+@testset "Decoded transmit time keeps week carry and residual phases" begin
+    signal = GPSL1CA()
+    decoder = GNSSDecoderState(GNSSDecoderState(signal, 1);
+        data = GNSSDecoder.GPSLNAVData(; TOW = 604794),
+        num_bits_since_time_reference = 400)
+    chips = ustrip(Hz, get_chip_rate(signal))
+    rate = ustrip(Hz, get_bit_rate(decoder))
+    carrier_phase = 0.25
+    residual = 0.001
+    state = SatelliteState(; decoder, signal,
+        code_phase = chips / rate + residual * chips,
+        carrier_doppler = 0.0Hz, carrier_phase)
+    @test get_decoded_time_of_week(decoder) == 604802.0
+    @test PositionVelocityTime.calc_uncorrected_transmit_time(state) ≈
+          604802.0 + residual + carrier_phase / ustrip(Hz, get_center_frequency(signal)) rtol = 0 atol = eps(604802.0)
+end
+
 # The clock polynomial's argument is a time *difference*, so it must be folded modulo the
 # week like every other one here. With `t_0c` late in the week and a transmit time just
 # past the rollover, the raw `t - t_0c` reads −603900 s where the elapsed time is +900 s:
@@ -78,9 +97,9 @@ end
     signal = GPSL1CA()
     decoder = GNSSDecoder.GNSSDecoderState(
         GNSSDecoderState(signal, 1);
-        num_bits_since_sync = 0,
-        data = GNSSDecoder.GPSL1CAData(; TOW = 0),
-        raw_data = GNSSDecoder.GPSL1CAData(; TOW = 0),
+        num_bits_since_time_reference = 0,
+        data = GNSSDecoder.GPSLNAVData(; TOW = 0),
+        raw_data = GNSSDecoder.GPSLNAVData(; TOW = 0),
     )
     time_of(carrier_phase) = PositionVelocityTime.calc_uncorrected_transmit_time(
         SatelliteState(; decoder, signal, code_phase = 0.0, carrier_doppler = 0.0Hz,
@@ -123,6 +142,6 @@ end
     # The mixed-constellation straddle: a BeiDou time on the GPS count (SOW + 14) just
     # past 604800 against a GPS time just past 0 — the same instant.
     @test trail(3.0, 604803.0) ≈ 0.0 atol = 1.0
-    # The same, from the BeiDou satellite's own count and its leap-second correction.
+    # The same, from the BeiDou satellite's own count and its time-scale offset.
     @test PositionVelocityTime.calc_pseudorange(3.0, 604789.0, 14.0) ≈ 0.0 atol = 1.0
 end

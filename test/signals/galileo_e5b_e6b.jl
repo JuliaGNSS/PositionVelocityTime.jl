@@ -20,7 +20,7 @@
         GNSSDecoder.GalileoE5bDecoderState(e1b.prn);
         data = data,
         raw_data = data,
-        num_bits_since_sync = e1b.num_bits_since_sync,
+        num_bits_since_time_reference = e1b.num_bits_since_time_reference,
     )
     e5b = as_e5b()
 
@@ -128,7 +128,7 @@
                     GNSSDecoder.GalileoE5bDecoderState(decoder.prn);
                     data = decoder.data,
                     raw_data = decoder.data,
-                    num_bits_since_sync = num_bits,
+                    num_bits_since_time_reference = num_bits,
                 ),
                 signal = GalileoE5bI(),
                 code_phase = code_phase,
@@ -165,7 +165,7 @@ end
         GNSSDecoder.GalileoE6BDecoderState(4);
         data = e6b_data,
         raw_data = e6b_data,
-        num_bits_since_sync = 16,
+        num_bits_since_time_reference = 16,
     )
     e6b_state = SatelliteState(;
         decoder = e6b,
@@ -178,7 +178,7 @@ end
     @testset "never positioning-complete, whatever the service status" begin
         # This is what keeps it out of the solve, and it is a property of the message,
         # not of how much of it has been decoded.
-        @test !GNSSDecoder.is_decoding_completed_for_positioning(e6b)
+        @test !GNSSDecoder.has_positioning_data(e6b)
         @test GNSSDecoder.is_sat_healthy(e6b)          # the HAS *service* is nominal
         for status in (
             GNSSDecoder.has_test_mode,
@@ -186,7 +186,7 @@ end
             GNSSDecoder.has_do_not_use,
         )
             data = GNSSDecoder.GalileoE6BData(; HAS_status = status)
-            @test !GNSSDecoder.is_decoding_completed_for_positioning(
+            @test !GNSSDecoder.has_positioning_data(
                 GNSSDecoder.GNSSDecoderState(e6b; data = data, raw_data = data),
             )
         end
@@ -232,6 +232,21 @@ end
     end
 end
 
+@testset "Galileo E1 replica variants keep canonical measurement identities" begin
+    source = first(galileo_e1b_states(0.0Hz))
+    for (signal, expected_id) in ((GalileoE1B(), :GalileoE1B),
+        (GalileoE1B_CBOC(), :GalileoE1B), (GalileoE1C(), :GalileoE1C),
+        (GalileoE1C_CBOC(), :GalileoE1C))
+        state = SatelliteState(; decoder = source.decoder, signal,
+            code_phase = source.code_phase, carrier_doppler = source.carrier_doppler,
+            carrier_phase = source.carrier_phase)
+        measurement = PositionVelocityTime.satellite_measurement(state, 2021)
+        @test measurement.signal_id == expected_id
+        @test measurement.band_id == :L1
+        @test measurement.transmit_time == PositionVelocityTime.calc_transmit_time(source)
+    end
+end
+
 # ---------------------------------------------------------------------------
 # The group-delay method table, checked as a whole rather than case by case.
 #
@@ -254,31 +269,31 @@ end
     # own constellation is excluded.
     expected = [
         # LNAV: T_GD only, no ISCs -> its own signal, not the L1C components.
-        GNSSDecoder.GPSL1CAData => [GPSL1CA()],
+        GNSSDecoder.GPSLNAVData => [GPSL1CA()],
         # CNAV: ISC_L5I5/L5Q5/L2C. One message on two bands, so both are its own.
         # It also carries ISC_L1CA, which is cross-band and therefore unreachable.
         GNSSDecoder.GPSCNAVData => [GPSL5I(), GPSL5Q(), GPSL2CM(), GPSL2CL()],
         # CNAV-2: the full L1 ISC set. Its ISC_L2C/L5* are cross-band.
-        GNSSDecoder.GPSL1C_DData => [GPSL1C_D(), GPSL1C_P(), GPSL1CA()],
+        GNSSDecoder.GPSCNAV2Data => [GPSL1C_D(), GPSL1C_P(), GPSL1CA()],
         # I/NAV: one message on E1 and E5b. Carries BGD(E1,E5a) too, cross-band.
         GNSSDecoder.GalileoINAVData => [GalileoE1B(), GalileoE1C(),
-            GalileoE1B_BOC11(), GalileoE1C_BOC11(), GalileoE5bI(), GalileoE5bQ()],
+            GalileoE1B_CBOC(), GalileoE1C_CBOC(), GalileoE5bI(), GalileoE5bQ()],
         # F/NAV: E5a only.
-        GNSSDecoder.GalileoE5aData => [GalileoE5aI(), GalileoE5aQ(), GalileoE5aQP()],
+        GNSSDecoder.GalileoFNAVData => [GalileoE5aI(), GalileoE5aQ(), GalileoE5aQP()],
         # D1/D2: one message on B1I and B3I. B3I needs no term at all.
         GNSSDecoder.BeiDouDNAVData => [BeiDouB1I(), BeiDouB3I()],
         # B-CNAV1/2: own band's data component and pilot. Each carries the other
         # band's pilot delay as well, which is cross-band.
-        GNSSDecoder.BeiDouB1CData => [BeiDouB1C_D(), BeiDouB1C_P()],
-        GNSSDecoder.BeiDouB2aData => [BeiDouB2aI(), BeiDouB2aQ()],
+        GNSSDecoder.BeiDouCNAV1Data => [BeiDouB1C_D(), BeiDouB1C_P()],
+        GNSSDecoder.BeiDouCNAV2Data => [BeiDouB2aI(), BeiDouB2aQ()],
         # B-CNAV3: B2b_I has no pilot and no sibling ISC.
-        GNSSDecoder.BeiDouB2bData => [BeiDouB2bI()],
+        GNSSDecoder.BeiDouCNAV3Data => [BeiDouB2bI()],
     ]
     # Every civil ranging signal this package can be handed, by constellation. A new
     # signal added to GNSSSignals must be listed here and placed in `expected`.
     all_signals = Dict(
         :GPS => [GPSL1CA(), GPSL1C_D(), GPSL1C_P(), GPSL2CM(), GPSL2CL(), GPSL5I(), GPSL5Q()],
-        :Galileo => [GalileoE1B(), GalileoE1C(), GalileoE1B_BOC11(), GalileoE1C_BOC11(),
+        :Galileo => [GalileoE1B(), GalileoE1C(), GalileoE1B_CBOC(), GalileoE1C_CBOC(),
             GalileoE5aI(), GalileoE5aQ(), GalileoE5aQP(),
             GalileoE5bI(), GalileoE5bQ(), GalileoE6B(), GalileoE6C()],
         :BeiDou => [BeiDouB1I(), BeiDouB3I(), BeiDouB1C_D(), BeiDouB1C_P(),
