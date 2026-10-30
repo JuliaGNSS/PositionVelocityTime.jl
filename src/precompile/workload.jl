@@ -168,7 +168,7 @@ end
         end
         # The paths that do not vary with the data type, compiled once on GPS L1 C/A.
         l1ca_group = group(GPSL1CA(), l1ca)
-        pvt = something(calc_pvt(l1ca_group; approximate_year = 2021).solution)
+        pvt = calc_pvt(l1ca_group; approximate_year = 2021).solution
         calc_pvt(l1ca_group, pvt; approximate_year = 2021)
         calc_pvt(
             l1ca_group;
@@ -178,16 +178,23 @@ end
         )
         calc_pvt(l1ca; approximate_year = 2021)
         mixed = (gps = l1ca_group, galileo = group(GalileoE1B(), e1b))
-        mixed_pvt = something(calc_pvt(mixed; approximate_year = 2021).solution)
+        mixed_pvt = calc_pvt(mixed; approximate_year = 2021).solution
         calc_pvt(mixed, mixed_pvt; approximate_year = 2021)
+        prepared, parameters = prepare_observations(mixed; approximate_year = 2021)
+        calc_pvt(prepared; ionospheric_model = parameters)
+        calc_pvt!(
+            PVTSolution(),
+            PVTWorkspace(),
+            prepared,
+            mixed_pvt;
+            ionospheric_model = parameters,
+        )
         # The in-place entry point, including the insufficient-observations outcome.
         workspace = PVTWorkspace()
-        in_place = something(
-            calc_pvt!(PVTSolution(), workspace, mixed, mixed_pvt; approximate_year = 2021).solution,
-        )
-        in_place = something(
-            calc_pvt!(in_place, workspace, mixed, in_place; approximate_year = 2021).solution,
-        )
+        in_place =
+            calc_pvt!(PVTSolution(), workspace, mixed, mixed_pvt; approximate_year = 2021).solution
+        in_place =
+            calc_pvt!(in_place, workspace, mixed, in_place; approximate_year = 2021).solution
         calc_pvt!(PVTSolution(), workspace, l1ca[1:3], in_place; approximate_year = 2021)
     end
 end

@@ -213,8 +213,8 @@ end
         # Two groups sharing a ranging signal, as `Dictionary(keys, values)` refused it
         # before the solution was filled in place.
         twice = (a = l1ca, b = l1ca)
-        @test_throws Dictionaries.IndexError solved_pvt(twice; kw...)
-        @test_throws Dictionaries.IndexError solved_pvt!(
+        @test_throws ArgumentError solved_pvt(twice; kw...)
+        @test_throws ArgumentError solved_pvt!(
             PVTSolution(),
             PVTWorkspace(),
             twice,
@@ -224,7 +224,7 @@ end
         # As its own output, the refused epoch leaves `prev_pvt` as it was.
         prev_pvt = solved_pvt((gps = l1ca, galileo = e1b); kw...)
         before = snapshot(prev_pvt)
-        @test_throws Dictionaries.IndexError solved_pvt!(
+        @test_throws ArgumentError solved_pvt!(
             prev_pvt,
             PVTWorkspace(),
             twice,
@@ -400,17 +400,17 @@ end
     @testset "the measurements are collected without allocating" begin
         groups = (gps = l1ca, galileo = e1b)
         measurements = PositionVelocityTime.PreparedObservation[]
-        parameters = PositionVelocityTime.collect_measurements!(
+        parameters = PositionVelocityTime.prepare_observations!(
             measurements,
             groups;
             approximate_year = 2021,
         )
         expected_measurements, expected_parameters =
-            PositionVelocityTime.collect_measurements(groups; approximate_year = 2021)
+            PositionVelocityTime.prepare_observations(groups; approximate_year = 2021)
         @test measurements == expected_measurements
         @test parameters == expected_parameters
         collect_into!(measurements, groups) = @allocated(
-            PositionVelocityTime.collect_measurements!(
+            PositionVelocityTime.prepare_observations!(
                 measurements,
                 groups;
                 approximate_year = 2021,

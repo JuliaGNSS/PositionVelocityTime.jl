@@ -98,7 +98,7 @@ const SupportedTimeSystem = Union{map(typeof, SUPPORTED_TIME_SYSTEMS)...}
     PreparedObservation
 
 One signal observation's contribution to one epoch: the concrete, parameter-free record the solver
-works on. [`collect_measurements`](@ref) has already evaluated everything that depends on
+works on. [`prepare_observations`](@ref) has already evaluated everything that depends on
 the message family, the decoder or the signal, so a mixed-constellation epoch is one
 `Vector{PreparedObservation}`.
 
@@ -147,7 +147,7 @@ struct PreparedObservation
 end
 
 # One satellite state → one measurement: every decoder- and signal-typed call of the solve.
-function satellite_measurement(state::SignalObservation, approximate_year::Integer)
+function prepare_observation(state::SignalObservation, approximate_year::Integer)
     decoder = state.decoder
     signal = state.signal
     ephemeris = something(get_broadcast_ephemeris(decoder))
@@ -176,54 +176,54 @@ function satellite_measurement(state::SignalObservation, approximate_year::Integ
 end
 
 """
-    collect_measurements(groups; approximate_year = year(now(UTC)))
-        -> (Vector{PreparedObservation}, ionospheric_parameters)
+    prepare_observations(groups; approximate_year = year(now(UTC)))
+        -> (Vector{PreparedObservation}, ionospheric_model::IonosphericModel)
 
 Prepare the observation collections of one epoch (see [`calc_pvt`](@ref)) into the solver's input: the
-[`PreparedObservation`](@ref)s, and the ionospheric parameters
-[`select_ionospheric_parameters`](@ref) would pick from the same satellites.
+[`PreparedObservation`](@ref)s, and the [`IonosphericModel`](@ref) selected from the same observations.
 
 A satellite is kept only if its navigation data is complete (checked first, which
-guarantees its health bit is decoded) and it reports healthy. The measurements are in
+guarantees its health bit is decoded), it reports healthy, and it has a decoded time
+anchor. The measurements are in
 collection order × within-collection order (see [`calc_pvt`](@ref), also for `approximate_year`).
 """
-function collect_measurements(groups; approximate_year::Integer = year(now(UTC)))
+function prepare_observations(groups; approximate_year::Integer = year(now(UTC)))
     measurements = PreparedObservation[]
     # Reserve the unfiltered count (a measurement is ~170 bytes) rather than regrow.
     sizehint!(measurements, sum(length, observation_collections(groups); init = 0))
-    measurements, collect_measurements!(measurements, groups; approximate_year)
+    measurements, prepare_observations!(measurements, groups; approximate_year)
 end
 
 """
-    collect_measurements!(measurements::Vector{PreparedObservation}, groups;
+    prepare_observations!(measurements::Vector{PreparedObservation}, groups;
                           approximate_year = year(now(UTC)))
-        -> ionospheric_parameters
+        -> IonosphericModel
 
-[`collect_measurements`](@ref) into `measurements` (emptied first), returning only the
-ionospheric parameters, an `isbits` `Union` returned unboxed. Allocates nothing once its
+[`prepare_observations`](@ref) into `measurements` (emptied first), returning the
+concrete [`IonosphericModel`](@ref) for a prepared solve. Allocates nothing once its
 buffers have grown. It is the pass [`calc_pvt!`](@ref) runs.
 """
-collect_measurements!(
+prepare_observations!(
     measurements::Vector{PreparedObservation},
     groups;
     approximate_year::Integer = year(now(UTC)),
-) = _collect_measurements!(measurements, groups, approximate_year)
+) = IonosphericModel(_prepare_observations!(measurements, groups, approximate_year))
 
 # The collection pass proper. Positional, for the solver's own call.
-function _collect_measurements!(measurements, groups, approximate_year::Integer)
+function _prepare_observations!(measurements, groups, approximate_year::Integer)
     normalized = observation_collections(groups)
     empty!(measurements)
     # In group order. Over the `Tuple`, not the `NamedTuple`, whose `map` would not
     # specialise on the closure and dispatch each group dynamically.
     candidates = map(normalized) do group
-        collect_group!(measurements, group, approximate_year)
+        prepare_collection!(measurements, group, approximate_year)
     end
     select_from_ionospheric_candidates(merge_all_ionospheric_candidates(candidates))
 end
 
 # One collection's observations, appended to `measurements`, and its ionospheric candidates.
 # Specialises on the group's `SignalObservation` type, so every call in the loop is static.
-function collect_group!(
+function prepare_collection!(
     measurements,
     group::ObservationCollection,
     approximate_year::Integer,
@@ -232,7 +232,8 @@ function collect_group!(
     for state in group
         has_positioning_data(state.decoder) || continue
         is_sat_healthy(state.decoder) || continue
-        push!(measurements, satellite_measurement(state, approximate_year))
+        isnothing(get_decoded_time_of_week(state.decoder)) && continue
+        push!(measurements, prepare_observation(state, approximate_year))
         candidates = update_ionospheric_candidates(candidates, state.decoder)
     end
     candidates

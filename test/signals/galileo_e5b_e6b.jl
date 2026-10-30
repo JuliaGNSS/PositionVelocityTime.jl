@@ -253,7 +253,7 @@ end
             carrier_doppler = source.carrier_doppler,
             carrier_phase = source.carrier_phase,
         )
-        measurement = PositionVelocityTime.satellite_measurement(state, 2021)
+        measurement = PositionVelocityTime.prepare_observation(state, 2021)
         @test measurement.signal_id == expected_id
         @test measurement.band_id == :L1
         @test measurement.transmit_time == PositionVelocityTime.calc_transmit_time(source)

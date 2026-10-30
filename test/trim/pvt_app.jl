@@ -64,6 +64,20 @@ function solve(io, name, groups)
             enable_tropospheric_correction = false,
         ),
     )
+    prepared, parameters =
+        PositionVelocityTime.prepare_observations(groups; approximate_year = 2021)
+    report(io, name * " prepared", calc_pvt(prepared; ionospheric_model = parameters))
+    report(
+        io,
+        name * " prepared in place",
+        calc_pvt!(
+            PVTSolution(),
+            PVTWorkspace(),
+            prepared,
+            cold.solution;
+            ionospheric_model = parameters,
+        ),
+    )
     # The in-place solve, warm-started from (and reusing) its own solution.
     workspace = PVTWorkspace()
     in_place =

@@ -92,6 +92,13 @@ collection needs no tuple around it: `calc_pvt(gps_observations, previous)`. Col
 names are ignored. For an empty collection, preserve its concrete element type with
 `gps_observations[1:0]` or supply that concrete type explicitly when constructing it.
 
+Select one observation per satellite and broadcast component. Replica variants may have
+different replica IDs while sharing a canonical `get_signal_id`: `GalileoE1B()` and
+`GalileoE1B_CBOC()` both identify `:GalileoE1B`. Including both for one PRN is a duplicate,
+rejected before fitting even if the epoch otherwise lacks enough observations.
+Preparation skips incomplete or unhealthy navigation data and observations whose decoder
+has no decoded time anchor.
+
 Satellites from different constellations may be combined this way. One receiver clock
 bias is estimated per time system, reported as effective `pvt.inter_system_biases` relative to
 `pvt.reference_system`, so a fix over `M` time systems needs `3 + M` satellites, unless a
@@ -129,3 +136,67 @@ This loop explicitly keeps its last fix on failure. A failed [`calc_pvt!`](@ref)
 the output's containers untouched and carries that output in its result; inspect the
 status before treating it as the current epoch's fix. On success the new solution takes
 over the output's containers, as documented by [`calc_pvt!`](@ref).
+
+### Preparing observations separately
+
+An estimator can prepare the decoder-dependent quantities once, inspect or amend them,
+and pass the concrete vector to the same solver:
+
+```julia
+using PositionVelocityTime: prepare_observations
+
+groups = (gps = gps_observations, galileo = galileo_observations)
+prepared, model = prepare_observations(groups; approximate_year = 2021)
+result = calc_pvt(prepared; ionospheric_model = model)
+if result.status === PositionVelocityTime.solved
+    pvt = result.solution
+end
+```
+
+The prepared overload takes no `approximate_year`: every record already carries its
+resolved week. Pass the returned [`PositionVelocityTime.IonosphericModel`](@ref) through
+`ionospheric_model` to retain the selected correction. This object gives the supported
+broadcast models, including no correction, one common interface. The default is
+`PositionVelocityTime.IonosphericModel(nothing)`, which omits ionospheric correction.
+Both correction switches are enabled by default and can be disabled with
+`enable_ionospheric_correction = false` or `enable_tropospheric_correction = false`.
+[`PositionVelocityTime.prepare_observations!`](@ref) reuses a caller-owned vector;
+[`calc_pvt!`](@ref) also accepts that prepared vector directly.
+
+For custom broadcast coefficients, construct `PositionVelocityTime.IonosphericModel(coefficients)`.
+The optional raw metadata remains accessible as `model.parameters`.
+
+## Cleanup migration
+
+The positioning API uses signal observations as its input and per-observation results
+as its output. The previous names are removed without aliases:
+
+| Previous name | Current name |
+|:---|:---|
+| `SatelliteState` | `SignalObservation` |
+| `SatelliteMeasurement` | `PositionVelocityTime.PreparedObservation` |
+| `SatelliteInfo` | `ObservationResult` |
+| `BroadcastInterSystemBias` | `BroadcastClockConstraint` |
+| `PVTSolution.satellites` | `PVTSolution.observations` |
+| `PVTSolution.applied_broadcast_inter_system_biases` | `PVTSolution.broadcast_clock_constraints` |
+| `PositionVelocityTime.collect_measurements` | `PositionVelocityTime.prepare_observations` |
+| `PositionVelocityTime.collect_measurements!` | `PositionVelocityTime.prepare_observations!` |
+| `PositionVelocityTime.calc_leap_second_correction` | `PositionVelocityTime.calc_time_scale_offset` |
+
+Replace `PositionVelocityTime.SignalGroup(signal, observations)` with the concrete-typed
+observation collection itself. Combine collections in tuples or `NamedTuple`s;
+`PositionVelocityTime.signal_groups` is removed. Read observables from Tracking with its
+existing accessors and construct `SignalObservation` with keyword arguments, as above.
+Tracking's own types keep their names.
+
+Both `calc_pvt` and `calc_pvt!` now return `PVTResult`. Check
+`result.status === PositionVelocityTime.solved` before using `result.solution` as a new
+fix. The seed only initializes the solver. Insufficient observations and degenerate
+geometry have explicit statuses; the receiver chooses any previous-fix fallback.
+An allocating failure carries an empty solution, while an in-place failure carries its
+unchanged output.
+
+The supported qualified measurement-model API remains available through explicit imports
+such as `using PositionVelocityTime: PreparedObservation, prepare_observations`. Julia
+1.11 and later also mark those names `public`; Julia 1.10 remains supported. Workspace
+fields and container-management helpers are internal.

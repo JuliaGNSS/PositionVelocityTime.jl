@@ -81,8 +81,9 @@ tropospheric delay with a blind model (see [`tropospheric_delay`](@ref)).
     solver uses each observation's signal and decoder PRN. Empty collections retain
     their concrete element type (for example `gps_observations[1:0]`).
 
-    Each `(signal, PRN)` pair must appear at most once, or it enters the fit twice; two
-    groups sharing a ranging signal are not checked for collisions.
+    Each `(signal, PRN)` pair must appear at most once. Replica variants share a
+    broadcast signal ID: select one observation per component. Duplicate keys are
+    refused before fitting, including in epochs with too few observations.
 
     **Order is significant**: the measurements are in group order × within-group order,
     which breaks the ties of the reference system ("most satellites, first appearance") and
@@ -187,6 +188,68 @@ function calc_pvt!(
     )
 end
 
+"""
+    calc_pvt(observations::Vector{PreparedObservation}, prev_pvt = PVTSolution();
+             ionospheric_model::IonosphericModel = IonosphericModel(nothing),
+             enable_ionospheric_correction = true,
+             enable_tropospheric_correction = true) -> PVTResult
+
+Solve already prepared observations, for example from [`prepare_observations`](@ref).
+Their absolute weeks, satellite positions and clock corrections have already been
+resolved, so this overload does not read decoders or take `approximate_year`.
+`ionospheric_model` is the second value returned by preparation. The default
+`IonosphericModel(nothing)` skips the ionosphere. The correction switches and result have the same meaning as
+for decoder-backed observations. The input vector is only read.
+"""
+function calc_pvt(
+    observations::Vector{PreparedObservation},
+    prev_pvt::PVTSolution = PVTSolution();
+    ionospheric_model::IonosphericModel = IonosphericModel(nothing),
+    enable_ionospheric_correction::Bool = true,
+    enable_tropospheric_correction::Bool = true,
+)
+    calc_pvt!(
+        PVTSolution(),
+        PVTWorkspace(),
+        observations,
+        prev_pvt;
+        ionospheric_model,
+        enable_ionospheric_correction,
+        enable_tropospheric_correction,
+    )
+end
+
+"""
+    calc_pvt!(solution, workspace, observations::Vector{PreparedObservation}, prev_pvt;
+              ionospheric_model::IonosphericModel = IonosphericModel(nothing),
+              enable_ionospheric_correction = true,
+              enable_tropospheric_correction = true) -> PVTResult
+
+Solve prepared observations using the output containers and scratch buffers of
+[`calc_pvt!`](@ref). The input vector and ionospheric model are only read;
+preparation scratch is not used by this overload. On failure the output containers remain untouched. Reusing a warmed
+workspace and output allocates nothing.
+"""
+function calc_pvt!(
+    solution::PVTSolution,
+    workspace::PVTWorkspace,
+    observations::Vector{PreparedObservation},
+    prev_pvt::PVTSolution;
+    ionospheric_model::IonosphericModel = IonosphericModel(nothing),
+    enable_ionospheric_correction::Bool = true,
+    enable_tropospheric_correction::Bool = true,
+)
+    status, fix = _solve_pvt!(
+        solution,
+        workspace,
+        observations,
+        enable_ionospheric_correction ? ionospheric_model : IonosphericModel(nothing),
+        prev_pvt,
+        enable_tropospheric_correction,
+    )
+    PVTResult(status, fix)
+end
+
 # The collection pass and the solve, specialized on the observation collection shape.
 function _calc_pvt!(
     solution,
@@ -200,7 +263,7 @@ function _calc_pvt!(
     # The function barrier (see collection.jl): the measurements in, one compiled solver
     # behind.
     ionospheric_parameters =
-        _collect_measurements!(workspace.measurements, groups, approximate_year)
+        _prepare_observations!(workspace.measurements, groups, approximate_year)
     status, fix = _solve_pvt!(
         solution,
         workspace,
@@ -224,10 +287,12 @@ function _solve_pvt!(
     enable_tropospheric_correction::Bool,
 )
     num_sats = length(measurements)
+    check_observation_keys(measurements)
 
     # Solvability by the counts; a degenerate geometry is caught after the solve by the DOP.
     layout = workspace.layout
-    decide_bias_layout!(layout, measurements) || return (insufficient_observations, solution)
+    decide_bias_layout!(layout, measurements) ||
+        return (insufficient_observations, solution)
     (; clock_systems, extra_bands, reference_bands, constraints) = layout
     bias_columns = fit_bias_columns(layout)
     (; clock_columns, num_clock_biases) = bias_columns
@@ -407,19 +472,8 @@ function _solve_pvt!(
     # A receiver clock running ahead reads the epoch late by its bias.
     corrected_reference_time = reference_time - clock_bias / SPEED_OF_LIGHT
 
-    # Everything is read from `prev_pvt` by now; `solution`'s containers are written from
-    # here on. A duplicate `(signal, PRN)` is refused before any is, so a throw leaves
-    # `solution` whole; not by `insert!`, whose message formats the key, a dynamic `show`
-    # a `juliac --trim` build rejects.
-    for j = 2:num_sats, k = 1:(j-1)
-        measurements[j].signal_id === measurements[k].signal_id &&
-            measurements[j].prn == measurements[k].prn &&
-            throw(
-                IndexError(
-                    "a (signal, PRN) pair appears twice in one epoch; each must appear once",
-                ),
-            )
-    end
+    # Both geometry checks passed, and everything has been read from `prev_pvt`.
+    # Commit the new observation results and biases to the output containers.
     observations = empty_keeping_capacity!(solution.observations)
     for (j, measurement) in enumerate(measurements)
         key = (measurement.signal_id, measurement.prn)
@@ -480,4 +534,19 @@ function _solve_pvt!(
         dop,
         observations,
     )
+end
+
+# A broadcast component and PRN identify one selected ranging observation, regardless
+# of replica variant. Validate before solving so a bad epoch never double-counts it.
+function check_observation_keys(observations)
+    for j = 2:length(observations), k = 1:(j-1)
+        observations[j].signal_id === observations[k].signal_id &&
+            observations[j].prn == observations[k].prn &&
+            throw(
+                ArgumentError(
+                    "a (signal, PRN) pair appears twice in one epoch; select one observation per broadcast component",
+                ),
+            )
+    end
+    nothing
 end

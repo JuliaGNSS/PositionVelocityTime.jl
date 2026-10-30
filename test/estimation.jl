@@ -141,7 +141,7 @@ end
     # reach a singular solve if the DOP check were ever moved after it.
     @testset "a degenerate line-of-sight set is degenerate for the velocity design" begin
         states = gps_l1_states(0.0Hz)[1:4]
-        measurements, _ = PositionVelocityTime.collect_measurements(
+        measurements, _ = PositionVelocityTime.prepare_observations(
             signal_group(states);
             approximate_year = 2021,
         )

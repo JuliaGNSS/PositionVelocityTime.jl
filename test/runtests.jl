@@ -35,7 +35,7 @@ end
 # reason every `calc_pvt` call here pins it: the fixtures were recorded in 2021 and
 # GPS L1 C/A's week number is 10 bits.
 measurements_of(groups; approximate_year = 2021) =
-    first(PositionVelocityTime.collect_measurements(groups; approximate_year))
+    first(PositionVelocityTime.prepare_observations(groups; approximate_year))
 # `has_offset` is whether GNSSDecoder reports a broadcast time offset toward `target`
 # (at any time of week: whether there is one does not depend on it); `steering` evaluates
 # it at the time of week `t` of the decoder's week.
@@ -130,3 +130,4 @@ include("signals/galileo_e5a.jl")
 include("signals/galileo_e5b_e6b.jl")
 include("signals/beidou.jl")
 include("allocation_free.jl")
+include("prepared_observations.jl")

@@ -27,7 +27,7 @@ Collection names are ignored. For example,
 `calc_pvt((gps = gps_observations, galileo = galileo_observations), previous)` combines
 two collections without a wrapper.
 
-[`PositionVelocityTime.collect_measurements`](@ref) dispatches statically on each
+[`PositionVelocityTime.prepare_observations`](@ref) dispatches statically on each
 collection's element type. The solver sees one
 [`PositionVelocityTime.PreparedObservation`](@ref) per signal observation, a single
 concrete type, and compiles once for every constellation mix. Pooled mixed vectors with
@@ -35,10 +35,16 @@ abstract element types are refused at entry. Empty collections must retain their
 concrete element type, for example `gps_observations[1:0]` or
 `typeof(first(gps_observations))[]`.
 
+Preparation keeps healthy observations with complete positioning data and an available
+decoded time anchor. Select one observation per satellite and canonical broadcast
+component: replica IDs can differ while `get_signal_id` stays the same, as for
+`GalileoE1B()` and `GalileoE1B_CBOC()`. Duplicate `(signal_id, PRN)` keys are rejected
+before solving, including in epochs that cannot satisfy the observation counts.
+
 ```@docs
 PositionVelocityTime.PreparedObservation
-PositionVelocityTime.collect_measurements
-PositionVelocityTime.collect_measurements!
+PositionVelocityTime.prepare_observations
+PositionVelocityTime.prepare_observations!
 PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
 ```
 
@@ -54,6 +60,40 @@ output. Warm-start seeds never become implicit fallbacks.
 calc_pvt
 ```
 
+### Solving prepared observations
+
+The same entry points accept a `Vector{PreparedObservation}` directly:
+
+```julia
+using PositionVelocityTime: PreparedObservation, prepare_observations, prepare_observations!
+
+prepared, model = prepare_observations(groups; approximate_year = 2021)
+result = calc_pvt(prepared; ionospheric_model = model)
+
+buffer = PreparedObservation[]
+model = prepare_observations!(buffer, groups; approximate_year = 2021)
+output = PVTSolution()
+workspace = PVTWorkspace()
+seed = PVTSolution()
+result = calc_pvt!(output, workspace, buffer, seed; ionospheric_model = model)
+```
+
+`prepare_observations` returns the prepared vector and an
+[`IonosphericModel`](@ref PositionVelocityTime.IonosphericModel);
+`prepare_observations!` empties and fills the supplied vector and returns only the model.
+Pass that object unchanged through `ionospheric_model` to retain the selected correction.
+It provides one common interface for the supported broadcast models and for no
+correction. Custom coefficients can be wrapped with
+`PositionVelocityTime.IonosphericModel(coefficients)`; `model.parameters` exposes the
+optional raw metadata.
+
+Prepared solves default to `ionospheric_model = PositionVelocityTime.IonosphericModel(nothing)`,
+which omits ionospheric correction. Both correction flags default to `true`; pass
+`enable_ionospheric_correction = false` or
+`enable_tropospheric_correction = false` to disable the corresponding model. There is
+no `approximate_year` keyword on prepared solves because every week is already resolved.
+Inspect the result's status exactly as for raw observation collections.
+
 ### Allocation-free solving
 
 [`calc_pvt!`](@ref) is the same solve, reusing the containers of the solution it is
@@ -64,7 +104,6 @@ nothing.
 calc_pvt!
 Base.copy(::PVTSolution)
 PVTWorkspace
-PositionVelocityTime.empty_keeping_capacity!
 ```
 
 ## Position and Velocity
@@ -94,10 +133,13 @@ PositionVelocityTime.tropospheric_delay
 
 The pieces [`calc_pvt`](@ref) is assembled from, as a contract for a consumer running its
 own estimator over the same measurement model, such as a navigation filter. They are
-unexported; bind them with `using PositionVelocityTime: collect_measurements, …`.
+supported qualified names; bind them with
+`using PositionVelocityTime: PreparedObservation, prepare_observations, …`. Julia 1.11+
+also records these names as `public`, while Julia 1.10 supports the same explicit
+imports. Workspace fields and container-management helpers are internal.
 
 The surface is specified on the prepared observations: a consumer first calls
-[`PositionVelocityTime.collect_measurements`](@ref), and every per-observation input and
+[`PositionVelocityTime.prepare_observations`](@ref), and every per-observation input and
 output below follows the order of the
 `Vector{`[`PositionVelocityTime.PreparedObservation`](@ref)`}` it returns. The functions
 that read several fields of a measurement take the measurements themselves (the bias

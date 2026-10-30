@@ -101,11 +101,11 @@ constellation, so the first decoder carrying it is used, in the order of the mea
 (see [`calc_pvt`](@ref)).
 
 This standalone form scans every satellite of `groups`, healthy or not;
-[`collect_measurements`](@ref) folds the same scan into the collection pass, where only
+[`prepare_observations`](@ref) folds the same scan into the collection pass, where only
 satellites that clear the health gate are seen.
 """
 function select_ionospheric_parameters(groups)
-    # Over the groups' `Tuple`, not the `NamedTuple`, as in `collect_measurements`.
+    # Over the groups' `Tuple`, not the `NamedTuple`, as in `prepare_observations`.
     candidates = map(observation_collections(groups)) do group
         group_candidates = NO_IONOSPHERIC_CANDIDATES
         for state in group

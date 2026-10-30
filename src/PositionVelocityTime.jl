@@ -3,7 +3,7 @@ using CoordinateTransformations,
     Geodesy, GNSSDecoder, GNSSSignals, LinearAlgebra, StaticArrays, Unitful, Dates
 
 using Unitful: s, Hz, m, °, ustrip
-using Dictionaries: Dictionary, IndexError, set!
+using Dictionaries: Dictionary, set!
 
 # GNSSSignals' week arithmetic, documented but unexported there.
 using GNSSSignals: fold_week_crossover
@@ -28,6 +28,56 @@ export calc_pvt,
 # same measurement model, such as a navigation filter — stay unexported but documented
 # ("The Measurement-Model Surface" in the API reference); bind them with
 # `using PositionVelocityTime: calc_transmit_time, …`.
+
+# Julia 1.11+ records the supported qualified API without importing it into every
+# caller's namespace. Build the expression at load time to retain Julia 1.10 support.
+@static if VERSION >= v"1.11"
+    eval(
+        Expr(
+            :public,
+            :PreparedObservation,
+            :prepare_observations,
+            :prepare_observations!,
+            :SUPPORTED_TIME_SYSTEMS,
+            :SPEED_OF_LIGHT,
+            :calc_course_over_ground,
+            :calc_transmit_time,
+            :calc_uncorrected_transmit_time,
+            :calc_satellite_clock_drift,
+            :calc_time_scale_offset,
+            :calc_pseudorange,
+            :BiasColumns,
+            :num_parameters,
+            :ClockConstraint,
+            :decide_bias_layout,
+            :decide_bias_layout!,
+            :BiasLayout,
+            :fit_bias_columns,
+            :dop_bias_columns,
+            :select_reference_system,
+            :predict_pseudoranges!,
+            :calc_design_matrix,
+            :calc_design_matrix!,
+            :calc_fit_covariance!,
+            :calc_dop,
+            :calc_dop!,
+            :calc_pseudorange_rate,
+            :broadcast_time_offset,
+            :has_broadcast_time_offset,
+            :broadcast_inter_system_bias,
+            :predict_atmospheric_delays,
+            :predict_atmospheric_delays!,
+            :IonosphericModel,
+            :select_ionospheric_parameters,
+            :ionospheric_delay,
+            :tropospheric_delay,
+            :ifb_layout,
+            :solved,
+            :insufficient_observations,
+            :degenerate_geometry,
+        ),
+    )
+end
 
 # Naming conventions. Names a user writes — exports, documented functions, keyword
 # arguments, struct fields — are spelled out ("satellite", not "sat"), except the bias

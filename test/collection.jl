@@ -53,12 +53,12 @@
     @testset "collection is inferable and the solver compiles once" begin
         groups = (gps = gps, galileo = gal)
         measurements, _ =
-            PositionVelocityTime.collect_measurements(groups; approximate_year = 2021)
+            PositionVelocityTime.prepare_observations(groups; approximate_year = 2021)
         @test measurements isa Vector{PositionVelocityTime.PreparedObservation}
         @test isconcretetype(eltype(measurements))
         @test length(measurements) == length(gps) + length(gal)
         @test inferred_return_type(
-            PositionVelocityTime.collect_measurements,
+            PositionVelocityTime.prepare_observations,
             Tuple{typeof(groups)},
         ).parameters[1] === Vector{PositionVelocityTime.PreparedObservation}
         @test inferred_return_type(calc_pvt, Tuple{typeof(groups)}) === PVTResult
@@ -74,9 +74,10 @@
         empty_gps = gps[1:0]
         for input in (empty_gps, (), (;), Dictionary(Int[], empty_gps))
             measurements, parameters =
-                PositionVelocityTime.collect_measurements(input; approximate_year = 2021)
+                PositionVelocityTime.prepare_observations(input; approximate_year = 2021)
             @test isempty(measurements)
-            @test isnothing(parameters)
+            @test parameters isa PositionVelocityTime.IonosphericModel
+            @test isnothing(parameters.parameters)
             @test isnothing(PositionVelocityTime.decide_bias_layout(measurements))
             previous = solved_pvt(gps; kw...)
             result = calc_pvt(input, previous; kw...)

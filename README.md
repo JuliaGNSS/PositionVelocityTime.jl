@@ -6,6 +6,7 @@
 Calculates position, velocity and time from GNSS satellite measurements.
 
 ## Features
+
 * Estimation of user position, velocity and time, with the receiver clock bias and drift
 * Satellite position and velocity from the broadcast ephemerides
 * Dilution of precision (GDOP, PDOP, HDOP, VDOP, TDOP)
@@ -76,6 +77,12 @@ statically dispatched; a pooled mixed vector with an abstract element type is re
 at the entry point. Preserve the element type for an empty collection, for example
 `gps_observations[1:0]`.
 
+Select one observation per satellite and broadcast component. Replica variants such as
+`GalileoE1B()` and `GalileoE1B_CBOC()` share the same canonical signal ID, so including
+both for one PRN is a duplicate. Duplicates are rejected before solving, even when an
+epoch has too few observations. Preparation skips incomplete or unhealthy navigation
+data and observations without a decoded time anchor.
+
 Besides `position`, `velocity` and `time`, the solution reports the receiver `clock_bias`
 (m) and `clock_drift` (m/s), the `dop`, the per-observation residuals in `observations`, and,
 for a multi-GNSS or multi-band fix, the `inter_system_biases` relative to the
@@ -108,6 +115,28 @@ end
 ```
 The estimated time `pvt.time` is GNSSSignals' `TAITime` — whole TAI seconds since J2000
 plus a fraction. With AstroTime loaded, `TAIEpoch(pvt.time)` converts it exactly.
+
+### Preparing observations separately
+
+The same solver accepts a `Vector{PreparedObservation}` directly:
+
+```julia
+using PositionVelocityTime: prepare_observations
+
+prepared, model = prepare_observations(epoch; approximate_year = 2021)
+result = calc_pvt(prepared; ionospheric_model = model)
+```
+
+The prepared week is already resolved, so this overload takes no `approximate_year`.
+Pass the returned model to retain the selected ionospheric correction. For reusable buffers,
+use `prepare_observations!` and the prepared-vector overload of `calc_pvt!`; see the
+[API reference](docs/src/api.md).
+
+### Cleanup migration
+
+Input and output records now use observation names, collections are passed directly,
+and solve outcomes are explicit. The [migration guide](docs/src/index.md#cleanup-migration)
+lists the type, field and preparation-function renames.
 
 ### Trimmed executables
 The solver compiles into a standalone executable with

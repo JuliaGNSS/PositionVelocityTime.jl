@@ -17,8 +17,16 @@
             push!(bare, Symbol(line))
         end
     end
-    # Without `all`, `names` lists the exports.
-    exported = setdiff(names(PVT), [:PositionVelocityTime])
+    # Public qualified bindings also appear in names on Julia 1.11+.
+    exported = filter(
+        name -> Base.isexported(PVT, name) && name !== :PositionVelocityTime,
+        names(PVT),
+    )
     @test sort(bare) == sort(exported)
     @test all(name -> isdefined(PVT, name) && name ∉ exported, qualified)
+    @static if VERSION >= v"1.11"
+        @test all(name -> Base.ispublic(PVT, name), qualified)
+        @test !Base.ispublic(PVT, :empty_keeping_capacity!)
+        @test !Base.ispublic(PVT, :check_observation_keys)
+    end
 end
