@@ -16,7 +16,7 @@ vector rather than a static one, so the solver compiles once rather than once pe
 the matrices sized by it are kept at their largest and used through views.
 """
 mutable struct PVTWorkspace
-    measurements::Vector{SatelliteMeasurement}
+    measurements::Vector{PreparedObservation}
     layout::BiasLayout
     pseudoranges::Vector{Float64}
     prev_ξ::Vector{Float64}
@@ -32,7 +32,7 @@ mutable struct PVTWorkspace
 end
 
 PVTWorkspace() = PVTWorkspace(
-    SatelliteMeasurement[],
+    PreparedObservation[],
     BiasLayout(),
     Float64[],
     Float64[],
@@ -79,7 +79,7 @@ tropospheric delay with a blind model (see [`tropospheric_delay`](@ref)).
   ```
 
   Grouping keeps the solve type-stable (see [`SignalGroup`](@ref)); a pooled
-  `Vector{SatelliteState}` is refused, and [`signal_groups`](@ref) builds the groups from a
+  `Vector{SignalObservation}` is refused, and [`signal_groups`](@ref) builds the groups from a
   Tracking.jl `TrackState`.
 
   Each `(signal, PRN)` pair must appear at most once, or it enters the fit twice; two
@@ -88,7 +88,7 @@ tropospheric delay with a blind model (see [`tropospheric_delay`](@ref)).
   **Order is significant**: the measurements are in group order × within-group order,
   which breaks the ties of the reference system ("most satellites, first appearance") and
   of [`ifb_layout`](@ref)'s reference bands, and orders
-  `PVTSolution.satellites`.
+  `PVTSolution.observations`.
 - `prev_pvt`: the previous solution, the warm start (default: the origin). One whose DOP
   is implausible (`NaN`, or `PDOP` above `MAX_TRUSTED_WARM_START_PDOP` = 50) is not
   used, so a spurious fix cannot re-seed itself.
@@ -141,7 +141,7 @@ end
 over its four containers, emptied and refilled. Afterwards `solution`'s scalar fields still
 describe its own epoch but its containers the new one, so keep a
 [`copy`](@ref Base.copy(::PVTSolution)) of it beforehand if you need it (a `Dictionary` made by `map` over
-`solution.satellites` shares its keys and sees the change too). `prev_pvt` is only read,
+`solution.observations` shares its keys and sees the change too). `prev_pvt` is only read,
 and may be `solution` itself, as in the loop above.
 
 An epoch that cannot be solved returns `prev_pvt`: itself where it shares `solution`'s
@@ -354,10 +354,10 @@ function _solve_pvt!(
             measurements[j].prn == measurements[k].prn && throw(IndexError(
                 "a (signal, PRN) pair appears twice in one epoch; each must appear once"))
     end
-    satellites = empty_keeping_capacity!(solution.satellites)
+    observations = empty_keeping_capacity!(solution.observations)
     for (j, measurement) in enumerate(measurements)
         key = (measurement.signal_id, measurement.prn)
-        set!(satellites, key, SatelliteInfo(measurement.position,
+        set!(observations, key, ObservationResult(measurement.position,
             measurement.transmit_time * s, residuals[j] * m, rate_residuals[j] * (m / s)))
     end
 
@@ -375,10 +375,10 @@ function _solve_pvt!(
             InterFrequencyBias(ξ[3+num_clock_biases+i] * m, reference_bands[i]))
     end
 
-    # The inter-system biases the fit took from a broadcast offset, by time system.
-    applied_biases = empty!(solution.applied_broadcast_inter_system_biases)
+    # The receiver-clock differences constrained by broadcast offsets, by time system.
+    applied_biases = empty!(solution.broadcast_clock_constraints)
     for constraint in constraints
-        push!(applied_biases, BroadcastInterSystemBias(
+        push!(applied_biases, BroadcastClockConstraint(
             clock_systems[constraint.column], clock_systems[constraint.target_column],
             constraint.value * m))
     end
@@ -396,6 +396,6 @@ function _solve_pvt!(
         applied_biases,
         inter_frequency_biases,
         dop,
-        satellites,
+        observations,
     )
 end

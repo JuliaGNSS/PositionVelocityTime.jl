@@ -2,12 +2,12 @@
 #
 # Everything that depends on a satellite's navigation-data type — decoder, ranging signal,
 # propagator, clock polynomial, broadcast time offsets — is evaluated here, once per
-# satellite, into the one concrete `SatelliteMeasurement` the solver works on. This
+# satellite, into the one concrete `PreparedObservation` the solver works on. This
 # is `calc_pvt`'s function barrier: upstream specialises on the group shape (and is
 # small), downstream compiles once for every constellation mix.
 
 """
-    SatelliteState{CP<:Real,D<:GNSSDecoderState,S<:AbstractGNSSSignal}
+    SignalObservation{CP<:Real,D<:GNSSDecoderState,S<:AbstractGNSSSignal}
 
 One satellite's decoder state together with its code and carrier measurements.
 
@@ -22,13 +22,13 @@ One satellite's decoder state together with its code and carrier measurements.
   (default `0.0`).
 
 # Constructors
-    SatelliteState(; decoder, signal, code_phase, carrier_doppler, carrier_phase=0.0)
-    SatelliteState(decoder, signal, tracked_sat)
+    SignalObservation(; decoder, signal, code_phase, carrier_doppler, carrier_phase=0.0)
+    SignalObservation(decoder, signal, tracked_sat)
 
 The second reads the measurements off a `Tracking.TrackedSat`; Tracking.jl defines
 it, so it is available once `Tracking` is loaded.
 """
-@kwdef struct SatelliteState{CP<:Real,D<:GNSSDecoder.GNSSDecoderState,S<:AbstractGNSSSignal}
+@kwdef struct SignalObservation{CP<:Real,D<:GNSSDecoder.GNSSDecoderState,S<:AbstractGNSSSignal}
     decoder::D
     signal::S
     code_phase::CP
@@ -43,14 +43,14 @@ One epoch's measurements of the satellites tracked on one ranging `signal`: the
 counterpart of `Tracking.SignalGroup`, which holds their loop state, with the same group
 and PRN keys. Unexported, so `using Tracking, PositionVelocityTime` does not clash.
 
-Within a group every satellite has one concrete `SatelliteState` type, so the collection
+Within a group every satellite has one concrete `SignalObservation` type, so the collection
 pass dispatches statically on it (see [`collect_measurements`](@ref)).
 
 # Fields
 - `signal::AbstractGNSSSignal`: the ranging signal of every satellite in the group, known
   even when the group is empty.
-- `satellites`: a `Dictionary{Int,<:SatelliteState}` keyed by PRN, or an
-  `AbstractVector{<:SatelliteState}`. Iteration order is significant (see
+- `satellites`: a `Dictionary{Int,<:SignalObservation}` keyed by PRN, or an
+  `AbstractVector{<:SignalObservation}`. Iteration order is significant (see
   [`calc_pvt`](@ref)).
 
 Every satellite's `state.signal` must be `signal`; this is not checked.
@@ -76,7 +76,7 @@ Build one epoch's signal groups, a `NamedTuple` of [`SignalGroup`](@ref)s, from 
 receiver's own per-signal state. Tracking.jl defines the method, taking a
 `Tracking.TrackState` and the receiver's decoders.
 
-There is no method taking a flat `Vector{SatelliteState}`: grouping a pooled vector each
+There is no method taking a flat `Vector{SignalObservation}`: grouping a pooled vector each
 epoch would bring back the dynamic dispatch groups exist to remove. Build the groups where
 the satellites are tracked.
 """
@@ -111,7 +111,7 @@ end
     PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
 
 The GNSS time systems this package solves with, `(GPST(), GST(), BDT())`: those a
-satellite can be on, and those a [`SatelliteMeasurement`](@ref) carries the broadcast time
+satellite can be on, and those a [`PreparedObservation`](@ref) carries the broadcast time
 offsets toward.
 """
 const SUPPORTED_TIME_SYSTEMS = (GPST(), GST(), BDT())
@@ -120,29 +120,29 @@ const SUPPORTED_TIME_SYSTEMS = (GPST(), GST(), BDT())
     PositionVelocityTime.SupportedTimeSystem
 
 `Union{GPST,GST,BDT}`: the GNSS time systems a satellite can be on, which are exactly
-[`SUPPORTED_TIME_SYSTEMS`](@ref). The type of [`SatelliteMeasurement`](@ref)'s
+[`SUPPORTED_TIME_SYSTEMS`](@ref). The type of [`PreparedObservation`](@ref)'s
 `time_system` field, and of the keys and the reference system of a [`PVTSolution`](@ref).
 
 A closed `Union` rather than the abstract `GNSSSignals.TimeSystem`, so every call on a
 time system splits into static branches instead of a dynamic dispatch, which a
-`juliac --trim` build rejects, and a `SatelliteMeasurement` stays one concrete type. A time
+`juliac --trim` build rejects, and a `PreparedObservation` stays one concrete type. A time
 system added later joins `SUPPORTED_TIME_SYSTEMS`, and this follows; a measurement then
 carries a field for the offset toward it, which [`broadcast_time_offset`](@ref) returns.
 """
 const SupportedTimeSystem = Union{map(typeof, SUPPORTED_TIME_SYSTEMS)...}
 
 """
-    SatelliteMeasurement
+    PreparedObservation
 
-One satellite's contribution to one epoch: the concrete, parameter-free record the solver
+One signal observation's contribution to one epoch: the concrete, parameter-free record the solver
 works on. [`collect_measurements`](@ref) has already evaluated everything that depends on
 the message family, the decoder or the signal, so a mixed-constellation epoch is one
-`Vector{SatelliteMeasurement}`.
+`Vector{PreparedObservation}`.
 
 # Fields
 - `prn::Int`: the satellite's PRN, unique only within its constellation.
 - `signal_id::Symbol`: `get_signal_id` of the ranging signal (`:GPSL1CA`, …), half of the
-  `(signal, PRN)` key of `PVTSolution.satellites`.
+  `(signal, PRN)` key of `PVTSolution.observations`.
 - `band_id::Symbol`: `get_band_id` of the ranging signal (`:L1`, `:L5`, …), which groups
   the inter-frequency biases.
 - `time_system::SupportedTimeSystem`: `get_time_system` of the ranging signal, which
@@ -165,7 +165,7 @@ the message family, the decoder or the signal, so a mixed-constellation epoch is
   is broadcast; [`broadcast_time_offset`](@ref) picks one by target. Fields of their own
   rather than a tuple, whose `Union` elements would be stored boxed.
 """
-struct SatelliteMeasurement
+struct PreparedObservation
     prn::Int
     signal_id::Symbol
     band_id::Symbol
@@ -183,14 +183,14 @@ struct SatelliteMeasurement
 end
 
 # One satellite state → one measurement: every decoder- and signal-typed call of the solve.
-function satellite_measurement(state::SatelliteState, approximate_year::Integer)
+function satellite_measurement(state::SignalObservation, approximate_year::Integer)
     decoder = state.decoder
     signal = state.signal
     ephemeris = something(get_broadcast_ephemeris(decoder))
     transmit_time = correct_clock(ephemeris, group_delay(decoder, signal),
         calc_uncorrected_transmit_time(state))
     pos_and_vel = calc_satellite_position_and_velocity(ephemeris, transmit_time)
-    SatelliteMeasurement(
+    PreparedObservation(
         decoder.prn,
         get_signal_id(signal),
         get_band_id(signal),
@@ -210,10 +210,10 @@ end
 
 """
     collect_measurements(groups; approximate_year = year(now(UTC)))
-        -> (Vector{SatelliteMeasurement}, ionospheric_parameters)
+        -> (Vector{PreparedObservation}, ionospheric_parameters)
 
 Flatten the signal groups of one epoch (see [`calc_pvt`](@ref)) into the solver's input: the
-[`SatelliteMeasurement`](@ref)s, and the ionospheric parameters
+[`PreparedObservation`](@ref)s, and the ionospheric parameters
 [`select_ionospheric_parameters`](@ref) would pick from the same satellites.
 
 A satellite is kept only if its navigation data is complete (checked first, which
@@ -221,7 +221,7 @@ guarantees its health bit is decoded) and it reports healthy. The measurements a
 group order × within-group order (see [`calc_pvt`](@ref), also for `approximate_year`).
 """
 function collect_measurements(groups; approximate_year::Integer = year(now(UTC)))
-    measurements = SatelliteMeasurement[]
+    measurements = PreparedObservation[]
     # Reserve the unfiltered count (a measurement is ~170 bytes) rather than regrow.
     sizehint!(measurements, sum(group -> length(group.satellites),
         _normalize_signal_groups(groups); init = 0))
@@ -229,7 +229,7 @@ function collect_measurements(groups; approximate_year::Integer = year(now(UTC))
 end
 
 """
-    collect_measurements!(measurements::Vector{SatelliteMeasurement}, groups;
+    collect_measurements!(measurements::Vector{PreparedObservation}, groups;
                           approximate_year = year(now(UTC)))
         -> ionospheric_parameters
 
@@ -238,7 +238,7 @@ ionospheric parameters, an `isbits` `Union` returned unboxed. Allocates nothing 
 buffers have grown. It is the pass [`calc_pvt!`](@ref) runs.
 """
 collect_measurements!(
-    measurements::Vector{SatelliteMeasurement},
+    measurements::Vector{PreparedObservation},
     groups;
     approximate_year::Integer = year(now(UTC)),
 ) = _collect_measurements!(measurements, groups, approximate_year)
@@ -256,7 +256,7 @@ function _collect_measurements!(measurements, groups, approximate_year::Integer)
 end
 
 # One group's satellites, appended to `measurements`; returns its ionospheric candidates.
-# Specialises on the group's `SatelliteState` type, so every call in the loop is static.
+# Specialises on the group's `SignalObservation` type, so every call in the loop is static.
 function collect_group!(measurements, group::SignalGroup, approximate_year::Integer)
     candidates = NO_IONOSPHERIC_CANDIDATES
     for state in group.satellites

@@ -49,7 +49,7 @@ end
     rate = ustrip(Hz, get_bit_rate(decoder))
     carrier_phase = 0.25
     residual = 0.001
-    state = SatelliteState(; decoder, signal,
+    state = SignalObservation(; decoder, signal,
         code_phase = chips / rate + residual * chips,
         carrier_doppler = 0.0Hz, carrier_phase)
     @test get_decoded_time_of_week(decoder) == 604802.0
@@ -91,7 +91,7 @@ end
 end
 
 # The carrier-phase term refines the transmit time by a fraction of a carrier cycle.
-# `SatelliteState.carrier_phase` is in cycles (`Tracking.get_carrier_phase`), so it is
+# `SignalObservation.carrier_phase` is in cycles (`Tracking.get_carrier_phase`), so it is
 # divided by the centre frequency as it is.
 @testset "Carrier-phase transmit-time term treats carrier_phase as cycles" begin
     signal = GPSL1CA()
@@ -102,7 +102,7 @@ end
         raw_data = GNSSDecoder.GPSLNAVData(; TOW = 0),
     )
     time_of(carrier_phase) = PositionVelocityTime.calc_uncorrected_transmit_time(
-        SatelliteState(; decoder, signal, code_phase = 0.0, carrier_doppler = 0.0Hz,
+        SignalObservation(; decoder, signal, code_phase = 0.0, carrier_doppler = 0.0Hz,
             carrier_phase),
     )
 

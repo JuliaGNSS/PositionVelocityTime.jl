@@ -263,7 +263,7 @@ dop_bias_columns(layout::BiasLayout) = BiasColumns(layout.clock_group_columns,
     decide_bias_layout(measurements) -> Union{BiasLayout,Nothing}
 
 Decide the least-squares bias layout (see [`BiasLayout`](@ref)) for the
-[`SatelliteMeasurement`](@ref)s of one epoch, or `nothing` when the epoch cannot be
+[`PreparedObservation`](@ref)s of one epoch, or `nothing` when the epoch cannot be
 solved.
 
 Every time system present gets its own clock column. A broadcast time offset between two
@@ -283,12 +283,15 @@ a [`ClockConstraint`](@ref) row, but only where the satellites cannot separate t
    appearance).
 3. If no set connects the coverage graph, the smallest set that satisfies the counts is
    used (none, if the satellites already suffice). A band stranded on its own
-   constellation then gets no IFB column, so the reported inter-system bias reads
-   `GGTO + (IFB difference)`; position, residuals and DOP are unaffected.
+   constellation then gets no IFB column, so its effective inter-system bias also
+   absorbs the difference between the components' reference-band receiver delays;
+   position, residuals and DOP are unaffected.
 
 Failing all three, the epoch is unsolvable. Each constraint pins an otherwise
 unobservable direction, so the fit meets it exactly and the constrained system's
-inter-system bias reads as the broadcast `−c·Δt`. Galileo's GGTO (specified to 20 ns,
+effective inter-system bias reads as the broadcast `−c·Δt`, assuming receiver-delay
+differences are captured by the shared per-band model. Unmodelled receiver delays can
+therefore affect a constrained result. Galileo's GGTO (specified to 20 ns,
 95 %) is preferred over GPS's. A constraint is evaluated at the transmit time of the first
 satellite carrying it ([`broadcast_inter_system_bias`](@ref)).
 
@@ -511,15 +514,17 @@ select_reference_clock_column(layout::BiasLayout) = argmax(layout.sat_counts)
 """
     broadcast_inter_system_bias(measurement, target) -> Union{Nothing,Float64}
 
-The inter-system bias (metres) of `measurement`'s time system against `target` that the
+The clock difference (metres) of `measurement`'s time system against `target` that the
 broadcast offset predicts at its transmit time: `−c · Δt_systems`, with `Δt_systems` the
 broadcast offset ([`broadcast_time_offset`](@ref)). It is the clock difference
 `tc_own − tc_target` a [`ClockConstraint`](@ref) fixes, signed like [`PVTSolution`](@ref)'s
 `inter_system_biases`. Zero when `measurement` is of `target`, `nothing` where it carries
 no usable offset toward it ([`has_broadcast_time_offset`](@ref)).
+Using it as a constraint assumes differential receiver delays are represented by the
+shared per-band delay model; a broadcast system-time offset cannot measure those delays.
 """
 function broadcast_inter_system_bias(
-    measurement::SatelliteMeasurement,
+    measurement::PreparedObservation,
     target::SupportedTimeSystem,
 )
     measurement.time_system === target && return 0.0

@@ -6,13 +6,8 @@
 # Needs only GNSSDecoder, GNSSSignals, PositionVelocityTime and Unitful's Hz — no
 # test-only dependencies, so the benchmark script can include it directly.
 
-# AirspeedVelocity runs the benchmark script against both the PR and the base
-# revision, and before 8.0 `SatelliteState` called its ranging signal `system`. The
-# fixtures below are written with `signal`; this hands it on under whichever name the
-# loaded revision takes. Drop it once the base revision of the comparison is 8.0.
-sat_state(; signal, kwargs...) =
-    hasfield(SatelliteState, :signal) ? SatelliteState(; signal, kwargs...) :
-    SatelliteState(; system = signal, kwargs...)
+# Construct one observation from the shared recorded observables.
+sat_state(; kwargs...) = SignalObservation(; kwargs...)
 
 "5 Galileo E1B satellites; `freq_offset` shifts every carrier Doppler."
 function galileo_e1b_states(freq_offset)

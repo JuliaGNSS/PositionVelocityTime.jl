@@ -513,7 +513,7 @@
         (num_bits, code_phase)
     end
 
-    "A `SatelliteState` whose observables place the receiver at `user` at time `t_rx`."
+    "A `SignalObservation` whose observables place the receiver at `user` at time `t_rx`."
     function ranging_state(decoder, system, user, t_rx)
         # Solve the light-time equation against the *same* range model the solver
         # uses, which rotates the satellite into the ECEF frame of the reception
@@ -527,7 +527,7 @@
             t_tx = t_rx - norm(rotated - user) / C
         end
         num_bits, code_phase = observables_for(decoder, system, t_tx)
-        SatelliteState(;
+        SignalObservation(;
             decoder = GNSSDecoder.GNSSDecoderState(
                 decoder; num_bits_since_time_reference = num_bits),
             signal = system,
@@ -552,7 +552,7 @@
             for (i, state) in enumerate(galileo)
         ]
         pvt = calc_pvt(signal_group(b1i); kw...)
-        @test length(pvt.satellites) == length(galileo)
+        @test length(pvt.observations) == length(galileo)
         @test pvt.reference_system == BDT()
         @test norm(pvt.position - user) < 1e-2
         # One constellation, one band, so no inter-system or inter-frequency biases.
@@ -676,7 +676,7 @@
 
             pvt_data = calc_pvt(signal_group(on_data); kw...)
             pvt_pilot = calc_pvt(signal_group(on_pilot); kw...)
-            @test length(pvt_pilot.satellites) == length(galileo)
+            @test length(pvt_pilot.observations) == length(galileo)
             @test norm(pvt_pilot.position - user) < 1e-2
             @test norm(pvt_pilot.position - pvt_data.position) < 1e-2
             # Same satellite, same band — so a pilot-ranged epoch is one band and one
@@ -692,7 +692,7 @@
             for state in galileo
         ]
         pvt = calc_pvt(signal_group(b2a_states); kw...)
-        @test length(pvt.satellites) == length(galileo)
+        @test length(pvt.observations) == length(galileo)
         @test norm(pvt.position - user) < 1e-2
     end
 
@@ -741,7 +741,7 @@
         plenty_beidou = beidou([21, 22, 23, 24])
         plenty = (signal_group(gps), signal_group(plenty_beidou))
         pvt = calc_pvt(plenty; kw...)
-        @test length(pvt.satellites) == length(gps) + length(plenty_beidou)
+        @test length(pvt.observations) == length(gps) + length(plenty_beidou)
         @test norm(pvt.position - user) < 1e-2
         @test haskey(pvt.inter_system_biases, BDT())
         # The steering term alone, ~3.6 m — not the 4.2e9 m the structural count
@@ -797,7 +797,7 @@
 
         constrained = calc_pvt(scarce; kw...)
         @test constrained.reference_system == GPST()
-        @test length(constrained.satellites) == 4
+        @test length(constrained.observations) == 4
         # A 4-satellite solve has no redundancy at all, so the millimetre-scale
         # time-of-week rounding noise described above is not averaged down here the
         # way it is in the 5-satellite fixes; a few centimetres is the honest bound.
@@ -807,7 +807,7 @@
         # difference unobservable, so the fit meets the constraint exactly.
         @test ustrip(m, constrained.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
         # And the solution says so.
-        bgto = only(constrained.applied_broadcast_inter_system_biases)
+        bgto = only(constrained.broadcast_clock_constraints)
         @test (bgto.system, bgto.target) == (BDT(), GPST())
         @test ustrip(m, bgto.value) ≈ -C * Δ atol = 1e-2
         @test bgto.value ≈ constrained.inter_system_biases[BDT()] atol = 1e-6m
@@ -826,7 +826,7 @@
             A_0G = 3.0e-9, A_1G = 0.0, t_0G = 0,
             WN_0G = galileo[5].decoder.data.WN,
         )
-        galileo_ggto = SatelliteState(;
+        galileo_ggto = SignalObservation(;
             decoder = GNSSDecoder.GNSSDecoderState(
                 galileo[5].decoder; data = ggto_data, raw_data = ggto_data),
             signal = galileo[5].signal,
@@ -857,15 +857,15 @@
         mixed_pvt = calc_pvt(mixed; kw...)
         @test norm(mixed_pvt.position - user) < 5e-2
         @test ustrip(m, mixed_pvt.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
-        @test mixed_pvt.applied_broadcast_inter_system_biases ==
-              [BroadcastInterSystemBias(BDT(), GPST(), constraint.value * m)]
+        @test mixed_pvt.broadcast_clock_constraints ==
+              [BroadcastClockConstraint(BDT(), GPST(), constraint.value * m)]
 
         # The constraint goes to the system with the fewest satellites, wherever it
         # appears: with a second Galileo satellite, BeiDou's single one is the least
         # observed clock even though Galileo comes first. (A relabelled copy of a
         # measurement stands in for the second Galileo satellite; only the decision is under
         # test.)
-        with_prn(measurement, prn) = PositionVelocityTime.SatelliteMeasurement(
+        with_prn(measurement, prn) = PositionVelocityTime.PreparedObservation(
             (f === :prn ? prn : getfield(measurement, f)
              for f in fieldnames(typeof(measurement)))...)
         gps_sats = mixed_measurements[1:3]
@@ -945,7 +945,7 @@
 
         gst_constrained = calc_pvt(gps_free; kw...)
         @test gst_constrained.reference_system == GST()
-        @test length(gst_constrained.satellites) == 4
+        @test length(gst_constrained.observations) == 4
         @test norm(gst_constrained.position - user) < 5e-2
         @test ustrip(m, gst_constrained.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
     end

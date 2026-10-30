@@ -73,7 +73,7 @@ end
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
 
-# Marks a GPS L1 C/A SatelliteState's decoder unhealthy: the six health bits are the
+# Marks a GPS L1 C/A SignalObservation's decoder unhealthy: the six health bits are the
 # subframe-1 SV health word, and a set MSB (nav data bad) is what `is_sat_healthy`
 # rejects.
 function with_health_bad(state)
@@ -81,7 +81,7 @@ function with_health_bad(state)
     unhealthy(data) = GNSSDecoder.GPSLNAVData(data; sv_health = 0b100000)
     new_decoder = GNSSDecoder.GNSSDecoderState(
         d; raw_data = unhealthy(d.raw_data), data = unhealthy(d.data))
-    SatelliteState(;
+    SignalObservation(;
         decoder = new_decoder,
         signal = state.signal,
         code_phase = state.code_phase,
@@ -112,7 +112,7 @@ end
     @test pvt.reference_system == GPST()
     @test Set(keys(pvt.inter_system_biases)) == Set([GST()])
     # Enough satellites to separate the clocks: no broadcast offset is taken as given.
-    @test isempty(pvt.applied_broadcast_inter_system_biases)
+    @test isempty(pvt.broadcast_clock_constraints)
 
     # The combined fix agrees with each single-system fix and with the
     # GPS-anchored time scale.
@@ -131,24 +131,24 @@ end
     # Satellites are keyed by (signal, PRN), so both constellations are represented
     # and nothing is merged or dropped across systems: the combined count equals the
     # sum of the single-system counts (PRNs here don't overlap).
-    @test all(k -> k isa Tuple{Symbol,Int}, keys(pvt.satellites))
-    @test Set(first(k) for k in keys(pvt.satellites)) == Set([:GPSL1CA, :GalileoE1B])
-    @test length(pvt.satellites) ==
-          length(gps_only.satellites) + length(gal_only.satellites)
+    @test all(k -> k isa Tuple{Symbol,Int}, keys(pvt.observations))
+    @test Set(first(k) for k in keys(pvt.observations)) == Set([:GPSL1CA, :GalileoE1B])
+    @test length(pvt.observations) ==
+          length(gps_only.observations) + length(gal_only.observations)
     # A satellite not used in the fix has no entry.
-    @test !haskey(pvt.satellites, (:GPSL1CA, 999))
+    @test !haskey(pvt.observations, (:GPSL1CA, 999))
 
-    # Per-satellite post-fit residuals are exposed via SatelliteInfo (measured − modeled
+    # Per-satellite post-fit residuals are exposed via ObservationResult (measured − modeled
     # pseudorange, metres); finite and small for a good fix.
-    resids = [info.residual for info in values(pvt.satellites)]
-    @test length(resids) == length(pvt.satellites)
+    resids = [info.residual for info in values(pvt.observations)]
+    @test length(resids) == length(pvt.observations)
     @test all(isfinite, resids)
     @test maximum(abs, resids) < 10m
 
     # The rate-domain counterpart from the Doppler solve (measured − modeled range
     # rate, m/s): finite, and metre-per-second-level for a stationary receiver.
-    rate_resids = [info.rate_residual for info in values(pvt.satellites)]
-    @test length(rate_resids) == length(pvt.satellites)
+    rate_resids = [info.rate_residual for info in values(pvt.observations)]
+    @test length(rate_resids) == length(pvt.observations)
     @test all(isfinite, rate_resids)
     @test maximum(abs, rate_resids) < 10.0m/s
 
@@ -177,7 +177,7 @@ end
         pvt = calc_pvt(scarce; kwargs...)
         @test pvt.position == ECEF(0, 0, 0)
         @test isnothing(pvt.time)
-        @test isempty(pvt.satellites)
+        @test isempty(pvt.observations)
         # Given a previous fix, that fix is what is carried forward.
         @test calc_pvt(scarce, reference; kwargs...) === reference
     end
@@ -216,8 +216,8 @@ end
         @test norm(warm.position - cold.position) < 1e-4
         @test warm.time ≈ cold.time
         # The residuals are those of the converged fit, not of the stale position.
-        @test maximum(abs, [info.residual for info in values(warm.satellites)]) ≈
-              maximum(abs, [info.residual for info in values(cold.satellites)]) rtol = 1e-6
+        @test maximum(abs, [info.residual for info in values(warm.observations)]) ≈
+              maximum(abs, [info.residual for info in values(cold.observations)]) rtol = 1e-6
     end
 end
 
@@ -259,8 +259,8 @@ end
     @test recovered.dop.PDOP ≈ good.dop.PDOP
     @test recovered.dop.PDOP < PositionVelocityTime.MAX_TRUSTED_WARM_START_PDOP
     # Nothing of the poisoned seed survives into the reported satellite set.
-    @test maximum(abs, [info.residual for info in values(recovered.satellites)]) ≈
-          maximum(abs, [info.residual for info in values(good.satellites)]) rtol = 1e-6
+    @test maximum(abs, [info.residual for info in values(recovered.observations)]) ≈
+          maximum(abs, [info.residual for info in values(good.observations)]) rtol = 1e-6
 
     # A rank-deficient previous geometry, `NaN` DOPs, is not trusted either.
     rank_deficient = PVTSolution(; position = poisoned.position,
@@ -291,7 +291,7 @@ function retimed_state(state, transmit_time, doppler)
              mod(state.code_phase, chips / rate) / chips +
              uncorrected - PositionVelocityTime.calc_uncorrected_transmit_time(state)
     num_bits = floor(Int, offset * rate)
-    SatelliteState(;
+    SignalObservation(;
         decoder = GNSSDecoder.GNSSDecoderState(state.decoder;
             num_bits_since_time_reference = num_bits),
         signal = state.signal,
@@ -347,7 +347,7 @@ end
     @test norm(pvt.position - user_pos) < 1e-2
     @test norm(pvt.velocity - user_vel) < 1e-5
     @test ustrip(m / s, pvt.clock_drift) ≈ clock_drift atol = 1e-5
-    @test maximum(info -> abs(ustrip(m / s, info.rate_residual)), pvt.satellites) < 1e-5
+    @test maximum(info -> abs(ustrip(m / s, info.rate_residual)), pvt.observations) < 1e-5
 end
 
 # `calc_pvt` starts the velocity solve from the previous solution it trusts. The fix does
@@ -359,7 +359,7 @@ end
     groups = signal_group(gps_l1_states(0.0Hz))
     cold = calc_pvt(groups; kwargs...)
     warm = calc_pvt(groups, cold; kwargs...)
-    rate_residuals(pvt) = [ustrip(m / s, info.rate_residual) for info in pvt.satellites]
+    rate_residuals(pvt) = [ustrip(m / s, info.rate_residual) for info in pvt.observations]
     @test norm(warm.velocity - cold.velocity) < 1e-9
     @test warm.clock_drift ≈ cold.clock_drift atol = 1e-9m / s
     @test maximum(abs, rate_residuals(warm) - rate_residuals(cold)) < 1e-9

@@ -23,9 +23,9 @@ struct DOP
 end
 
 """
-    SatelliteInfo
+    ObservationResult
 
-One satellite's entry in a [`PVTSolution`](@ref).
+One signal observation's result in a [`PVTSolution`](@ref), keyed by signal and PRN.
 
 # Fields
 - `position::ECEF{Float64}`: ECEF position at transmit time (m).
@@ -43,7 +43,7 @@ geometric sense, positive while the satellite recedes, as `resdop`'s is; the
 Doppler-signed rate a tracking loop works in, `λ · carrier_doppler`, is its negative.
 This is the convention every residual and rate in the package follows.
 """
-struct SatelliteInfo
+struct ObservationResult
     position::ECEF{Float64}
     transmit_time::typeof(1.0s)
     residual::typeof(1.0m)
@@ -69,13 +69,15 @@ struct InterFrequencyBias
 end
 
 """
-    BroadcastInterSystemBias
+    BroadcastClockConstraint
 
-An inter-system bias a [`PVTSolution`](@ref) took from a broadcast GNSS time offset (GGTO,
-BGTO) rather than estimated, where the satellites could not separate the two receiver
-clocks (see [`decide_bias_layout`](@ref)). It carries whatever error the broadcast has,
-and each one fixes an unknown: a fix estimates `3 + (1 + length(inter_system_biases)) +
-length(inter_frequency_biases) − length(applied_broadcast_inter_system_biases)` parameters.
+A receiver-clock difference a [`PVTSolution`](@ref) constrained with a broadcast GNSS
+time offset (GGTO, BGTO), where the observations could not separate the two receiver
+clocks (see [`decide_bias_layout`](@ref)). This assumes any differential receiver delay
+between those clocks is captured by the shared per-band delay model. Unmodelled receiver
+delays and errors in the broadcast offset therefore enter the constrained result.
+Each constraint fixes an unknown: a fix estimates `3 + (1 + length(inter_system_biases)) +
+length(inter_frequency_biases) − length(broadcast_clock_constraints)` parameters.
 
 # Fields
 - `system::SupportedTimeSystem`: the time system whose broadcast offset was used.
@@ -85,7 +87,7 @@ length(inter_frequency_biases) − length(applied_broadcast_inter_system_biases)
   inter-system bias of `system` minus that of `target`, the reference system's counting as
   zero, equals it to rounding.
 """
-struct BroadcastInterSystemBias
+struct BroadcastClockConstraint
     system::SupportedTimeSystem
     target::SupportedTimeSystem
     value::typeof(1.0m)
@@ -111,25 +113,27 @@ Position, velocity and time solved from GNSS measurements.
 - `reference_system::Union{SupportedTimeSystem, Nothing}`: the time system (e.g. `GPST()`)
   that `time` and `clock_bias` refer to.
 - `inter_system_biases::Dictionary{SupportedTimeSystem, typeof(1.0m)}`: for each other time
-  system, its clock bias minus the reference system's (m). It is a system effect, not a
-  receiver one — the offset between the two system times, so the Galileo entry is
-  `−c · Δt` with `Δt = GST − GPST` (the GGTO), and the BeiDou one carries BDT's steering
-  residual, never the defined 14 s (GNSSSignals' `get_time_scale_offset`). It is
-  estimated from the geometry wherever observable; a broadcast GGTO or BGTO fixes it only
-  where the satellites cannot (see [`decide_bias_layout`](@ref)). The difference of two
-  entries is the bias between those two systems; empty for a single-system solution.
-- `applied_broadcast_inter_system_biases::Vector{BroadcastInterSystemBias}`: the
-  inter-system biases taken from a broadcast time offset rather than estimated, one per
-  pair of clocks it tied (see [`BroadcastInterSystemBias`](@ref)). Empty whenever the
+  system, its effective receiver clock bias minus the reference system's (m), under a
+  model with one receiver delay shared by all systems on each band. It includes the
+  system-time offset (`−c · Δt`, with `Δt = GST − GPST` for Galileo) and receiver delays
+  not separated by that model. When constellation × band coverage is disconnected,
+  different components' reference-band delays also enter this difference. The defined
+  14 s between BDT and GPST is already removed by `get_time_scale_offset`. The bias is
+  estimated wherever observable; a broadcast GGTO or BGTO constrains it only where the
+  observations cannot (see [`decide_bias_layout`](@ref)). The difference of two entries
+  is their effective clock-bias difference; empty for a single-system solution.
+- `broadcast_clock_constraints::Vector{BroadcastClockConstraint}`: the
+  clock differences constrained by a broadcast time offset, one per
+  pair of clocks it tied (see [`BroadcastClockConstraint`](@ref)). Empty whenever the
   satellites separate every clock, the usual case.
 - `inter_frequency_biases::Dictionary{Symbol, InterFrequencyBias}`: for each band beyond a
   reference band (keyed by `get_band_id`, e.g. `:L5`), the receiver inter-frequency bias,
   shared by every constellation on that band. Empty for a single-band solution.
 - `dop::Union{DOP, Nothing}`: dilution of precision.
-- `satellites::Dictionary{Tuple{Symbol, Int}, SatelliteInfo}`: per satellite, keyed by
+- `observations::Dictionary{Tuple{Symbol, Int}, ObservationResult}`: per observation, keyed by
   `(signal, PRN)` with the signal id of `get_signal_id` (e.g. `:GPSL1CA`), which keeps a
   PRN apart across constellations and across the signals of one satellite (see
-  [`SatelliteInfo`](@ref)).
+  [`ObservationResult`](@ref)).
 
 Immutable. [`calc_pvt!`](@ref) returns a new solution that takes over the containers of
 the one handed to it; [`calc_pvt`](@ref) builds new ones and never modifies `prev_pvt`.
@@ -144,13 +148,13 @@ the one handed to it; [`calc_pvt`](@ref) builds new ones and never modifies `pre
     reference_system::Union{SupportedTimeSystem,Nothing} = nothing
     inter_system_biases::Dictionary{SupportedTimeSystem,typeof(1.0m)} =
         Dictionary{SupportedTimeSystem,typeof(1.0m)}()
-    applied_broadcast_inter_system_biases::Vector{BroadcastInterSystemBias} =
-        BroadcastInterSystemBias[]
+    broadcast_clock_constraints::Vector{BroadcastClockConstraint} =
+        BroadcastClockConstraint[]
     inter_frequency_biases::Dictionary{Symbol,InterFrequencyBias} =
         Dictionary{Symbol,InterFrequencyBias}()
     dop::Union{DOP,Nothing} = nothing
-    satellites::Dictionary{Tuple{Symbol,Int},SatelliteInfo} =
-        Dictionary{Tuple{Symbol,Int},SatelliteInfo}()
+    observations::Dictionary{Tuple{Symbol,Int},ObservationResult} =
+        Dictionary{Tuple{Symbol,Int},ObservationResult}()
 end
 
 """
@@ -180,26 +184,26 @@ Base.copy(pvt::PVTSolution) = PVTSolution(
     pvt.clock_drift,
     pvt.reference_system,
     copy(pvt.inter_system_biases),
-    copy(pvt.applied_broadcast_inter_system_biases),
+    copy(pvt.broadcast_clock_constraints),
     copy(pvt.inter_frequency_biases),
     pvt.dop,
-    copy(pvt.satellites),
+    copy(pvt.observations),
 )
 
 # A copy of `source` in the containers of `solution`, or `source` itself where they share
 # them: copying a container onto itself would empty it.
 function copy_into(solution::PVTSolution, source::PVTSolution)
-    solution.satellites === source.satellites &&
+    solution.observations === source.observations &&
         solution.inter_system_biases === source.inter_system_biases &&
         solution.inter_frequency_biases === source.inter_frequency_biases &&
-        solution.applied_broadcast_inter_system_biases ===
-        source.applied_broadcast_inter_system_biases &&
+        solution.broadcast_clock_constraints ===
+        source.broadcast_clock_constraints &&
         return source
-    copy_container!(solution.satellites, source.satellites)
+    copy_container!(solution.observations, source.observations)
     copy_container!(solution.inter_system_biases, source.inter_system_biases)
     copy_container!(solution.inter_frequency_biases, source.inter_frequency_biases)
-    copy_container!(solution.applied_broadcast_inter_system_biases,
-        source.applied_broadcast_inter_system_biases)
+    copy_container!(solution.broadcast_clock_constraints,
+        source.broadcast_clock_constraints)
     PVTSolution(
         source.position,
         source.velocity,
@@ -209,10 +213,10 @@ function copy_into(solution::PVTSolution, source::PVTSolution)
         source.clock_drift,
         source.reference_system,
         solution.inter_system_biases,
-        solution.applied_broadcast_inter_system_biases,
+        solution.broadcast_clock_constraints,
         solution.inter_frequency_biases,
         source.dop,
-        solution.satellites,
+        solution.observations,
     )
 end
 
@@ -253,10 +257,10 @@ function empty_keeping_capacity!(dict::Dictionary)
 end
 
 function empty_keeping_capacity!(solution::PVTSolution)
-    empty_keeping_capacity!(solution.satellites)
+    empty_keeping_capacity!(solution.observations)
     empty_keeping_capacity!(solution.inter_system_biases)
     empty_keeping_capacity!(solution.inter_frequency_biases)
-    empty!(solution.applied_broadcast_inter_system_biases)
+    empty!(solution.broadcast_clock_constraints)
     solution
 end
 

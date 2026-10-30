@@ -37,13 +37,13 @@ Pkg.add("PositionVelocityTime")
 
 ## Quick Start
 
-A satellite's decoder and code phase are combined in a [`SatelliteState`](@ref):
+A satellite's decoder and code phase are combined in a [`SignalObservation`](@ref):
 
 ```julia
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
 
 gpsl1 = GPSL1CA()
-sat_state = SatelliteState(
+sat_state = SignalObservation(
     decoder = decoder,
     signal = gpsl1,
     code_phase = code_phase,
@@ -60,7 +60,7 @@ With Tracking.jl loaded, a `Tracking.TrackedSat` (what
 
 ```julia
 using Tracking
-sat_state = SatelliteState(decoder, gpsl1, tracked_sat)
+sat_state = SignalObservation(decoder, gpsl1, tracked_sat)
 ```
 
 Group the satellites by their ranging signal and compute the PVT solution:
@@ -85,12 +85,18 @@ pvt = calc_pvt(PositionVelocityTime.signal_groups(track_state, decoders))
 ```
 
 Satellites from different constellations may be combined this way. One receiver clock
-bias is estimated per time system, reported as `pvt.inter_system_biases` relative to
+bias is estimated per time system, reported as effective `pvt.inter_system_biases` relative to
 `pvt.reference_system`, so a fix over `M` time systems needs `3 + M` satellites, unless a
 broadcast offset between two systems (Galileo's GGTO, BeiDou's BGTO) ties their clocks,
 which brings a mixed fix down to 4. An epoch that cannot be solved returns the `prev_pvt`
 [`calc_pvt`](@ref) was given rather than throwing, so a receiver can hand over whatever it
 tracks.
+
+These effective clock differences assume one receiver delay shared by all systems on
+each band. Residual receiver delays can enter them, and disconnected constellation ×
+band coverage also folds differences between reference-band delays into them. A
+broadcast clock constraint fixes a difference under the same receiver-delay assumption;
+it does not measure the receiver's differential delays.
 
 ### Solving without allocating
 

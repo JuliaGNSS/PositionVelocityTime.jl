@@ -51,7 +51,7 @@ end
 
 """
     calc_satellite_position_and_velocity(ephemeris::BroadcastEphemeris, t)
-    calc_satellite_position_and_velocity(state::SatelliteState)
+    calc_satellite_position_and_velocity(state::SignalObservation)
 
 The satellite's ECEF `(position, velocity)` (`SVector{3}`s, m and m/s) from GNSSDecoder's
 `BroadcastEphemeris` (`get_broadcast_ephemeris`), at the transmit time `t` (system time of
@@ -184,6 +184,6 @@ function calc_satellite_position_and_velocity(ephemeris::BroadcastEphemeris, t)
         time_from_ephemeris_reference_epoch) : (position = position, velocity = velocity)
 end
 
-calc_satellite_position_and_velocity(state::SatelliteState) =
+calc_satellite_position_and_velocity(state::SignalObservation) =
     calc_satellite_position_and_velocity(something(get_broadcast_ephemeris(state.decoder)),
         calc_transmit_time(state))

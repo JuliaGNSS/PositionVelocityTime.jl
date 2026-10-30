@@ -1,5 +1,5 @@
 """
-    calc_uncorrected_transmit_time(state::SatelliteState) -> Float64
+    calc_uncorrected_transmit_time(state::SignalObservation) -> Float64
 
 The satellite's *raw* transmit time, a seconds-of-week count on its own system's scale:
 the decoder's time of week plus the bit, code-phase and carrier-phase fractions, before
@@ -8,7 +8,7 @@ the clock polynomial, relativistic and group-delay corrections that
 against, as a RINEX reader applies the broadcast clock correction itself.
 The decoded time retains its carry past the end of the broadcast week.
 """
-function calc_uncorrected_transmit_time(state::SatelliteState)
+function calc_uncorrected_transmit_time(state::SignalObservation)
     signal = state.signal
     # GNSSDecoder advances the validated navigation stamp to the latest decoded bit.
     # Preserve its week carry; the broadcast week still belongs to the stamp.
@@ -60,7 +60,7 @@ calc_satellite_clock_drift(ephemeris::BroadcastEphemeris, t) =
     ephemeris.a_f1 + 2 * ephemeris.a_f2 * fold_week_crossover(t - ephemeris.t_0c)
 
 """
-    calc_transmit_time(state::SatelliteState) -> Float64
+    calc_transmit_time(state::SignalObservation) -> Float64
 
 The satellite's transmit time as a seconds-of-week count on its own system's scale: the
 decoder's time of week plus the bit, code-phase and carrier-phase fractions, corrected
@@ -70,7 +70,7 @@ decoded in full counts as zero, a metre or so on one signal). Every ephemeris an
 evaluation takes it unconverted (see `calc_time_scale_offset`). The decoder must be
 complete for positioning.
 """
-calc_transmit_time(state::SatelliteState) = correct_clock(
+calc_transmit_time(state::SignalObservation) = correct_clock(
     something(get_broadcast_ephemeris(state.decoder)),
     group_delay(state.decoder, state.signal),
     calc_uncorrected_transmit_time(state),

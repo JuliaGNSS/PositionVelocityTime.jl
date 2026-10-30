@@ -2,7 +2,7 @@
 # their counts.
 
 """
-    broadcast_time_offset(measurement::SatelliteMeasurement, target) -> Union{Nothing,Float64}
+    broadcast_time_offset(measurement::PreparedObservation, target) -> Union{Nothing,Float64}
 
 The broadcast offset (s) from `measurement`'s own GNSS time system to `target` at its
 transmit time, as GNSSDecoder's `get_broadcast_time_offset` evaluated it: the steering
@@ -13,16 +13,16 @@ their counts, which [`calc_time_scale_offset`](@ref) applies to the transmit tim
 toward Galileo System Time, BeiDou's BGTO variant and the GGTO GPS broadcasts on
 CNAV/CNAV-2. An offset can tie two receiver clocks (see [`decide_bias_layout`](@ref)).
 """
-broadcast_time_offset(measurement::SatelliteMeasurement, ::GPST) =
+broadcast_time_offset(measurement::PreparedObservation, ::GPST) =
     measurement.time_offset_to_gpst
-broadcast_time_offset(measurement::SatelliteMeasurement, ::GST) =
+broadcast_time_offset(measurement::PreparedObservation, ::GST) =
     measurement.time_offset_to_gst
-broadcast_time_offset(measurement::SatelliteMeasurement, ::BDT) =
+broadcast_time_offset(measurement::PreparedObservation, ::BDT) =
     measurement.time_offset_to_bdt
-broadcast_time_offset(::SatelliteMeasurement, ::GNSSSignals.TimeSystem) = nothing
+broadcast_time_offset(::PreparedObservation, ::GNSSSignals.TimeSystem) = nothing
 
 """
-    has_broadcast_time_offset(measurement::SatelliteMeasurement, target) -> Bool
+    has_broadcast_time_offset(measurement::PreparedObservation, target) -> Bool
 
 Whether `measurement` carries a broadcast offset toward `target`
 ([`broadcast_time_offset`](@ref)). GNSSDecoder screens every way one can be missing: none
@@ -31,7 +31,7 @@ decoded toward another system, the ICD's "not available" sentinel, or on Galileo
 reference week not yet decoded.
 """
 has_broadcast_time_offset(
-    measurement::SatelliteMeasurement,
+    measurement::PreparedObservation,
     target::GNSSSignals.TimeSystem,
 ) = !isnothing(broadcast_time_offset(measurement, target))
 
@@ -42,7 +42,7 @@ Seconds to add to `measurement`'s transmit time to express it in `reference_syst
 count (GNSSSignals' `get_time_scale_offset`), so that transmit times of different systems
 may be differenced ([`calc_pseudorange`](@ref)); `0.0` for systems that count alike. Only
 `measurement.time_system` is read. Applied only to the times handed to the differencing;
-`SatelliteInfo.transmit_time` and the broadcast offsets keep the unconverted value.
+`ObservationResult.transmit_time` and the broadcast offsets keep the unconverted value.
 
 `calc_pvt` corrects toward the solve's reference system, not GPS Time, because its count
 also dates the reported epoch: anchoring on GPST would leave a BeiDou-referenced solve 14 s

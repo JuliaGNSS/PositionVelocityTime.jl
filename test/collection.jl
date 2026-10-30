@@ -54,8 +54,8 @@
         gal_first = calc_pvt((a = three_gal, b = three_gps); kw...)
         @test gps_first.reference_system == GPST()
         @test gal_first.reference_system == GST()
-        # And `satellites` is built in flat order: group order × within-group order.
-        @test collect(keys(gal_first.satellites)) == [
+        # And `observations` is built in flat order: group order × within-group order.
+        @test collect(keys(gal_first.observations)) == [
             [(:GalileoE1B, state.decoder.prn) for state in gal[1:3]]
             [(:GPSL1CA, state.decoder.prn) for state in gps[1:3]]
         ]
@@ -105,7 +105,7 @@
         measurements, _ =
             PositionVelocityTime.collect_measurements(groups; approximate_year = 2021)
         # The measurements are one concrete type with no type parameters, whatever the mix.
-        @test measurements isa Vector{PositionVelocityTime.SatelliteMeasurement}
+        @test measurements isa Vector{PositionVelocityTime.PreparedObservation}
         @test isconcretetype(eltype(measurements))
         @test length(measurements) == length(gps) + length(gal)
         # Named groups make the collection pass statically dispatched: the measurements
@@ -116,7 +116,7 @@
         # copies.)
         @test inferred_return_type(
             PositionVelocityTime.collect_measurements, Tuple{typeof(groups)}
-        ).parameters[1] === Vector{PositionVelocityTime.SatelliteMeasurement}
+        ).parameters[1] === Vector{PositionVelocityTime.PreparedObservation}
         @test inferred_return_type(calc_pvt, Tuple{typeof(groups)}) === PVTSolution
 
         # The point of the measurements: one compiled body of the solver serves every
@@ -135,7 +135,7 @@
     end
 
     @testset "an epoch with no usable satellite is not a special case" begin
-        empty_group = PositionVelocityTime.SignalGroup(GPSL1CA(), SatelliteState[])
+        empty_group = PositionVelocityTime.SignalGroup(GPSL1CA(), SignalObservation[])
         measurements, ionospheric_parameters =
             PositionVelocityTime.collect_measurements(empty_group; approximate_year = 2021)
         @test isempty(measurements)

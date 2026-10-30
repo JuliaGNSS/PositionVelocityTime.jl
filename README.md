@@ -22,12 +22,12 @@ julia> ]
 pkg> add PositionVelocityTime
 ```
 
-The decoded data and the code phase of a satellite are combined in a `SatelliteState`:
+The decoded data and the code phase of a satellite are combined in a `SignalObservation`:
 ```julia
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
 # decode satellite
 gpsl1 = GPSL1CA()
-sat_state = SatelliteState(
+sat_state = SignalObservation(
     decoder = decoder,
     signal = gpsl1,
     code_phase = code_phase,
@@ -39,13 +39,13 @@ The `carrier_phase` is optional, as its effect on the user position is small.
 `code_phase` is in chips and `carrier_phase` in cycles, matching `Tracking`'s
 `get_code_phase` and `get_carrier_phase`.
 
-With Tracking.jl loaded, a `Tracking.TrackedSat` can be passed to `SatelliteState`
+With Tracking.jl loaded, a `Tracking.TrackedSat` can be passed to `SignalObservation`
 instead of `code_phase`, `carrier_doppler` and `carrier_phase` — `tracked_sat` below
 is what `Tracking.get_sat_state` returns for a tracked satellite:
 ```julia
 using Tracking
 # track and decode satellite
-sat_state = SatelliteState(decoder, gpsl1, tracked_sat)
+sat_state = SignalObservation(decoder, gpsl1, tracked_sat)
 ```
 
 ## Usage
@@ -67,9 +67,13 @@ A single group can be passed on its own, and with Tracking.jl loaded
 from a `TrackState`. Grouping is what keeps the solve type-stable across constellations.
 
 Besides `position`, `velocity` and `time`, the solution reports the receiver `clock_bias`
-(m) and `clock_drift` (m/s), the `dop`, the per-satellite residuals in `satellites`, and,
+(m) and `clock_drift` (m/s), the `dop`, the per-observation residuals in `observations`, and,
 for a multi-GNSS or multi-band fix, the `inter_system_biases` relative to the
-`reference_system` and the `inter_frequency_biases`.
+`reference_system` and the `inter_frequency_biases`. The inter-system biases are effective
+receiver clock differences under a shared per-band receiver-delay model; unseparated
+receiver delays, including reference-band differences in disconnected coverage, enter
+those values. `broadcast_clock_constraints` records any broadcast offsets used to
+constrain receiver-clock differences under that model.
 
 A fix needs at least 4 healthy, fully decoded satellites (more for a multi-GNSS or
 multi-band set, unless a broadcast time offset such as Galileo's GGTO ties two systems'

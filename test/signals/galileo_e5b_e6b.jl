@@ -94,7 +94,7 @@
         )
         e1b_states = galileo_e1b_states(0.0Hz)
         reference = calc_pvt(signal_group(e1b_states); kw...)
-        @test length(reference.satellites) >= 4
+        @test length(reference.observations) >= 4
 
         # Split a transmit time into the decoder's bit count plus a sub-bit code
         # phase, the way `calc_uncorrected_transmit_time` reads them back (it reduces the code
@@ -123,7 +123,7 @@
                 decoder.data.BGD_E1_E5b
             num_bits, code_phase =
                 bits_and_code_phase(GalileoE5bI(), decoder.data.TOW, target)
-            SatelliteState(;
+            SignalObservation(;
                 decoder = GNSSDecoder.GNSSDecoderState(
                     GNSSDecoder.GalileoE5bDecoderState(decoder.prn);
                     data = decoder.data,
@@ -139,7 +139,7 @@
 
         both = calc_pvt(
             (signal_group(e1b_states), signal_group(map(as_e5b_state, e1b_states))); kw...)
-        @test length(both.satellites) == 2 * length(reference.satellites)
+        @test length(both.observations) == 2 * length(reference.observations)
         # One time system (both are Galileo) but two bands, so exactly one IFB column,
         # on E5b against the L1 reference.
         @test both.reference_system == GST()
@@ -167,7 +167,7 @@ end
         raw_data = e6b_data,
         num_bits_since_time_reference = 16,
     )
-    e6b_state = SatelliteState(;
+    e6b_state = SignalObservation(;
         decoder = e6b,
         signal = GalileoE6B(),
         code_phase = 0.0,
@@ -217,7 +217,7 @@ end
         @test with_e6b.position == reference.position
         @test with_e6b.velocity == reference.velocity
         @test with_e6b.time == reference.time
-        @test keys(with_e6b.satellites) == keys(reference.satellites)
+        @test keys(with_e6b.observations) == keys(reference.observations)
         # E6 contributes no band either, so it cannot invent an inter-frequency bias.
         @test !haskey(with_e6b.inter_frequency_biases, :E6)
     end
@@ -228,7 +228,7 @@ end
         unsolved = calc_pvt(signal_group([e6b_state]); kw...)
         @test unsolved.position == PVTSolution().position
         @test isnothing(unsolved.time)
-        @test isempty(unsolved.satellites)
+        @test isempty(unsolved.observations)
     end
 end
 
@@ -237,7 +237,7 @@ end
     for (signal, expected_id) in ((GalileoE1B(), :GalileoE1B),
         (GalileoE1B_CBOC(), :GalileoE1B), (GalileoE1C(), :GalileoE1C),
         (GalileoE1C_CBOC(), :GalileoE1C))
-        state = SatelliteState(; decoder = source.decoder, signal,
+        state = SignalObservation(; decoder = source.decoder, signal,
             code_phase = source.code_phase, carrier_doppler = source.carrier_doppler,
             carrier_phase = source.carrier_phase)
         measurement = PositionVelocityTime.satellite_measurement(state, 2021)

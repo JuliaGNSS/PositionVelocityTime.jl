@@ -65,9 +65,9 @@
         common = (; decoder = dec, code_phase = 123.0,
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
         t_data =
-            PositionVelocityTime.calc_uncorrected_transmit_time(SatelliteState(; signal = GNSSSignals.GPSL1C_D(), common...))
+            PositionVelocityTime.calc_uncorrected_transmit_time(SignalObservation(; signal = GNSSSignals.GPSL1C_D(), common...))
         t_pilot =
-            PositionVelocityTime.calc_uncorrected_transmit_time(SatelliteState(; signal = GNSSSignals.GPSL1C_P(), common...))
+            PositionVelocityTime.calc_uncorrected_transmit_time(SignalObservation(; signal = GNSSSignals.GPSL1C_P(), common...))
         @test isfinite(t_pilot)
         @test t_pilot ≈ t_data
     end

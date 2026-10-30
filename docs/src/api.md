@@ -3,11 +3,11 @@
 ## Types
 
 ```@docs
-SatelliteState
+SignalObservation
 PVTSolution
-SatelliteInfo
+ObservationResult
 InterFrequencyBias
-BroadcastInterSystemBias
+BroadcastClockConstraint
 DOP
 SupportedTimeSystem
 ```
@@ -22,13 +22,13 @@ One epoch's measurements reach [`calc_pvt`](@ref) as *signal groups*: a `NamedTu
 [`PositionVelocityTime.SignalGroup`](@ref)s, one per ranging signal, mirroring
 Tracking.jl's. Within a group every satellite shares one concrete type, so
 [`PositionVelocityTime.collect_measurements`](@ref) dispatches statically; behind it the
-solver sees one [`PositionVelocityTime.SatelliteMeasurement`](@ref) per satellite, a
+solver sees one [`PositionVelocityTime.PreparedObservation`](@ref) per satellite, a
 single concrete type, and compiles once for every constellation mix.
 
 ```@docs
 PositionVelocityTime.SignalGroup
 PositionVelocityTime.signal_groups
-PositionVelocityTime.SatelliteMeasurement
+PositionVelocityTime.PreparedObservation
 PositionVelocityTime.collect_measurements
 PositionVelocityTime.collect_measurements!
 PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
@@ -85,7 +85,7 @@ unexported; bind them with `using PositionVelocityTime: collect_measurements, �
 The surface is specified on the satellite measurements: a consumer first calls
 [`PositionVelocityTime.collect_measurements`](@ref), and every per-satellite input and
 output below follows the order of the
-`Vector{`[`PositionVelocityTime.SatelliteMeasurement`](@ref)`}` it returns. The functions
+`Vector{`[`PositionVelocityTime.PreparedObservation`](@ref)`}` it returns. The functions
 that read several fields of a measurement take the measurements themselves (the bias
 layout, the atmospheric delays). The others take arrays drawn from them, one entry per
 measurement: the satellite positions (a `3 × N` matrix or a vector of `SVector{3}`s) and
@@ -97,7 +97,7 @@ the design matrix carry those extra rows.
 satellite's values. Only
 [`calc_transmit_time`](@ref PositionVelocityTime.calc_transmit_time) and
 [`calc_uncorrected_transmit_time`](@ref PositionVelocityTime.calc_uncorrected_transmit_time)
-read a decoder, through a [`SatelliteState`](@ref), and
+read a decoder, through a [`SignalObservation`](@ref), and
 [`calc_satellite_clock_drift`](@ref PositionVelocityTime.calc_satellite_clock_drift) takes
 GNSSDecoder's `BroadcastEphemeris`, for a consumer building or amending a measurement
 itself; the decoder's week, time of week, ephemeris, group delays and broadcast time
@@ -153,10 +153,10 @@ PositionVelocityTime.num_observations
 ## Multi-GNSS Classification
 
 Each satellite is classified by three GNSSSignals keys of its ranging signal, carried on
-every [`PositionVelocityTime.SatelliteMeasurement`](@ref): `time_system`
+every [`PositionVelocityTime.PreparedObservation`](@ref): `time_system`
 (`get_time_system`, e.g. `GPST()`) groups the receiver clock biases, `band_id`
 (`get_band_id`, e.g. `:L5`) the inter-frequency biases, and `signal_id` (`get_signal_id`,
-e.g. `:GPSL1CA`) keys [`PVTSolution`](@ref)'s `satellites`. The inter-frequency biases are
+e.g. `:GPSL1CA`) keys [`PVTSolution`](@ref)'s `observations`. The inter-frequency biases are
 laid out from the constellation × band coverage graph:
 
 ```@docs

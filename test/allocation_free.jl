@@ -23,11 +23,11 @@ function same_solution(a::PVTSolution, b::PVTSolution)
         a.course_over_ground == b.course_over_ground &&
         a.clock_bias == b.clock_bias && a.time == b.time &&
         a.clock_drift == b.clock_drift && a.dop == b.dop &&
-        collect(pairs(a.satellites)) == collect(pairs(b.satellites)) &&
+        collect(pairs(a.observations)) == collect(pairs(b.observations)) &&
         a.reference_system === b.reference_system &&
         a.inter_system_biases == b.inter_system_biases &&
         a.inter_frequency_biases == b.inter_frequency_biases &&
-        a.applied_broadcast_inter_system_biases == b.applied_broadcast_inter_system_biases
+        a.broadcast_clock_constraints == b.broadcast_clock_constraints
 end
 
 # `copy` copies a solution's containers and shares everything else, which keeps the
@@ -114,14 +114,14 @@ end
         @test same_solution(returned, calc_pvt(groups, prev_pvt; kw...))
         @test same_solution(prev_pvt, before)      # `prev_pvt` is only read
         # The returned solution took over `solution`'s containers, refilled.
-        @test returned.satellites === solution.satellites
+        @test returned.observations === solution.observations
         @test returned.inter_system_biases === solution.inter_system_biases
         @test returned.inter_frequency_biases === solution.inter_frequency_biases
-        @test returned.applied_broadcast_inter_system_biases ===
-              solution.applied_broadcast_inter_system_biases
+        @test returned.broadcast_clock_constraints ===
+              solution.broadcast_clock_constraints
         again = calc_pvt!(returned, PVTWorkspace(), l1ca, prev_pvt; kw...)
-        @test again.satellites === solution.satellites
-        @test length(again.satellites) == length(l1ca.satellites)
+        @test again.observations === solution.observations
+        @test length(again.observations) == length(l1ca.satellites)
         # `calc_pvt` still never touches its `prev_pvt`.
         calc_pvt(l1ca, prev_pvt; kw...)
         @test same_solution(prev_pvt, before)
@@ -138,7 +138,7 @@ end
             solution = calc_pvt(e1b; kw...)
             copied = calc_pvt!(solution, PVTWorkspace(), unsolvable, prev_pvt; kw...)
             @test same_solution(copied, prev_pvt)
-            @test copied.satellites === solution.satellites
+            @test copied.observations === solution.observations
             @test same_solution(prev_pvt, before)
             # As its own output: `prev_pvt` itself, as it was.
             @test calc_pvt!(prev_pvt, PVTWorkspace(), unsolvable, prev_pvt; kw...) ===
@@ -292,21 +292,21 @@ end
         solution = calc_pvt!(PVTSolution(), PVTWorkspace(),
             (l1 = l1ca, l5 = precompile_gps(GPSL5I(), _precompile_cnav),
                 galileo = e1b), PVTSolution(); kw...)
-        @test !isempty(solution.satellites)
+        @test !isempty(solution.observations)
         @test !isempty(solution.inter_system_biases)
         @test !isempty(solution.inter_frequency_biases)
-        sats = solution.satellites
+        sats = solution.observations
         @test PositionVelocityTime.empty_keeping_capacity!(solution) === solution
-        @test solution.satellites === sats
-        @test isempty(solution.satellites)
+        @test solution.observations === sats
+        @test isempty(solution.observations)
         @test isempty(solution.inter_system_biases)
         @test isempty(solution.inter_frequency_biases)
-        @test isempty(solution.applied_broadcast_inter_system_biases)
+        @test isempty(solution.broadcast_clock_constraints)
     end
 
     @testset "the measurements are collected without allocating" begin
         groups = (gps = l1ca, galileo = e1b)
-        measurements = PositionVelocityTime.SatelliteMeasurement[]
+        measurements = PositionVelocityTime.PreparedObservation[]
         parameters = PositionVelocityTime.collect_measurements!(
             measurements, groups; approximate_year = 2021)
         expected_measurements, expected_parameters =

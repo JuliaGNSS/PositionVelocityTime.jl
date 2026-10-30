@@ -10,7 +10,7 @@
 # Computes a full Position/Velocity/Time fix end to end from a real-sky GNSS
 # recording: Acquisition.jl acquires GPS L1 C/A satellites, Tracking.jl tracks
 # them, GNSSDecoder.jl decodes the navigation message, and `calc_pvt` turns the
-# resulting `SatelliteState`s into a position — which we check lands at the
+# resulting `SignalObservation`s into a position — which we check lands at the
 # recording site. This is the real-signal counterpart to the synthetic
 # `solver.jl` / `atmosphere/delays.jl` unit tests, exercising the whole JuliaGNSS
 # stack the way a receiver actually uses it.
@@ -55,7 +55,7 @@
 #   ~16 GB a whole-span decode would need.
 
 using Test
-using PositionVelocityTime: PositionVelocityTime, SatelliteState, calc_pvt, get_lla
+using PositionVelocityTime: PositionVelocityTime, SignalObservation, calc_pvt, get_lla
 using Downloads: Downloads
 using CodecZlib: DeflateDecompressorStream
 using Unitful: Hz, ustrip
@@ -239,7 +239,7 @@ end
     @test issubset(L125_PRNS, healthy)
     states = map(L125_PRNS) do p
         tracked = get_sat_state(ts, :gps, p)
-        SatelliteState(;
+        SignalObservation(;
             decoder = decoders[p],
             signal = GPSL1CA(),
             code_phase = get_code_phase(tracked),
@@ -252,11 +252,11 @@ end
     # recording is from 2014, not "now".
     pvt = calc_pvt(PositionVelocityTime.SignalGroup(GPSL1CA(), states);
         approximate_year = 2014)
-    @test length(pvt.satellites) >= 4
+    @test length(pvt.observations) >= 4
 
     lla = get_lla(pvt)
     @info "PVT fix" lat = lla.lat lon = lla.lon alt = lla.alt used =
-        length(pvt.satellites) gdop = pvt.dop.GDOP
+        length(pvt.observations) gdop = pvt.dop.GDOP
     ref_ecef = ECEFfromLLA(wgs84)(L125_REF_LLA)
     @test euclidean_distance(pvt.position, ref_ecef) < L125_REF_TOL_M
     @test isfinite(pvt.dop.GDOP) && pvt.dop.GDOP > 0

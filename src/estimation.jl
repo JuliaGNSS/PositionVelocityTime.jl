@@ -91,7 +91,7 @@ end
 
 The user position, clock biases and inter-frequency biases that fit `pseudoranges` by
 least squares from `prev_ξ`, and the per-satellite post-fit residuals (m, measured minus
-modelled; see [`SatelliteInfo`](@ref)).
+modelled; see [`ObservationResult`](@ref)).
 
 - `sat_positions`: a `3 × N` matrix or a vector of `SVector{3}`s.
 - `pseudoranges`: the satellites' pseudoranges followed by each [`ClockConstraint`](@ref)'s
@@ -172,7 +172,7 @@ end
 
 The user velocity and receiver clock drift `[vx, vy, vz, ċ]` (m/s; `ċ` as
 `PVTSolution.clock_drift`), and the post-fit range-rate residuals (m/s, measured minus
-modelled; see [`SatelliteInfo`](@ref)), in the order of `measurements`.
+modelled; see [`ObservationResult`](@ref)), in the order of `measurements`.
 
 One drift is shared by every system: the receiver has one oscillator, and the drift
 between system time scales (e.g. the GGTO's `A_1G`, ~1e-6 m/s) is far below the Doppler

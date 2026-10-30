@@ -6,7 +6,7 @@ using Unitful: Hz, m, s, °, ustrip
 # backs the satellites of a `PositionVelocityTime.SignalGroup`.
 using Dictionaries: Dictionaries, Dictionary
 using PositionVelocityTime: SVector
-# The fixtures build one flat vector of `SatelliteState`s per ranging signal. This is
+# The fixtures build one flat vector of `SignalObservation`s per ranging signal. This is
 # how the suite turns one of them into the `SignalGroup` that `calc_pvt` takes; an epoch
 # spanning several signals is written as several groups — a NamedTuple where the names
 # carry meaning, a bare tuple (numbered `group1`, `group2`, …) where they do not.
@@ -34,7 +34,7 @@ signal_group(states) = signal_group(first(states).signal, states)
 # directly rather than through `calc_pvt`. They live here rather than in `fixtures.jl`,
 # which stays strictly the data shared with the benchmark script.
 #
-# `measurements_of` gives the `SatelliteMeasurement`s behind one epoch's groups —
+# `measurements_of` gives the `PreparedObservation`s behind one epoch's groups —
 # what the collection pass hands the solver. `approximate_year` is pinned for the same
 # reason every `calc_pvt` call here pins it: the fixtures were recorded in 2021 and
 # GPS L1 C/A's week number is 10 bits.
@@ -65,12 +65,12 @@ carrier_hz(system) = ustrip(Hz, get_center_frequency(system))
 # out exactly one method — which is what makes the two equivalent here.
 inferred_return_type(f, types) = only(Base.return_types(f, types))
 
-# Relabels a SatelliteState's decoder PRN. Nothing in the least-squares solve depends on
-# the PRN — it identifies a satellite, as the `satellites`-dict key and for the layout's
+# Relabels a SignalObservation's decoder PRN. Nothing in the least-squares solve depends on
+# the PRN — it identifies a satellite, as the `observations`-dict key and for the layout's
 # distinct-satellite count — so this isolates that identity from the measurements.
 function with_prn(state, prn)
     new_decoder = GNSSDecoder.GNSSDecoderState(state.decoder; prn)
-    SatelliteState(;
+    SignalObservation(;
         decoder = new_decoder,
         signal = state.signal,
         code_phase = state.code_phase,

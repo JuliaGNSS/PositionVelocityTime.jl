@@ -15,7 +15,7 @@ galileo(signal, make_data = identity) = SignalGroup(
 # The fixtures hold no BeiDou satellites, so this group's is undecoded and drops out as
 # unhealthy — the solution is that of the other groups — but the solve is compiled, and
 # so verified, for the BeiDou message family and its ionospheric model.
-beidou(signal) = SignalGroup(signal, [SatelliteState(;
+beidou(signal) = SignalGroup(signal, [SignalObservation(;
     decoder = GNSSDecoderState(signal, 1), signal, code_phase = 0.0, carrier_doppler = 0.0Hz)])
 
 # One `print` per value: a long `print(io, xs...)` is not specialised on its
@@ -23,7 +23,7 @@ beidou(signal) = SignalGroup(signal, [SatelliteState(;
 function report(io, name, pvt)
     print(io, name, ":")
     for x in (pvt.position..., pvt.velocity..., pvt.time.second, pvt.time.fraction,
-        pvt.dop.GDOP, length(pvt.satellites))
+        pvt.dop.GDOP, length(pvt.observations))
         print(io, " ", x)
     end
     for (system, bias) in pairs(pvt.inter_system_biases)

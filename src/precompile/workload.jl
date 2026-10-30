@@ -103,7 +103,7 @@ _precompile_fnav(d) = GNSSDecoder.GalileoFNAVData(;
 """
     _precompile_states(signal, table, make_data, source_signal)
 
-The fixture satellites as [`SatelliteState`](@ref)s on `signal`, their navigation data
+The fixture satellites as [`SignalObservation`](@ref)s on `signal`, their navigation data
 converted by `make_data`. The observables, recorded on `source_signal`, are re-expressed
 on `signal` preserving the transmit epoch (`TOW + n_bits/bit_rate + code_phase/chip_rate`,
 see `calc_uncorrected_transmit_time`): the sub-TOW offset is converted as a whole, then
@@ -131,7 +131,7 @@ function _precompile_states(signal, table, make_data, source_signal)
         rate = ustrip(Hz, get_bit_rate(target))
         chips = ustrip(Hz, get_chip_rate(signal))
         num_bits = floor(Int, offset * rate)
-        SatelliteState(;
+        SignalObservation(;
             decoder = GNSSDecoder.GNSSDecoderState(
                 target;
                 num_bits_since_time_reference = num_bits,

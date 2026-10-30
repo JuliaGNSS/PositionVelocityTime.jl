@@ -140,7 +140,7 @@ TAI epoch the delay is predicted for: the Klobuchar models take its time of week
 Time or BeiDou Time, NTCM-G its day of year and universal time and BDGIM its Modified
 Julian Date, the latter two read off the TAI calendar label (37 s from UTC, orders of
 magnitude below the models' error). `center_frequency` is the carrier in Hz, as a plain
-`Float64` (as on [`SatelliteMeasurement`](@ref)).
+`Float64` (as on [`PreparedObservation`](@ref)).
 """
 ionospheric_delay(::Nothing, center_frequency, elevation, azimuth, lla, epoch) = 0.0
 

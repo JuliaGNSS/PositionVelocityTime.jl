@@ -112,7 +112,7 @@ end
 The modelled pseudorange rate (m/s) of one satellite: the exact time derivative, per
 second of receiver clock, of what [`predict_pseudoranges!`](@ref) models. It is the model
 [`estimate_velocity`](@ref) fits, for an estimator that predicts the rate from its own
-state. Positive while the satellite recedes (see [`SatelliteInfo`](@ref)).
+state. Positive while the satellite recedes (see [`ObservationResult`](@ref)).
 
 Positions and velocities are ECEF `SVector{3}`s in m and m/s, the satellite's at
 transmission. `receiver_clock_drift` is in m/s, as `PVTSolution.clock_drift`;
