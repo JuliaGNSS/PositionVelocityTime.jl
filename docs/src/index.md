@@ -24,7 +24,7 @@ Calculates position, velocity and time from GNSS satellite measurements.
 
 Galileo E6-B is decoded by `GNSSDecoder` but carries no ephemeris of its own: its
 C/NAV message is the Galileo High Accuracy Service correction channel. An E6-B
-satellite state can be passed to `calc_pvt` safely — it is recognised and excluded
+signal observation can be passed to `calc_pvt` safely — it is recognised and excluded
 from the solve — but it contributes no pseudorange, and the HAS corrections it
 carries are not yet applied here.
 
@@ -43,7 +43,7 @@ A satellite's decoder and code phase are combined in a [`SignalObservation`](@re
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
 
 gpsl1 = GPSL1CA()
-sat_state = SignalObservation(
+observation = SignalObservation(
     decoder = decoder,
     signal = gpsl1,
     code_phase = code_phase,
@@ -60,29 +60,34 @@ With Tracking.jl loaded, a `Tracking.TrackedSat` (what
 
 ```julia
 using Tracking
-sat_state = SignalObservation(decoder, gpsl1, tracked_sat)
+observation = SignalObservation(;
+    decoder,
+    signal = gpsl1,
+    code_phase = Tracking.get_code_phase(tracked_sat),
+    carrier_doppler = Tracking.get_carrier_doppler(tracked_sat),
+    carrier_phase = Tracking.get_carrier_phase(tracked_sat),
+)
 ```
 
-Group the satellites by their ranging signal and compute the PVT solution:
+Collect observations with the same concrete decoder and signal types in a vector or
+`Dictionaries.Dictionary`. Pass one collection directly, or combine collections in a
+tuple or `NamedTuple`:
 
 ```julia
-using PositionVelocityTime: SignalGroup
-
+previous = PVTSolution()
 pvt = calc_pvt((
-    gps = SignalGroup(GPSL1CA(), gps_sat_states),
-    galileo = SignalGroup(GalileoE1B(), galileo_sat_states),
-))
+    gps = gps_observations,
+    galileo = galileo_observations,
+), previous)
 lla = get_lla(pvt)  # latitude, longitude, altitude
 ```
 
-Each group holds the satellites tracked on one signal, as a `Dictionary` keyed by PRN or
-a plain vector; a single group needs no `NamedTuple` around it. With Tracking.jl loaded,
-a whole `TrackState` and its decoders become groups in one call:
-
-```julia
-using Tracking
-pvt = calc_pvt(PositionVelocityTime.signal_groups(track_state, decoders))
-```
+Each collection must have one concrete `SignalObservation` element type, including a
+`Dictionary`'s value type. This keeps preparation statically dispatched across a mixed
+epoch; a pooled mixed vector with an abstract element type is refused at entry. A single
+collection needs no tuple around it: `calc_pvt(gps_observations, previous)`. Collection
+names are ignored. For an empty collection, preserve its concrete element type with
+`gps_observations[1:0]` or supply that concrete type explicitly when constructing it.
 
 Satellites from different constellations may be combined this way. One receiver clock
 bias is estimated per time system, reported as effective `pvt.inter_system_biases` relative to
@@ -107,8 +112,8 @@ nothing:
 ```julia
 pvt = PVTSolution()
 workspace = PVTWorkspace()
-for groups in epochs
-    pvt = calc_pvt!(pvt, workspace, groups, pvt)   # reuse `pvt`, seeded from itself
+for epoch in epochs
+    pvt = calc_pvt!(pvt, workspace, epoch, pvt)   # reuse `pvt`, seeded from itself
 end
 ```
 

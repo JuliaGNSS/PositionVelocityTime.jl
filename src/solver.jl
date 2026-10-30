@@ -67,40 +67,42 @@ model for the whole solve (see [`select_ionospheric_parameters`](@ref)), and the
 tropospheric delay with a blind model (see [`tropospheric_delay`](@ref)).
 
 # Arguments
-- `groups`: this epoch's measurements, as signal groups: a `NamedTuple` of
-  [`SignalGroup`](@ref)s, one per ranging signal. A bare `Tuple` of groups (numbered
-  `group1`, `group2`, …) or a single `SignalGroup` (the `:default` group) also does:
 
-  ```julia
-  using PositionVelocityTime: SignalGroup
-  calc_pvt(SignalGroup(GPSL1CA(), gps_states))
-  calc_pvt((gps = SignalGroup(GPSL1CA(), gps_states),
-            galileo = SignalGroup(GalileoE1B(), galileo_states)))
-  ```
+  - `groups`: a concrete-typed vector or `Dictionary` of [`SignalObservation`](@ref)s,
+    or a tuple / NamedTuple of those collections for several decoder or signal types:
 
-  Grouping keeps the solve type-stable (see [`SignalGroup`](@ref)); a pooled
-  `Vector{SignalObservation}` is refused, and [`signal_groups`](@ref) builds the groups from a
-  Tracking.jl `TrackState`.
+    ```julia
+    calc_pvt(gps_observations)
+    calc_pvt((gps = gps_observations, galileo = galileo_observations))
+    ```
 
-  Each `(signal, PRN)` pair must appear at most once, or it enters the fit twice; two
-  groups sharing a ranging signal are not checked for collisions.
+    Collections keep the preparation pass statically dispatched. A pooled vector with
+    an abstract element type is refused. NamedTuple keys are only caller labels; the
+    solver uses each observation's signal and decoder PRN. Empty collections retain
+    their concrete element type (for example `gps_observations[1:0]`).
 
-  **Order is significant**: the measurements are in group order × within-group order,
-  which breaks the ties of the reference system ("most satellites, first appearance") and
-  of [`ifb_layout`](@ref)'s reference bands, and orders
-  `PVTSolution.observations`.
-- `prev_pvt`: the previous solution, the warm start (default: the origin). One whose DOP
-  is implausible (`NaN`, or `PDOP` above `MAX_TRUSTED_WARM_START_PDOP` = 50) is not
-  used, so a spurious fix cannot re-seed itself.
+    Each `(signal, PRN)` pair must appear at most once, or it enters the fit twice; two
+    groups sharing a ranging signal are not checked for collisions.
+
+    **Order is significant**: the measurements are in group order × within-group order,
+    which breaks the ties of the reference system ("most satellites, first appearance") and
+    of [`ifb_layout`](@ref)'s reference bands, and orders
+    `PVTSolution.observations`.
+
+  - `prev_pvt`: the previous solution, the warm start (default: the origin). One whose DOP
+    is implausible (`NaN`, or `PDOP` above `MAX_TRUSTED_WARM_START_PDOP` = 50) is not
+    used, so a spurious fix cannot re-seed itself.
 
 # Keyword Arguments
-- `approximate_year`: the calendar year of the observation, within ±9 years, which
-  resolves the GPS L1 C/A 1024-week rollover (see GNSSDecoder's `get_broadcast_week`). The default,
-  the current year, suits live signals; pass the rough year of an archived recording.
-- `enable_ionospheric_correction`: `false` skips the ionospheric correction.
-- `enable_tropospheric_correction`: `false` skips the tropospheric correction.
+
+  - `approximate_year`: the calendar year of the observation, within ±9 years, which
+    resolves the GPS L1 C/A 1024-week rollover (see GNSSDecoder's `get_broadcast_week`). The default,
+    the current year, suits live signals; pass the rough year of an archived recording.
+  - `enable_ionospheric_correction`: `false` skips the ionospheric correction.
+  - `enable_tropospheric_correction`: `false` skips the tropospheric correction.
 
 # Returns
+
 A new [`PVTSolution`](@ref); `prev_pvt` is never modified. An epoch that cannot be solved
 — too few healthy satellites (see [`decide_bias_layout`](@ref)) or a rank-deficient
 geometry — returns `prev_pvt` as passed, without throwing, so a receiver can hand over
@@ -114,8 +116,15 @@ function calc_pvt(
     enable_tropospheric_correction::Bool = true,
 )
     # A fresh solution lends the solve its containers.
-    _, solution = _calc_pvt!(PVTSolution(), PVTWorkspace(), groups, prev_pvt,
-        approximate_year, enable_ionospheric_correction, enable_tropospheric_correction)
+    _, solution = _calc_pvt!(
+        PVTSolution(),
+        PVTWorkspace(),
+        groups,
+        prev_pvt,
+        approximate_year,
+        enable_ionospheric_correction,
+        enable_tropospheric_correction,
+    )
     solution
 end
 
@@ -149,7 +158,7 @@ containers, otherwise a copy of it in them.
 
 It allocates nothing once `workspace` and `solution` have held an epoch of as many
 satellites and biases; that covers everything but the `groups`, which the caller builds
-(and can reuse: a `SignalGroup`'s satellites may be any vector). The `workspace` carries no
+(which can be reused vectors or dictionaries). The `workspace` carries no
 state between epochs, but serves one solve at a time; give each task its own.
 """
 function calc_pvt!(
@@ -161,8 +170,15 @@ function calc_pvt!(
     enable_ionospheric_correction::Bool = true,
     enable_tropospheric_correction::Bool = true,
 )
-    solved, result = _calc_pvt!(solution, workspace, groups, prev_pvt, approximate_year,
-        enable_ionospheric_correction, enable_tropospheric_correction)
+    solved, result = _calc_pvt!(
+        solution,
+        workspace,
+        groups,
+        prev_pvt,
+        approximate_year,
+        enable_ionospheric_correction,
+        enable_tropospheric_correction,
+    )
     solved ? result : copy_into(solution, prev_pvt)
 end
 
@@ -228,8 +244,11 @@ function _solve_pvt!(
     reference_time = measurements[reference_index].transmit_time
     pseudoranges = resize!(workspace.pseudoranges, num_sats + length(constraints))
     for (j, measurement) in enumerate(measurements)
-        pseudoranges[j] = calc_pseudorange(reference_time, measurement.transmit_time,
-            calc_time_scale_offset(measurement, reference_system))
+        pseudoranges[j] = calc_pseudorange(
+            reference_time,
+            measurement.transmit_time,
+            calc_time_scale_offset(measurement, reference_system),
+        )
     end
     # The clock constraints' known values are observations too, after the satellites'.
     for (i, constraint) in enumerate(constraints)
@@ -267,13 +286,14 @@ function _solve_pvt!(
         prev_ifbs = prev_pvt.inter_frequency_biases
         for (i, band) in enumerate(extra_bands)
             prev_ξ[3+num_clock_biases+i] =
-                haskey(prev_ifbs, band) && prev_ifbs[band].reference_band == reference_bands[i] ?
+                haskey(prev_ifbs, band) &&
+                    prev_ifbs[band].reference_band == reference_bands[i] ?
                 ustrip(m, prev_ifbs[band].value) : 0.0
         end
     end
 
     sat_positions = resize!(workspace.sat_positions, num_sats)
-    for j in 1:num_sats
+    for j = 1:num_sats
         sat_positions[j] = measurements[j].position
     end
 
@@ -282,8 +302,13 @@ function _solve_pvt!(
         !isnothing(ionospheric_model.parameters) || enable_tropospheric_correction
     function corrected_ranges(ξ_prediction)
         delays = predict_atmospheric_delays!(
-            workspace.atmospheric_delays, ξ_prediction, measurements, ionospheric_model,
-            epoch, enable_tropospheric_correction)
+            workspace.atmospheric_delays,
+            ξ_prediction,
+            measurements,
+            ionospheric_model,
+            epoch,
+            enable_tropospheric_correction,
+        )
         ranges = resize!(workspace.corrected_ranges, length(pseudoranges)) .= pseudoranges
         view(ranges, 1:num_sats) .-= delays
         ranges
@@ -294,19 +319,36 @@ function _solve_pvt!(
     ξ, residuals = if iszero(prev_ξ)
         # Cold start: the delays need a position (Klobuchar is undefined near the
         # geocentre), so an uncorrected fix first, then one corrected solve.
-        ξ_uncorrected, residuals_uncorrected = estimate_position!(least_squares,
-            workspace.residuals, sat_positions, pseudoranges, bias_columns, prev_ξ)
+        ξ_uncorrected, residuals_uncorrected = estimate_position!(
+            least_squares,
+            workspace.residuals,
+            sat_positions,
+            pseudoranges,
+            bias_columns,
+            prev_ξ,
+        )
         if correct_atmosphere
-            estimate_position!(least_squares, workspace.residuals, sat_positions,
-                corrected_ranges(ξ_uncorrected), bias_columns, ξ_uncorrected)
+            estimate_position!(
+                least_squares,
+                workspace.residuals,
+                sat_positions,
+                corrected_ranges(ξ_uncorrected),
+                bias_columns,
+                ξ_uncorrected,
+            )
         else
             (ξ_uncorrected, residuals_uncorrected)
         end
     else
         # Warm start: the delays from the previous, metre-accurate position.
-        estimate_position!(least_squares, workspace.residuals, sat_positions,
-            correct_atmosphere ? corrected_ranges(prev_ξ) : pseudoranges, bias_columns,
-            prev_ξ)
+        estimate_position!(
+            least_squares,
+            workspace.residuals,
+            sat_positions,
+            correct_atmosphere ? corrected_ranges(prev_ξ) : pseudoranges,
+            bias_columns,
+            prev_ξ,
+        )
     end
     position = ECEF(ξ[1], ξ[2], ξ[3])
 
@@ -317,24 +359,40 @@ function _solve_pvt!(
     dop_columns = dop_bias_columns(layout)
     num_dop_params = num_parameters(dop_columns)
     workspace.design_matrix = grown(workspace.design_matrix, num_sats, num_dop_params)
-    H = calc_design_matrix!(view(workspace.design_matrix, 1:num_sats, 1:num_dop_params),
-        sat_positions, ξ, dop_columns)
+    H = calc_design_matrix!(
+        view(workspace.design_matrix, 1:num_sats, 1:num_dop_params),
+        sat_positions,
+        ξ,
+        dop_columns,
+    )
     workspace.normal_matrix = grown(workspace.normal_matrix, num_dop_params, num_dop_params)
-    dop = calc_dop!(view(workspace.normal_matrix, 1:num_dop_params, 1:num_dop_params), H,
-        position, layout.clock_group_columns[reference_index])
+    dop = calc_dop!(
+        view(workspace.normal_matrix, 1:num_dop_params, 1:num_dop_params),
+        H,
+        position,
+        layout.clock_group_columns[reference_index],
+    )
 
     isnan(dop.GDOP) && return (false, prev_pvt)
 
     # The velocity solve starts from the previous solution where the position solve trusts
     # it, from rest otherwise (see `estimate_velocity` for why one step suffices).
-    previous_velocity_and_drift = SVector(prev_pvt.velocity[1], prev_pvt.velocity[2],
-        prev_pvt.velocity[3], ustrip(m / s, prev_pvt.clock_drift))
+    previous_velocity_and_drift = SVector(
+        prev_pvt.velocity[1],
+        prev_pvt.velocity[2],
+        prev_pvt.velocity[3],
+        ustrip(m / s, prev_pvt.clock_drift),
+    )
     velocity_start =
         !distrusted && all(isfinite, previous_velocity_and_drift) ?
         previous_velocity_and_drift : zero(SVector{4,Float64})
-    user_velocity_and_clock_drift, rate_residuals =
-        estimate_velocity!(workspace.rate_residuals,
-            workspace.velocity_design, measurements, position, velocity_start)
+    user_velocity_and_clock_drift, rate_residuals = estimate_velocity!(
+        workspace.rate_residuals,
+        workspace.velocity_design,
+        measurements,
+        position,
+        velocity_start,
+    )
     all(isfinite, user_velocity_and_clock_drift) || return (false, prev_pvt)
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
@@ -349,16 +407,28 @@ function _solve_pvt!(
     # here on. A duplicate `(signal, PRN)` is refused before any is, so a throw leaves
     # `solution` whole; not by `insert!`, whose message formats the key, a dynamic `show`
     # a `juliac --trim` build rejects.
-    for j in 2:num_sats, k in 1:j-1
+    for j = 2:num_sats, k = 1:(j-1)
         measurements[j].signal_id === measurements[k].signal_id &&
-            measurements[j].prn == measurements[k].prn && throw(IndexError(
-                "a (signal, PRN) pair appears twice in one epoch; each must appear once"))
+            measurements[j].prn == measurements[k].prn &&
+            throw(
+                IndexError(
+                    "a (signal, PRN) pair appears twice in one epoch; each must appear once",
+                ),
+            )
     end
     observations = empty_keeping_capacity!(solution.observations)
     for (j, measurement) in enumerate(measurements)
         key = (measurement.signal_id, measurement.prn)
-        set!(observations, key, ObservationResult(measurement.position,
-            measurement.transmit_time * s, residuals[j] * m, rate_residuals[j] * (m / s)))
+        set!(
+            observations,
+            key,
+            ObservationResult(
+                measurement.position,
+                measurement.transmit_time * s,
+                residuals[j] * m,
+                rate_residuals[j] * (m / s),
+            ),
+        )
     end
 
     # The reference system's own bias is `clock_bias`.
@@ -371,16 +441,24 @@ function _solve_pvt!(
     # The reference band's delay is folded into the clock biases.
     inter_frequency_biases = empty_keeping_capacity!(solution.inter_frequency_biases)
     for (i, band) in enumerate(extra_bands)
-        set!(inter_frequency_biases, band,
-            InterFrequencyBias(ξ[3+num_clock_biases+i] * m, reference_bands[i]))
+        set!(
+            inter_frequency_biases,
+            band,
+            InterFrequencyBias(ξ[3+num_clock_biases+i] * m, reference_bands[i]),
+        )
     end
 
     # The receiver-clock differences constrained by broadcast offsets, by time system.
     applied_biases = empty!(solution.broadcast_clock_constraints)
     for constraint in constraints
-        push!(applied_biases, BroadcastClockConstraint(
-            clock_systems[constraint.column], clock_systems[constraint.target_column],
-            constraint.value * m))
+        push!(
+            applied_biases,
+            BroadcastClockConstraint(
+                clock_systems[constraint.column],
+                clock_systems[constraint.target_column],
+                constraint.value * m,
+            ),
+        )
     end
 
     return true,

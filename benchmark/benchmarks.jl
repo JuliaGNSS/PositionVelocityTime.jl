@@ -14,12 +14,10 @@ const GPS_PREV = calc_pvt(GPS_INPUT)
 
 SUITE["calc_pvt"] = BenchmarkGroup()
 
-for (system_label, input, prev_pvt) in (
-    ("GalileoE1B", GALILEO_INPUT, GALILEO_PREV),
-    ("GPSL1", GPS_INPUT, GPS_PREV),
-)
+for (system_label, input, prev_pvt) in
+    (("GalileoE1B", GALILEO_INPUT, GALILEO_PREV), ("GPSL1", GPS_INPUT, GPS_PREV))
     SUITE["calc_pvt"][system_label] = BenchmarkGroup()
-    n_total = length(input.satellites)
+    n_total = length(input)
     sat_counts = n_total == 4 ? (4,) : (4, n_total)
     for n in sat_counts
         subset = take_satellites(input, n)
@@ -35,7 +33,7 @@ end
 # a dynamic dispatch.
 const MIXED_INPUT = (gps = GPS_INPUT, galileo = GALILEO_INPUT)
 const MIXED_PREV = calc_pvt(MIXED_INPUT)
-const MIXED_SATS = length(GPS_INPUT.satellites) + length(GALILEO_INPUT.satellites)
+const MIXED_SATS = length(GPS_INPUT) + length(GALILEO_INPUT)
 
 SUITE["calc_pvt"]["GPSL1+GalileoE1B"] = BenchmarkGroup()
 mixed_group = BenchmarkGroup()
@@ -46,10 +44,8 @@ SUITE["calc_pvt"]["GPSL1+GalileoE1B"]["$(MIXED_SATS)sats"] = mixed_group
 # The in-place solve: the same epochs, overwriting one solution with a reused workspace,
 # which allocates nothing.
 SUITE["calc_pvt!"] = BenchmarkGroup()
-for (label, input, prev_pvt) in (
-    ("GPSL1", GPS_INPUT, GPS_PREV),
-    ("GPSL1+GalileoE1B", MIXED_INPUT, MIXED_PREV),
-)
+for (label, input, prev_pvt) in
+    (("GPSL1", GPS_INPUT, GPS_PREV), ("GPSL1+GalileoE1B", MIXED_INPUT, MIXED_PREV))
     group = BenchmarkGroup()
     workspace = PVTWorkspace()
     solution = PVTSolution()

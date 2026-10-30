@@ -1,33 +1,16 @@
 
-using Test, PositionVelocityTime, GNSSDecoder, AstroTime, GNSSSignals, Geodesy, Dates, LinearAlgebra
+using Test,
+    PositionVelocityTime, GNSSDecoder, AstroTime, GNSSSignals, Geodesy, Dates, LinearAlgebra
 using Unitful: Hz, m, s, °, ustrip
-# `Dictionaries.Dictionary` is how GNSSDecoder keys its paged records (BeiDou B1C's
-# per-GNSS BGTO sets, the almanacs); the BeiDou tests build one directly, and it also
-# backs the satellites of a `PositionVelocityTime.SignalGroup`.
+# Dictionaries preserve the decoder PRNs and the concrete observation type.
 using Dictionaries: Dictionaries, Dictionary
 using PositionVelocityTime: SVector
-# The fixtures build one flat vector of `SignalObservation`s per ranging signal. This is
-# how the suite turns one of them into the `SignalGroup` that `calc_pvt` takes; an epoch
-# spanning several signals is written as several groups — a NamedTuple where the names
-# carry meaning, a bare tuple (numbered `group1`, `group2`, …) where they do not.
-#
-# `SignalGroup` stays fully qualified here and everywhere below, as it must wherever
-# `Tracking`, which exports a type of the same name, is loaded too (as in
-# `test/integration`).
+
 function signal_group(signal, states)
-    ids = unique(get_signal_id(state.signal) for state in states)
-    all(id -> id === get_signal_id(signal), ids) || error(
-        "signal_group takes the satellites of one ranging signal, got $ids — " *
-        "put each signal in its own group",
-    )
-    PositionVelocityTime.SignalGroup(
-        signal,
-        Dictionary([state.decoder.prn for state in states], states),
-    )
+    all(state -> get_signal_id(state.signal) === get_signal_id(signal), states) ||
+        error("put each ranging signal in its own observation collection")
+    Dictionary([state.decoder.prn for state in states], states)
 end
-# The signal read off the satellites, for the usual case of a non-empty group. A group
-# that may be empty has to be given its signal explicitly — which is exactly why a
-# `SignalGroup` carries one rather than deriving it from its satellites.
 signal_group(states) = signal_group(first(states).signal, states)
 
 # Two more shorthands, for the tests that exercise the measurement-model surface
@@ -51,7 +34,11 @@ steering(decoder, target, t) =
 # the clock model read; `with_fields` is a copy of one with some of its fields replaced.
 ephemeris(decoder) = something(GNSSDecoder.get_broadcast_ephemeris(decoder))
 with_fields(ephemeris::BroadcastEphemeris; fields...) = BroadcastEphemeris(
-    (get(fields, name, getfield(ephemeris, name)) for name in fieldnames(BroadcastEphemeris))...)
+    (
+        get(fields, name, getfield(ephemeris, name)) for
+        name in fieldnames(BroadcastEphemeris)
+    )...,
+)
 # `gps_epoch` and `bdt_epoch` date a time of week in week 0 of GPS and BeiDou Time, the
 # epoch the ionospheric models take; the Klobuchar models read only its time of week.
 gps_epoch(time_of_week) = get_week_start_epoch(GPST(), 0) + time_of_week
@@ -79,7 +66,6 @@ function with_prn(state, prn)
     )
 end
 
-
 const ONE_CLOCK_COLUMN = PositionVelocityTime.BiasColumns([1], 1, [0], 0)
 
 # The pseudorange at receiver time `t`, as `predict_pseudoranges!` models it: the satellite
@@ -90,11 +76,15 @@ function modelled_pseudorange(sat_at, sat_clock_at, user_at, bias_at, t)
     c = PositionVelocityTime.SPEED_OF_LIGHT
     ρ = 0.0
     t_t = t
-    for _ in 1:10
+    for _ = 1:10
         t_t = t - ρ / c
-        ρ = PositionVelocityTime.predict_pseudoranges!(
-            zeros(1), [sat_at(t_t)], [user_at(t); bias_at(t)], ONE_CLOCK_COLUMN)[1] -
-            sat_clock_at(t_t)
+        ρ =
+            PositionVelocityTime.predict_pseudoranges!(
+                zeros(1),
+                [sat_at(t_t)],
+                [user_at(t); bias_at(t)],
+                ONE_CLOCK_COLUMN,
+            )[1] - sat_clock_at(t_t)
     end
     return ρ, t_t
 end

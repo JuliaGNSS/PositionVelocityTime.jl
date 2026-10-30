@@ -4,25 +4,30 @@
 # its buffers have grown to an epoch it allocates nothing at all.
 
 using PositionVelocityTime:
-    _precompile_states, _precompile_cnav, _precompile_cnav2,
-    _precompile_fnav, _PRECOMPILE_GPS_L1CA_STATES, _PRECOMPILE_GALILEO_E1B_STATES
+    _precompile_states,
+    _precompile_cnav,
+    _precompile_cnav2,
+    _precompile_fnav,
+    _PRECOMPILE_GPS_L1CA_STATES,
+    _PRECOMPILE_GALILEO_E1B_STATES
 
 # The precompile workload's fixture satellites, re-encoded onto every navigation-data
 # type the solver dispatches on — the same epochs the trimmed app solves.
-precompile_gps(system, make_data = identity) = PositionVelocityTime.SignalGroup(
-    system, _precompile_states(system, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA()))
-precompile_galileo(system, make_data = identity) = PositionVelocityTime.SignalGroup(
-    system,
-    _precompile_states(system, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B()))
-first_satellites(group, n) =
-    PositionVelocityTime.SignalGroup(group.signal, group.satellites[1:n])
+precompile_gps(system, make_data = identity) =
+    _precompile_states(system, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA())
+precompile_galileo(system, make_data = identity) =
+    _precompile_states(system, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B())
+first_satellites(group, n) = group[1:n]
 
 # Every field of two solutions, containers by content and in order.
 function same_solution(a::PVTSolution, b::PVTSolution)
-    a.position == b.position && a.velocity == b.velocity &&
+    a.position == b.position &&
+        a.velocity == b.velocity &&
         a.course_over_ground == b.course_over_ground &&
-        a.clock_bias == b.clock_bias && a.time == b.time &&
-        a.clock_drift == b.clock_drift && a.dop == b.dop &&
+        a.clock_bias == b.clock_bias &&
+        a.time == b.time &&
+        a.clock_drift == b.clock_drift &&
+        a.dop == b.dop &&
         collect(pairs(a.observations)) == collect(pairs(b.observations)) &&
         a.reference_system === b.reference_system &&
         a.inter_system_biases == b.inter_system_biases &&
@@ -38,7 +43,8 @@ immutable_value(T::Union) = immutable_value(T.a) && immutable_value(T.b)
 immutable_value(T::DataType) =
     T === Symbol || !ismutabletype(T) && all(immutable_value, fieldtypes(T))
 container_of_immutables(T) =
-    T <: Union{Dictionary,Dict} && immutable_value(keytype(T)) &&
+    T <: Union{Dictionary,Dict} &&
+    immutable_value(keytype(T)) &&
     immutable_value(valtype(T)) || T <: Vector && immutable_value(eltype(T))
 
 snapshot(pvt::PVTSolution) = deepcopy(pvt)
@@ -48,7 +54,7 @@ snapshot(pvt::PVTSolution) = deepcopy(pvt)
 allocated_solve(solution, workspace, groups, prev_pvt; kw...) =
     @allocated calc_pvt!(solution, workspace, groups, prev_pvt; kw...)
 function allocated_loop(pvt, workspace, groups; kw...)
-    @allocated for _ in 1:10
+    @allocated for _ = 1:10
         pvt = calc_pvt!(pvt, workspace, groups, pvt; kw...)
     end
 end
@@ -72,14 +78,27 @@ end
             (gps = first_satellites(l1ca, 3), galileo = first_satellites(e1b, 2)),
         # Constrained: one Galileo satellite carrying a GGTO, which ties its clock to
         # the GPS one through an extra observation row.
-        "constrained GPS + Galileo" => (gps = first_satellites(l1ca, 3),
-            galileo = first_satellites(precompile_galileo(GalileoE1B(), data ->
-                    GNSSDecoder.GalileoINAVData(data; A_0G = 5.0e-9, A_1G = 0.0,
-                        t_0G = 0, WN_0G = 0)), 1)),
+        "constrained GPS + Galileo" => (
+            gps = first_satellites(l1ca, 3),
+            galileo = first_satellites(
+                precompile_galileo(
+                    GalileoE1B(),
+                    data -> GNSSDecoder.GalileoINAVData(
+                        data;
+                        A_0G = 5.0e-9,
+                        A_1G = 0.0,
+                        t_0G = 0,
+                        WN_0G = 0,
+                    ),
+                ),
+                1,
+            ),
+        ),
         # The test suite's own fixtures, Dictionary-backed.
-        "fixture GPS + Galileo" =>
-            (gps = signal_group(gps_l1_states(0.0Hz)),
-                galileo = signal_group(galileo_e1b_states(0.0Hz))),
+        "fixture GPS + Galileo" => (
+            gps = signal_group(gps_l1_states(0.0Hz)),
+            galileo = signal_group(galileo_e1b_states(0.0Hz)),
+        ),
     ]
     corrections = [
         (enable_ionospheric_correction = true, enable_tropospheric_correction = true),
@@ -91,8 +110,14 @@ end
             cold = calc_pvt(groups; kw..., correction...)
             warm = calc_pvt(groups, cold; kw..., correction...)
             workspace = PVTWorkspace()
-            pvt = calc_pvt!(PVTSolution(), workspace, groups, PVTSolution(); kw...,
-                correction...)
+            pvt = calc_pvt!(
+                PVTSolution(),
+                workspace,
+                groups,
+                PVTSolution();
+                kw...,
+                correction...,
+            )
             @test same_solution(pvt, cold)
             # Warm, with the solution as its own seed — the receiver loop.
             pvt = calc_pvt!(pvt, workspace, groups, pvt; kw..., correction...)
@@ -117,11 +142,10 @@ end
         @test returned.observations === solution.observations
         @test returned.inter_system_biases === solution.inter_system_biases
         @test returned.inter_frequency_biases === solution.inter_frequency_biases
-        @test returned.broadcast_clock_constraints ===
-              solution.broadcast_clock_constraints
+        @test returned.broadcast_clock_constraints === solution.broadcast_clock_constraints
         again = calc_pvt!(returned, PVTWorkspace(), l1ca, prev_pvt; kw...)
         @test again.observations === solution.observations
-        @test length(again.observations) == length(l1ca.satellites)
+        @test length(again.observations) == length(l1ca)
         # `calc_pvt` still never touches its `prev_pvt`.
         calc_pvt(l1ca, prev_pvt; kw...)
         @test same_solution(prev_pvt, before)
@@ -130,8 +154,11 @@ end
     @testset "an unsolvable epoch returns prev_pvt" begin
         unsolvable = first_satellites(l1ca, 3)
         # With inter-system and inter-frequency biases, so every container is copied.
-        for prev_pvt in (calc_pvt(l1ca; kw...), calc_pvt(epochs[8][2]; kw...),
-            calc_pvt((gps = l1ca, galileo = e1b); kw...))
+        for prev_pvt in (
+            calc_pvt(l1ca; kw...),
+            calc_pvt(epochs[8][2]; kw...),
+            calc_pvt((gps = l1ca, galileo = e1b); kw...),
+        )
             @test calc_pvt(unsolvable, prev_pvt; kw...) === prev_pvt
             before = snapshot(prev_pvt)
             # Into another solution's containers: a copy, and `prev_pvt` untouched.
@@ -149,8 +176,8 @@ end
 
     @testset "copy keeps a solution the loop reuses" begin
         # With inter-system and inter-frequency biases, so every container is filled.
-        for pvt in (calc_pvt((gps = l1ca, galileo = e1b); kw...),
-            calc_pvt(epochs[8][2]; kw...))
+        for pvt in
+            (calc_pvt((gps = l1ca, galileo = e1b); kw...), calc_pvt(epochs[8][2]; kw...))
             kept = copy(pvt)
             @test same_solution(kept, pvt)
             # No container shared — including any added to `PVTSolution` later.
@@ -166,8 +193,10 @@ end
         @test same_solution(copy(PVTSolution()), PVTSolution())
     end
 
-    @testset "every PVTSolution field is copied or immutable: $name" for (name, T) in
-        zip(fieldnames(PVTSolution), fieldtypes(PVTSolution))
+    @testset "every PVTSolution field is copied or immutable: $name" for (name, T) in zip(
+        fieldnames(PVTSolution),
+        fieldtypes(PVTSolution),
+    )
         @test container_of_immutables(T) || immutable_value(T)
     end
 
@@ -177,12 +206,22 @@ end
         twice = (a = l1ca, b = l1ca)
         @test_throws Dictionaries.IndexError calc_pvt(twice; kw...)
         @test_throws Dictionaries.IndexError calc_pvt!(
-            PVTSolution(), PVTWorkspace(), twice, PVTSolution(); kw...)
+            PVTSolution(),
+            PVTWorkspace(),
+            twice,
+            PVTSolution();
+            kw...,
+        )
         # As its own output, the refused epoch leaves `prev_pvt` as it was.
         prev_pvt = calc_pvt((gps = l1ca, galileo = e1b); kw...)
         before = snapshot(prev_pvt)
         @test_throws Dictionaries.IndexError calc_pvt!(
-            prev_pvt, PVTWorkspace(), twice, prev_pvt; kw...)
+            prev_pvt,
+            PVTWorkspace(),
+            twice,
+            prev_pvt;
+            kw...,
+        )
         @test same_solution(prev_pvt, before)
     end
 
@@ -226,14 +265,37 @@ end
         # a solve through each must allocate nothing.
         parameter_sets = (
             GNSSDecoder.KlobucharParameters(
-                1.118e-8, 7.451e-9, -5.961e-8, -5.961e-8, 90112.0, 0.0, -196608.0,
-                -65536.0),
+                1.118e-8,
+                7.451e-9,
+                -5.961e-8,
+                -5.961e-8,
+                90112.0,
+                0.0,
+                -196608.0,
+                -65536.0,
+            ),
             GNSSDecoder.BeiDouKlobucharParameters(
-                1.118e-8, 7.451e-9, -5.961e-8, -5.961e-8, 90112.0, 0.0, -196608.0,
-                -65536.0),
+                1.118e-8,
+                7.451e-9,
+                -5.961e-8,
+                -5.961e-8,
+                90112.0,
+                0.0,
+                -196608.0,
+                -65536.0,
+            ),
             GNSSDecoder.NeQuickGParameters(236.831641, -0.39362878, 0.00402826613),
             GNSSDecoder.BDGIMParameters(
-                5.25, 3.0, -0.75, 1.5, -2.0, 0.5, 0.25, -0.125, 0.5),
+                5.25,
+                3.0,
+                -0.75,
+                1.5,
+                -2.0,
+                0.5,
+                0.25,
+                -0.125,
+                0.5,
+            ),
             nothing,
         )
         measurements = measurements_of((gps = l1ca, galileo = e1b))
@@ -247,14 +309,24 @@ end
         calc_pvt!(solution, workspace, (gps = l1ca, galileo = e1b), PVTSolution(); kw...)
         cold = PVTSolution()
         solve!(model) = PositionVelocityTime._solve_pvt!(
-            solution, workspace, PositionVelocityTime.IonosphericModel(model), cold, true)
+            solution,
+            workspace,
+            PositionVelocityTime.IonosphericModel(model),
+            cold,
+            true,
+        )
         allocated_solve!(model) = @allocated solve!(model)
         for parameters in parameter_sets
             model = PositionVelocityTime.IonosphericModel(parameters)
             delays = Float64[]
             predict!(delays, ξ, measurements, model, epoch, true)
             @test delays == PositionVelocityTime.predict_atmospheric_delays(
-                ξ, measurements, model, epoch, true)
+                ξ,
+                measurements,
+                model,
+                epoch,
+                true,
+            )
             @test all(isfinite, delays)
             @test allocated_predict(delays, model) == 0
             @test first(solve!(parameters))
@@ -267,7 +339,7 @@ end
         # the dictionary it leaves behind is a working, empty one.
         empty_in_place! = PositionVelocityTime.empty_keeping_capacity!
         dict = Dictionary{Tuple{Symbol,Int},Int}()
-        fill_dict!(dict, n) = (for i in 1:n
+        fill_dict!(dict, n) = (for i = 1:n
             insert!(dict, (:GPSL1CA, i), 10i)
         end; dict)
         fill_dict!(dict, 40)
@@ -275,8 +347,8 @@ end
         @test isempty(dict)
         @test !haskey(dict, (:GPSL1CA, 1))
         fill_dict!(dict, 25)
-        @test collect(keys(dict)) == [(:GPSL1CA, i) for i in 1:25]
-        @test all(dict[(:GPSL1CA, i)] == 10i for i in 1:25)
+        @test collect(keys(dict)) == [(:GPSL1CA, i) for i = 1:25]
+        @test all(dict[(:GPSL1CA, i)] == 10i for i = 1:25)
         @test !haskey(dict, (:GPSL1CA, 26))
         refill!(dict) = @allocated (empty_in_place!(dict); fill_dict!(dict, 30))
         refill!(dict)
@@ -285,13 +357,17 @@ end
         delete!(dict, (:GPSL1CA, 3))
         empty_in_place!(dict)
         fill_dict!(dict, 5)
-        @test collect(keys(dict)) == [(:GPSL1CA, i) for i in 1:5]
+        @test collect(keys(dict)) == [(:GPSL1CA, i) for i = 1:5]
     end
 
     @testset "a solution's containers are emptied in place" begin
-        solution = calc_pvt!(PVTSolution(), PVTWorkspace(),
-            (l1 = l1ca, l5 = precompile_gps(GPSL5I(), _precompile_cnav),
-                galileo = e1b), PVTSolution(); kw...)
+        solution = calc_pvt!(
+            PVTSolution(),
+            PVTWorkspace(),
+            (l1 = l1ca, l5 = precompile_gps(GPSL5I(), _precompile_cnav), galileo = e1b),
+            PVTSolution();
+            kw...,
+        )
         @test !isempty(solution.observations)
         @test !isempty(solution.inter_system_biases)
         @test !isempty(solution.inter_frequency_biases)
@@ -308,14 +384,21 @@ end
         groups = (gps = l1ca, galileo = e1b)
         measurements = PositionVelocityTime.PreparedObservation[]
         parameters = PositionVelocityTime.collect_measurements!(
-            measurements, groups; approximate_year = 2021)
+            measurements,
+            groups;
+            approximate_year = 2021,
+        )
         expected_measurements, expected_parameters =
             PositionVelocityTime.collect_measurements(groups; approximate_year = 2021)
         @test measurements == expected_measurements
         @test parameters == expected_parameters
         collect_into!(measurements, groups) = @allocated(
-            PositionVelocityTime.collect_measurements!(measurements, groups;
-                approximate_year = 2021))
+            PositionVelocityTime.collect_measurements!(
+                measurements,
+                groups;
+                approximate_year = 2021,
+            )
+        )
         collect_into!(measurements, groups)
         @test collect_into!(measurements, groups) == 0
     end
@@ -337,14 +420,22 @@ end
         # damping grows and the parameters stay put — rather than a thrown error.
         nan_jacobian!(J, x, p) = fill!(J, NaN)
         stuck = LM.curve_fit!(
-            LM.LMWorkspace(), line!, nan_jacobian!, xs, ys, [0.5, 0.5]; maxIter = 3)
+            LM.LMWorkspace(),
+            line!,
+            nan_jacobian!,
+            xs,
+            ys,
+            [0.5, 0.5];
+            maxIter = 3,
+        )
         @test !stuck.converged
         @test stuck.param == [0.5, 0.5]
 
         # The time-system and ENU helpers.
         @test PositionVelocityTime.unique_time_systems!(
             PositionVelocityTime.SupportedTimeSystem[GST()],
-            (GPST(), GST(), GPST(), BDT())) == [GPST(), GST(), BDT()]
+            (GPST(), GST(), GPST(), BDT()),
+        ) == [GPST(), GST(), BDT()]
         mixed_measurements = measurements_of((gps = l1ca, galileo = e1b))
         mixed_layout = PositionVelocityTime.decide_bias_layout(mixed_measurements)
         select_reference(layout) =

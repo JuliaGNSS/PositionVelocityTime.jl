@@ -29,7 +29,9 @@
     # Earth rotation rate is 7.2921150e-5 rad/s against GTRF's 7.2921151467e-5, so
     # nothing below asserts that the two agree.
 
-    "A BeiDou D1 (B1I/B3I) decoder carrying `state`'s Galileo Keplerian ephemeris."
+    """
+    A BeiDou D1 (B1I/B3I) decoder carrying `state`'s Galileo Keplerian ephemeris.
+    """
     function dnav_decoder(state; prn = state.decoder.prn, T_GD1 = -2.9e-9, extra...)
         d = state.decoder.data
         data = GNSSDecoder.BeiDouDNAVData(;
@@ -70,7 +72,9 @@
         )
     end
 
-    "A BeiDou B2a (B-CNAV2) decoder carrying `state`'s ephemeris in quasi-Keplerian form."
+    """
+    A BeiDou B2a (B-CNAV2) decoder carrying `state`'s ephemeris in quasi-Keplerian form.
+    """
     function b2a_decoder(state; sat_type = 3, extra...)
         d = state.decoder.data
         A_ref = sat_type == 3 ? 27_906_100.0 : 42_162_200.0
@@ -188,7 +192,8 @@
         @test GNSSSignals.get_band_id(BeiDouB3I()) == :B3I
         @test GNSSSignals.get_band_id(BeiDouB1C_D()) == GNSSSignals.get_band_id(GPSL1CA())
         @test GNSSSignals.get_band_id(BeiDouB2aI()) == GNSSSignals.get_band_id(GPSL5I())
-        @test GNSSSignals.get_band_id(BeiDouB2bI()) == GNSSSignals.get_band_id(GalileoE5bI())
+        @test GNSSSignals.get_band_id(BeiDouB2bI()) ==
+              GNSSSignals.get_band_id(GalileoE5bI())
 
         # The BDT epoch is 2006-01-01, 26 years after GPS's, so the same week/SOW pair
         # dates to a different instant — this is what keeps BeiDou's reported time
@@ -232,9 +237,15 @@
         Δt = t - d1.data.t_0c
         @test PositionVelocityTime.calc_satellite_clock_drift(ephemeris(d1), t) ≈
               d1.data.a_f1 + 2 * d1.data.a_f2 * Δt
-        @test PositionVelocityTime.correct_clock(ephemeris(d1), GNSSDecoder.get_group_delay(d1, BeiDouB3I()), t) ≈
+        @test PositionVelocityTime.correct_clock(
+            ephemeris(d1),
+            GNSSDecoder.get_group_delay(d1, BeiDouB3I()),
+            t,
+        ) ≈
               t - (
-            d1.data.a_f0 + d1.data.a_f1 * Δt + d1.data.a_f2 * Δt^2 +
+            d1.data.a_f0 +
+            d1.data.a_f1 * Δt +
+            d1.data.a_f2 * Δt^2 +
             PositionVelocityTime.calc_relativistic_correction(ephemeris(d1), t)
         )
     end
@@ -305,14 +316,20 @@
         ω_e = 7.2921150e-5
         elements = (; Ω_dot = -5.3e-9, t_0e = Int64(0))
         geo_frame = dnav_decoder(galileo[1]; prn = 3, elements...)
-        auxiliary = dnav_decoder(
-            galileo[1]; prn = 20, elements..., Ω_dot = elements.Ω_dot + ω_e)
+        auxiliary =
+            dnav_decoder(galileo[1]; prn = 20, elements..., Ω_dot = elements.Ω_dot + ω_e)
         icd_R_z(φ) = [cos(φ) sin(φ) 0.0; -sin(φ) cos(φ) 0.0; 0.0 0.0 1.0]
         icd_R_x(φ) = [1.0 0.0 0.0; 0.0 cos(φ) sin(φ); 0.0 -sin(φ) cos(φ)]
 
         for t in (0.0, 1800.0, 21600.0)
-            pv_geo = PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(geo_frame), t)
-            pv_aux = PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(auxiliary), t)
+            pv_geo = PositionVelocityTime.calc_satellite_position_and_velocity(
+                ephemeris(geo_frame),
+                t,
+            )
+            pv_aux = PositionVelocityTime.calc_satellite_position_and_velocity(
+                ephemeris(auxiliary),
+                t,
+            )
             rotation = icd_R_z(ω_e * t) * icd_R_x(-5 * π / 180)
             @test pv_geo.position ≈ rotation * pv_aux.position atol = 1e-6
             # Rotations preserve length, and the two frames differ by a real 5° tilt.
@@ -324,8 +341,14 @@
             # kilometres per second. Check it against a central difference of the
             # position, which shares none of the derivative code.
             h = 1e-3
-            forward = PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(geo_frame), t + h).position
-            backward = PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(geo_frame), t - h).position
+            forward = PositionVelocityTime.calc_satellite_position_and_velocity(
+                ephemeris(geo_frame),
+                t + h,
+            ).position
+            backward = PositionVelocityTime.calc_satellite_position_and_velocity(
+                ephemeris(geo_frame),
+                t - h,
+            ).position
             @test pv_geo.velocity ≈ (forward - backward) / (2h) atol = 1e-4
         end
 
@@ -340,16 +363,32 @@
             galileo[1];
             prn = 3,
             sqrt_A = (μ / ω_e^2)^(1 / 6),
-            e = 0.0, ω = 0.0, M_0 = 0.0, Δn = 0.0,
-            i_0 = 5 * π / 180, i_dot = 0.0,
-            Ω_0 = π, Ω_dot = 0.0,
-            C_uc = 0.0, C_us = 0.0, C_rc = 0.0, C_rs = 0.0, C_ic = 0.0, C_is = 0.0,
+            e = 0.0,
+            ω = 0.0,
+            M_0 = 0.0,
+            Δn = 0.0,
+            i_0 = 5 * π / 180,
+            i_dot = 0.0,
+            Ω_0 = π,
+            Ω_dot = 0.0,
+            C_uc = 0.0,
+            C_us = 0.0,
+            C_rc = 0.0,
+            C_rs = 0.0,
+            C_ic = 0.0,
+            C_is = 0.0,
             t_0e = Int64(0),
         )
-        anchor = PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(stationary), 0.0)
+        anchor = PositionVelocityTime.calc_satellite_position_and_velocity(
+            ephemeris(stationary),
+            0.0,
+        )
         @test norm(anchor.position) ≈ (μ / ω_e^2)^(1 / 3)
         for t in (3600.0, 21600.0, 43082.0)
-            later = PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(stationary), t)
+            later = PositionVelocityTime.calc_satellite_position_and_velocity(
+                ephemeris(stationary),
+                t,
+            )
             # Fixed to well under a metre over half a day, and essentially at rest —
             # against the ~3 km/s the satellite moves at in the auxiliary frame.
             @test norm(later.position - anchor.position) < 1.0
@@ -370,8 +409,14 @@
 
         iono = dnav_decoder(
             galileo[1];
-            α_0 = 1.0e-8, α_1 = 2.0e-8, α_2 = -3.0e-8, α_3 = 4.0e-8,
-            β_0 = 90112.0, β_1 = 16384.0, β_2 = -196608.0, β_3 = 131072.0,
+            α_0 = 1.0e-8,
+            α_1 = 2.0e-8,
+            α_2 = -3.0e-8,
+            α_3 = 4.0e-8,
+            β_0 = 90112.0,
+            β_1 = 16384.0,
+            β_2 = -196608.0,
+            β_3 = 131072.0,
         )
         p = GNSSDecoder.get_klobuchar_parameters(iono)
         # A type of its own, not `KlobucharParameters`: BDS-SIS-ICD-B1I-3.0 §5.2.4.7
@@ -383,14 +428,27 @@
         @test (p.α_0, p.β_3) == (1.0e-8, 131072.0)
 
         geometry = (0.6, 1.2, Geodesy.LLA(50.8, 6.1, 180.0), bdt_epoch(132000.0))
-        bds = PositionVelocityTime.ionospheric_delay(p, carrier_hz(BeiDouB1I()), geometry...)
+        bds =
+            PositionVelocityTime.ionospheric_delay(p, carrier_hz(BeiDouB1I()), geometry...)
         @test bds > 0
         # The same eight numbers fed through the GPS algorithm land elsewhere: the
         # model differs, and so does the reference carrier the 1/f² rescale starts
         # from (B1I is 14 MHz below L1, ~1.8 % on its own).
         as_gps_set = GNSSDecoder.KlobucharParameters(
-            p.α_0, p.α_1, p.α_2, p.α_3, p.β_0, p.β_1, p.β_2, p.β_3)
-        gps = PositionVelocityTime.ionospheric_delay(as_gps_set, carrier_hz(BeiDouB1I()), geometry...)
+            p.α_0,
+            p.α_1,
+            p.α_2,
+            p.α_3,
+            p.β_0,
+            p.β_1,
+            p.β_2,
+            p.β_3,
+        )
+        gps = PositionVelocityTime.ionospheric_delay(
+            as_gps_set,
+            carrier_hz(BeiDouB1I()),
+            geometry...,
+        )
         @test !isapprox(bds, gps; rtol = 1e-3)
     end
 
@@ -405,9 +463,12 @@
         # GPS-referenced: BeiDou needs +14 s.
         stand_in(system) = (; time_system = system)
         offsets(systems, reference) = map(
-            system -> PositionVelocityTime.calc_time_scale_offset(stand_in(system),
-                reference),
-            systems)
+            system -> PositionVelocityTime.calc_time_scale_offset(
+                stand_in(system),
+                reference,
+            ),
+            systems,
+        )
         @test offsets([GPST(), BDT(), GST(), BDT()], GPST()) == [0.0, 14.0, 0.0, 14.0]
         # BeiDou-referenced: the sign reverses, and a BeiDou-only epoch needs nothing —
         # which is why anchoring on GPST instead of the reference system would have
@@ -439,24 +500,36 @@
         # B-CNAV: three terms against an explicit (WN_0BGTO, t_0BGTO) epoch, and only
         # while GNSS_ID names GPS. GNSS ID 1 is GPS; 0 means "no parameters", which is
         # the trap — reading it as GPS would publish a zero offset as if measured.
-        bgto = (; WN_0BGTO = Int64(799), t_0BGTO = Int64(100),
-            A_0BGTO = 5.0e-9, A_1BGTO = 1.0e-15, A_2BGTO = 1.0e-21)
+        bgto = (;
+            WN_0BGTO = Int64(799),
+            t_0BGTO = Int64(100),
+            A_0BGTO = 5.0e-9,
+            A_1BGTO = 1.0e-15,
+            A_2BGTO = 1.0e-21,
+        )
         gps_bgto = b2a_decoder(galileo[1]; GNSS_ID = Int64(1), bgto...)
         @test has_offset(gps_bgto, GPST())
         Δτ = 132000.0 - 100 + 604800 * (800 - 799)
-        @test to_gpst(gps_bgto, 132000.0) ≈
-              5.0e-9 + 1.0e-15 * Δτ + 1.0e-21 * Δτ^2
+        @test to_gpst(gps_bgto, 132000.0) ≈ 5.0e-9 + 1.0e-15 * Δτ + 1.0e-21 * Δτ^2
         for gnss_id in (Int64(0), Int64(2), Int64(3))   # unavailable / Galileo / GLONASS
-            @test !has_offset(
-                b2a_decoder(galileo[1]; GNSS_ID = gnss_id, bgto...), GPST())
+            @test !has_offset(b2a_decoder(galileo[1]; GNSS_ID = gnss_id, bgto...), GPST())
         end
 
         # B-CNAV3 uses the same fields ...
         b2b_data = GNSSDecoder.BeiDouCNAV3Data(;
-            WN = Int64(800), GNSS_ID = Int64(1), WN_0BGTO = Int64(799),
-            t_0BGTO = Int64(100), A_0BGTO = 5.0e-9, A_1BGTO = 0.0, A_2BGTO = 0.0)
+            WN = Int64(800),
+            GNSS_ID = Int64(1),
+            WN_0BGTO = Int64(799),
+            t_0BGTO = Int64(100),
+            A_0BGTO = 5.0e-9,
+            A_1BGTO = 0.0,
+            A_2BGTO = 0.0,
+        )
         b2b = GNSSDecoder.GNSSDecoderState(
-            GNSSDecoder.BeiDouB2bDecoderState(20); data = b2b_data, raw_data = b2b_data)
+            GNSSDecoder.BeiDouB2bDecoderState(20);
+            data = b2b_data,
+            raw_data = b2b_data,
+        )
         @test has_offset(b2b, GPST())
         @test to_gpst(b2b, 132000.0) ≈ 5.0e-9
 
@@ -467,24 +540,42 @@
             bgtos = Dictionary(
                 [1, 2],
                 [
-                    GNSSDecoder.BeiDouB1CBGTO(; GNSS_ID = 1, WN_0BGTO = 799,
-                        t_0BGTO = 100, A_0BGTO = 5.0e-9, A_1BGTO = 0.0, A_2BGTO = 0.0),
-                    GNSSDecoder.BeiDouB1CBGTO(; GNSS_ID = 2, WN_0BGTO = 799,
-                        t_0BGTO = 100, A_0BGTO = -7.0e-9, A_1BGTO = 0.0, A_2BGTO = 0.0),
+                    GNSSDecoder.BeiDouB1CBGTO(;
+                        GNSS_ID = 1,
+                        WN_0BGTO = 799,
+                        t_0BGTO = 100,
+                        A_0BGTO = 5.0e-9,
+                        A_1BGTO = 0.0,
+                        A_2BGTO = 0.0,
+                    ),
+                    GNSSDecoder.BeiDouB1CBGTO(;
+                        GNSS_ID = 2,
+                        WN_0BGTO = 799,
+                        t_0BGTO = 100,
+                        A_0BGTO = -7.0e-9,
+                        A_1BGTO = 0.0,
+                        A_2BGTO = 0.0,
+                    ),
                 ],
             ),
         )
         b1c = GNSSDecoder.GNSSDecoderState(
-            GNSSDecoder.BeiDouB1CDecoderState(20); data = b1c_data, raw_data = b1c_data)
+            GNSSDecoder.BeiDouB1CDecoderState(20);
+            data = b1c_data,
+            raw_data = b1c_data,
+        )
         @test has_offset(b1c, GPST())
         # The GPS record, not the Galileo one that also sits in the dictionary.
         @test to_gpst(b1c, 132000.0) ≈ 5.0e-9
         # A satellite carrying only a Galileo offset has nothing to convert to GPS.
-        galileo_only = GNSSDecoder.BeiDouCNAV1Data(b1c_data;
-            bgtos = Dictionary([2], [b1c_data.bgtos[2]]))
+        galileo_only = GNSSDecoder.BeiDouCNAV1Data(
+            b1c_data;
+            bgtos = Dictionary([2], [b1c_data.bgtos[2]]),
+        )
         @test !has_offset(
             GNSSDecoder.GNSSDecoderState(b1c; data = galileo_only, raw_data = galileo_only),
-            GPST())
+            GPST(),
+        )
     end
 
     # ---- End to end ---------------------------------------------------------
@@ -495,7 +586,9 @@
     # propagator, BDT as a time system — against an answer computed independently of
     # the solver.
 
-    "Set a decoder's bit count and code phase so its corrected transmit time is `t_tx`."
+    """
+    Set a decoder's bit count and code phase so its corrected transmit time is `t_tx`.
+    """
     function observables_for(decoder, system, t_tx)
         # Undo the clock correction to recover the uncorrected time the decoder must
         # report. The correction changes by ~1e-12 s over its own size, so a couple of
@@ -503,7 +596,11 @@
         t_uncorrected = t_tx
         for _ = 1:4
             t_uncorrected +=
-                t_tx - PositionVelocityTime.correct_clock(ephemeris(decoder), GNSSDecoder.get_group_delay(decoder, system), t_uncorrected)
+                t_tx - PositionVelocityTime.correct_clock(
+                    ephemeris(decoder),
+                    GNSSDecoder.get_group_delay(decoder, system),
+                    t_uncorrected,
+                )
         end
         bit_rate = Float64(GNSSSignals.get_bit_rate(decoder) / Hz)
         chip_rate = Float64(GNSSSignals.get_chip_rate(system) / Hz)
@@ -513,7 +610,9 @@
         (num_bits, code_phase)
     end
 
-    "A `SignalObservation` whose observables place the receiver at `user` at time `t_rx`."
+    """
+    A `SignalObservation` whose observables place the receiver at `user` at time `t_rx`.
+    """
     function ranging_state(decoder, system, user, t_rx)
         # Solve the light-time equation against the *same* range model the solver
         # uses, which rotates the satellite into the ECEF frame of the reception
@@ -522,14 +621,19 @@
         # a synthesis error that looks exactly like a decoder bug.
         t_tx = t_rx - 0.075                      # ~one light-time as a seed
         for _ = 1:6
-            position = PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(decoder), t_tx).position
+            position = PositionVelocityTime.calc_satellite_position_and_velocity(
+                ephemeris(decoder),
+                t_tx,
+            ).position
             rotated = PositionVelocityTime.satellite_position_at_reception(user, position)
             t_tx = t_rx - norm(rotated - user) / C
         end
         num_bits, code_phase = observables_for(decoder, system, t_tx)
         SignalObservation(;
             decoder = GNSSDecoder.GNSSDecoderState(
-                decoder; num_bits_since_time_reference = num_bits),
+                decoder;
+                num_bits_since_time_reference = num_bits,
+            ),
             signal = system,
             code_phase = code_phase,
             carrier_doppler = 0.0Hz,
@@ -577,7 +681,10 @@
                 GNSSDecoder.GNSSDecoderState(
                     state.decoder;
                     data = GNSSDecoder.GPSLNAVData(
-                        state.decoder.data; WN = 2156 % 1024, TOW = Int64(t_rx) + 14),
+                        state.decoder.data;
+                        WN = 2156 % 1024,
+                        TOW = Int64(t_rx) + 14,
+                    ),
                 ),
                 GPSL1CA(),
                 user,
@@ -585,8 +692,10 @@
             ) for state in gps_l1_states(0.0Hz)
         ]
         pvt_gps = calc_pvt(signal_group(gps_matched); kw...)
-        @test GNSSDecoder.get_broadcast_week(gps_matched[1].decoder;
-            approximate_year = 2021) == 2156
+        @test GNSSDecoder.get_broadcast_week(
+            gps_matched[1].decoder;
+            approximate_year = 2021,
+        ) == 2156
         @test norm(pvt_gps.position - user) < 1e-2
         # One instant, two constellations, two epochs, two TAI offsets: one answer.
         @test pvt_gps.time - pvt.time ≈ 0.0 atol = 1e-3
@@ -615,7 +724,10 @@
                 GNSSDecoder.GNSSDecoderState(
                     state.decoder;
                     data = GNSSDecoder.GPSLNAVData(
-                        state.decoder.data; WN = 2157 % 1024, TOW = Int64(0)),
+                        state.decoder.data;
+                        WN = 2157 % 1024,
+                        TOW = Int64(0),
+                    ),
                 ),
                 GPSL1CA(),
                 user,
@@ -662,12 +774,11 @@
             (b2a_decoder, BeiDouB2aI(), BeiDouB2aQ()),
         )
             on_data = [
-                ranging_state(decoder_of(state), data_signal, user, t_rx)
-                for state in galileo
+                ranging_state(decoder_of(state), data_signal, user, t_rx) for
+                state in galileo
             ]
-            on_pilot = [
-                ranging_state(decoder_of(state), pilot, user, t_rx) for state in galileo
-            ]
+            on_pilot =
+                [ranging_state(decoder_of(state), pilot, user, t_rx) for state in galileo]
             # The pilot really is a different measurement: its group delay differs
             # from the data component's by the ISC, so the observables are not copies.
             @test any(
@@ -688,8 +799,7 @@
 
     @testset "B-CNAV fix, and the BDS-3 quasi-Keplerian path end to end" begin
         b2a_states = [
-            ranging_state(b2a_decoder(state), BeiDouB2aI(), user, t_rx)
-            for state in galileo
+            ranging_state(b2a_decoder(state), BeiDouB2aI(), user, t_rx) for state in galileo
         ]
         pvt = calc_pvt(signal_group(b2a_states); kw...)
         @test length(pvt.observations) == length(galileo)
@@ -718,8 +828,8 @@
         Δ = 12.0e-9
         structural = -14.0
         gps = [
-            ranging_state(state.decoder, GPSL1CA(), user, t_rx)
-            for state in gps_l1_states(0.0Hz)
+            ranging_state(state.decoder, GPSL1CA(), user, t_rx) for
+            state in gps_l1_states(0.0Hz)
         ]
         beidou(prns; bgto = nothing) = [
             ranging_state(
@@ -758,17 +868,24 @@
             ranging_state(
                 b1c_decoder(
                     galileo[i];
-                    (isnothing(bgto) ? (;) :
-                     (;
-                        bgtos = Dictionary(
-                            [1],
-                            [
-                                GNSSDecoder.BeiDouB1CBGTO(;
-                                    GNSS_ID = 1, WN_0BGTO = 800, t_0BGTO = 0,
-                                    A_0BGTO = bgto, A_1BGTO = 0.0, A_2BGTO = 0.0),
-                            ],
+                    (
+                        isnothing(bgto) ? (;) :
+                        (;
+                            bgtos = Dictionary(
+                                [1],
+                                [
+                                    GNSSDecoder.BeiDouB1CBGTO(;
+                                        GNSS_ID = 1,
+                                        WN_0BGTO = 800,
+                                        t_0BGTO = 0,
+                                        A_0BGTO = bgto,
+                                        A_1BGTO = 0.0,
+                                        A_2BGTO = 0.0,
+                                    ),
+                                ],
+                            )
                         )
-                    ))...,
+                    )...,
                 ),
                 BeiDouB1C_D(),
                 user,
@@ -789,8 +906,8 @@
         # go and the position itself is wrong. Stated here because a suite whose every
         # case has enough satellites for the independent layout can miss a defect that
         # produces no fixes at all.
-        @test length(unique(get_time_system(group.signal) for group in scarce)) == 2
-        @test sum(length(group.satellites) for group in scarce) == 4
+        @test length(unique(get_time_system(first(group).signal) for group in scarce)) == 2
+        @test sum(length(group) for group in scarce) == 4
         scarce_layout = PositionVelocityTime.decide_bias_layout(measurements_of(scarce))
         @test scarce_layout.clock_systems == [GPST(), BDT()]
         @test length(scarce_layout.constraints) == 1
@@ -823,12 +940,17 @@
         # differences unobservable.
         ggto_data = GNSSDecoder.GalileoINAVData(
             galileo[5].decoder.data;
-            A_0G = 3.0e-9, A_1G = 0.0, t_0G = 0,
+            A_0G = 3.0e-9,
+            A_1G = 0.0,
+            t_0G = 0,
             WN_0G = galileo[5].decoder.data.WN,
         )
         galileo_ggto = SignalObservation(;
             decoder = GNSSDecoder.GNSSDecoderState(
-                galileo[5].decoder; data = ggto_data, raw_data = ggto_data),
+                galileo[5].decoder;
+                data = ggto_data,
+                raw_data = ggto_data,
+            ),
             signal = galileo[5].signal,
             code_phase = galileo[5].code_phase,
             carrier_doppler = galileo[5].carrier_doppler,
@@ -866,45 +988,62 @@
         # measurement stands in for the second Galileo satellite; only the decision is under
         # test.)
         with_prn(measurement, prn) = PositionVelocityTime.PreparedObservation(
-            (f === :prn ? prn : getfield(measurement, f)
-             for f in fieldnames(typeof(measurement)))...)
+            (
+                f === :prn ? prn : getfield(measurement, f) for
+                f in fieldnames(typeof(measurement))
+            )...,
+        )
         gps_sats = mixed_measurements[1:3]
         beidou_sat, galileo_sat = mixed_measurements[4], mixed_measurements[5]
-        fewest = PositionVelocityTime.decide_bias_layout([gps_sats[1:2];
-            [galileo_sat, with_prn(galileo_sat, galileo_sat.prn + 1), beidou_sat]])
+        fewest = PositionVelocityTime.decide_bias_layout(
+            [
+                gps_sats[1:2];
+                [galileo_sat, with_prn(galileo_sat, galileo_sat.prn + 1), beidou_sat]
+            ],
+        )
         @test fewest.clock_systems == [GPST(), GST(), BDT()]
         @test map(c -> (c.column, c.target_column), fewest.constraints) == [(3, 1)]
 
         # Two GPS + one BeiDou + one Galileo: four satellites against 3 + 3 unknowns,
         # so both offsets are needed, and both are used.
         both = PositionVelocityTime.decide_bias_layout(
-            [gps_sats[1:2]; [beidou_sat, galileo_sat]])
-        @test map(c -> (c.column, c.target_column), both.constraints) ==
-              [(2, 1), (3, 1)]
+            [gps_sats[1:2]; [beidou_sat, galileo_sat]],
+        )
+        @test map(c -> (c.column, c.target_column), both.constraints) == [(2, 1), (3, 1)]
         @test both.num_clock_groups == 1
         # One offset short of that — the Galileo satellite without its GGTO — the epoch
         # cannot be solved.
         plain_galileo_sat = only(measurements_of(signal_group([galileo[5]])))
-        @test isnothing(PositionVelocityTime.decide_bias_layout(
-            [gps_sats[1:2]; [beidou_sat, plain_galileo_sat]]))
+        @test isnothing(
+            PositionVelocityTime.decide_bias_layout(
+                [gps_sats[1:2]; [beidou_sat, plain_galileo_sat]],
+            ),
+        )
         # It still leaves the offsets it has, not those of the epoch before: BeiDou tied
         # to GPS, Galileo on its own clock.
         reused = PositionVelocityTime.decide_bias_layout(
-            [gps_sats[1:2]; [beidou_sat, galileo_sat]])
-        @test !PositionVelocityTime.decide_bias_layout!(reused,
-            [gps_sats[1:2]; [beidou_sat, plain_galileo_sat]])
+            [gps_sats[1:2]; [beidou_sat, galileo_sat]],
+        )
+        @test !PositionVelocityTime.decide_bias_layout!(
+            reused,
+            [gps_sats[1:2]; [beidou_sat, plain_galileo_sat]],
+        )
         @test map(c -> (c.column, c.target_column), reused.constraints) == [(2, 1)]
         @test reused.clock_group_columns == [1, 1, 1, 2]
         @test reused.num_clock_groups == 2
         # With no offset to tie with, none.
-        @test !PositionVelocityTime.decide_bias_layout!(reused,
-            [gps_sats[1:2]; [plain_galileo_sat]])
+        @test !PositionVelocityTime.decide_bias_layout!(
+            reused,
+            [gps_sats[1:2]; [plain_galileo_sat]],
+        )
         @test isempty(reused.constraints)
         @test reused.num_clock_groups == 2
         # One satellite per system, both offsets available: unsolvable even with every
         # clock tied, but the layout ties all three, through both offsets.
-        @test !PositionVelocityTime.decide_bias_layout!(reused,
-            [gps_sats[1:1]; [beidou_sat, galileo_sat]])
+        @test !PositionVelocityTime.decide_bias_layout!(
+            reused,
+            [gps_sats[1:1]; [beidou_sat, galileo_sat]],
+        )
         @test sort(map(c -> (c.column, c.target_column), reused.constraints)) ==
               [(2, 1), (3, 1)]
         @test reused.clock_group_columns == [1, 1, 1]
@@ -922,8 +1061,13 @@
                     [2],
                     [
                         GNSSDecoder.BeiDouB1CBGTO(;
-                            GNSS_ID = 2, WN_0BGTO = 800, t_0BGTO = 0,
-                            A_0BGTO = Δ, A_1BGTO = 0.0, A_2BGTO = 0.0),
+                            GNSS_ID = 2,
+                            WN_0BGTO = 800,
+                            t_0BGTO = 0,
+                            A_0BGTO = Δ,
+                            A_1BGTO = 0.0,
+                            A_2BGTO = 0.0,
+                        ),
                     ],
                 ),
             ),
@@ -933,9 +1077,8 @@
         )
         # Re-synthesized against this testset's own `user`/`t_rx`, like every other
         # satellite here; the top-level `galileo` states were built for another epoch.
-        gal_states = [
-            ranging_state(st.decoder, st.signal, user, t_rx) for st in galileo[1:3]
-        ]
+        gal_states =
+            [ranging_state(st.decoder, st.signal, user, t_rx) for st in galileo[1:3]]
         gps_free = (signal_group(gal_states), signal_group([beidou_gal_bgto]))
         gst_layout = PositionVelocityTime.decide_bias_layout(measurements_of(gps_free))
         @test !isnothing(gst_layout)

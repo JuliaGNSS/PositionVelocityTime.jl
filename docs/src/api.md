@@ -16,18 +16,24 @@ A solution's `time` is GNSSSignals' `TAITime`, a trim-safe TAI epoch; with Astro
 loaded, `TAIEpoch(pvt.time)` and `TAITime(epoch)` convert between it and AstroTime's
 `TAIEpoch` exactly.
 
-## Signal Groups
+## Observation Collections
 
-One epoch's measurements reach [`calc_pvt`](@ref) as *signal groups*: a `NamedTuple` of
-[`PositionVelocityTime.SignalGroup`](@ref)s, one per ranging signal, mirroring
-Tracking.jl's. Within a group every satellite shares one concrete type, so
-[`PositionVelocityTime.collect_measurements`](@ref) dispatches statically; behind it the
-solver sees one [`PositionVelocityTime.PreparedObservation`](@ref) per satellite, a
-single concrete type, and compiles once for every constellation mix.
+One epoch reaches [`calc_pvt`](@ref) as a vector or `Dictionaries.Dictionary` of
+[`SignalObservation`](@ref)s with one concrete element type, or as a tuple or `NamedTuple`
+of such collections. A `Dictionary` must have a concrete observation value type.
+Collection names are ignored. For example,
+`calc_pvt((gps = gps_observations, galileo = galileo_observations), previous)` combines
+two collections without a wrapper.
+
+[`PositionVelocityTime.collect_measurements`](@ref) dispatches statically on each
+collection's element type. The solver sees one
+[`PositionVelocityTime.PreparedObservation`](@ref) per signal observation, a single
+concrete type, and compiles once for every constellation mix. Pooled mixed vectors with
+abstract element types are refused at entry. Empty collections must retain their
+concrete element type, for example `gps_observations[1:0]` or
+`typeof(first(gps_observations))[]`.
 
 ```@docs
-PositionVelocityTime.SignalGroup
-PositionVelocityTime.signal_groups
 PositionVelocityTime.PreparedObservation
 PositionVelocityTime.collect_measurements
 PositionVelocityTime.collect_measurements!
@@ -82,15 +88,15 @@ The pieces [`calc_pvt`](@ref) is assembled from, as a contract for a consumer ru
 own estimator over the same measurement model, such as a navigation filter. They are
 unexported; bind them with `using PositionVelocityTime: collect_measurements, …`.
 
-The surface is specified on the satellite measurements: a consumer first calls
-[`PositionVelocityTime.collect_measurements`](@ref), and every per-satellite input and
+The surface is specified on the prepared observations: a consumer first calls
+[`PositionVelocityTime.collect_measurements`](@ref), and every per-observation input and
 output below follows the order of the
 `Vector{`[`PositionVelocityTime.PreparedObservation`](@ref)`}` it returns. The functions
 that read several fields of a measurement take the measurements themselves (the bias
 layout, the atmospheric delays). The others take arrays drawn from them, one entry per
 measurement: the satellite positions (a `3 × N` matrix or a vector of `SVector{3}`s) and
 the pseudoranges. The least-squares
-problem has one row per satellite and, after them, one per
+problem has one row per signal observation and, after them, one per
 [`ClockConstraint`](@ref PositionVelocityTime.ClockConstraint), so the pseudoranges and
 the design matrix carry those extra rows.
 [`calc_pseudorange_rate`](@ref PositionVelocityTime.calc_pseudorange_rate) takes one

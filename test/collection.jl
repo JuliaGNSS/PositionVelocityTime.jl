@@ -1,13 +1,5 @@
-# Signal groups: the container `calc_pvt` takes, the normalization that accepts the
-# shorter spellings of it, the refusal of anything else, and the two properties the
-# whole redesign exists for — one compiled solver for every constellation mix, and a
-# collection pass that is statically dispatched when the groups are named.
-#
-# `SignalGroup` is written out fully qualified throughout, deliberately: `Tracking`
-# exports a type of the same name and `test/pvt_integration.jl` loads Tracking into this
-# very session.
-
-@testset "signal groups" begin
+# Concrete collections preserve specialization without a grouping wrapper.
+@testset "observation collections" begin
     kw = (;
         approximate_year = 2021,
         enable_ionospheric_correction = false,
@@ -15,118 +7,62 @@
     )
     gps = gps_l1_states(0.0Hz)
     gal = galileo_e1b_states(0.0Hz)
-    gps_group = PositionVelocityTime.SignalGroup(GPSL1CA(), gps)
-    gal_group = PositionVelocityTime.SignalGroup(GalileoE1B(), gal)
 
-    @testset "normalization accepts every spelling of the same epoch" begin
-        named = calc_pvt((gps = gps_group, galileo = gal_group); kw...)
-        # A bare tuple of groups is numbered by position…
-        @test calc_pvt((gps_group, gal_group); kw...).position == named.position
-        # …and a lone group becomes the `:default` group, so a one-constellation solve
-        # needs no NamedTuple around it.
-        @test calc_pvt(gps_group; kw...).position ==
-              calc_pvt((default = gps_group,); kw...).position
-        # The numbering itself, which is what makes a bare tuple's order explicit.
-        normalize = PositionVelocityTime._normalize_signal_groups
-        @test keys(normalize((gps_group, gal_group))) == (:group1, :group2)
-        @test keys(normalize(gps_group)) == (:default,)
-        @test normalize((a = gps_group,)) === (a = gps_group,)
+    @testset "single, tuple and named collections describe the same epoch" begin
+        named = calc_pvt((gps = gps, galileo = gal); kw...)
+        @test calc_pvt((gps, gal); kw...).position == named.position
+        @test calc_pvt((other = gps, labels = gal); kw...).position == named.position
+        @test calc_pvt(gps; kw...).position == calc_pvt((gps,); kw...).position
+        as_dictionary = Dictionary([state.decoder.prn for state in gps], gps)
+        @test calc_pvt(as_dictionary; kw...).position == calc_pvt(gps; kw...).position
+        @test calc_pvt((gps = as_dictionary, galileo = gal); kw...).position ==
+              named.position
     end
 
-    @testset "a group's satellites may be a Dictionary or a vector" begin
-        as_dictionary = PositionVelocityTime.SignalGroup(
-            GPSL1CA(), Dictionary([state.decoder.prn for state in gps], gps))
-        @test calc_pvt(as_dictionary; kw...).position == calc_pvt(gps_group; kw...).position
-        # A `Dictionary`-backed group rejects a duplicate PRN structurally, where the
-        # old flat vector could only document the precondition.
-        @test_throws Dictionaries.IndexError Dictionary(
-            [state.decoder.prn for state in [gps[1], gps[1]]], [gps[1], gps[1]])
-    end
-
-    @testset "group order is significant, exactly as vector order was" begin
-        # The reference system is the most-populated one, ties broken by first
-        # appearance — so two groups of equal size swap which one dates the fix.
-        # Three each: two systems need 3 + 2 measurements from as many distinct
-        # satellites, so a pair each would not solve at all.
-        three_gps = PositionVelocityTime.SignalGroup(GPSL1CA(), gps[1:3])
-        three_gal = PositionVelocityTime.SignalGroup(GalileoE1B(), gal[1:3])
-        gps_first = calc_pvt((a = three_gps, b = three_gal); kw...)
-        gal_first = calc_pvt((a = three_gal, b = three_gps); kw...)
-        @test gps_first.reference_system == GPST()
-        @test gal_first.reference_system == GST()
-        # And `observations` is built in flat order: group order × within-group order.
+    @testset "observation order fixes reference-system ties and result order" begin
+        gps_first = calc_pvt((gps[1:3], gal[1:3]); kw...)
+        gal_first = calc_pvt((gal[1:3], gps[1:3]); kw...)
+        @test gps_first.reference_system === GPST()
+        @test gal_first.reference_system === GST()
         @test collect(keys(gal_first.observations)) == [
             [(:GalileoE1B, state.decoder.prn) for state in gal[1:3]]
             [(:GPSL1CA, state.decoder.prn) for state in gps[1:3]]
         ]
     end
 
-    @testset "a flat vector of satellite states is refused, with directions" begin
-        # Not accepted and not silently converted: the signals a
-        # pooled vector holds are a runtime property, so any grouping derived from it
-        # would be inference-blind — which is the thing groups exist to remove. The
-        # error says so and shows what to build instead.
-        err = try
-            calc_pvt([gps; gal]; kw...)
-            nothing
-        catch e
-            e
-        end
-        @test err isa ArgumentError
-        message = sprint(showerror, err)
-        @test occursin("takes signal groups", message)
-        @test occursin("SignalGroup(GPSL1CA()", message)
-        # And it is raised at the entry point, not somewhere inside the solver.
-        @test occursin("calc_pvt", message)
-        @test occursin("got a `Vector{", message)
-    end
-
-    @testset "groups of bare state vectors are refused, with the same directions" begin
-        # The right keys, but the vectors not wrapped in groups. It must fail at the entry point with the
-        # directions, not with a field error from deep inside the collection pass.
-        for input in ((gps = gps, galileo = gal), (gps, gal), (gps = gps_group, galileo = gal))
-            @test_throws ArgumentError calc_pvt(input; kw...)
-            message = try
+    @testset "abstract pooled vectors and malformed collections are refused" begin
+        for input in
+            ([gps; gal], SignalObservation[], (gps = gps, bad = 1), (gps, 1), 1, [1, 2])
+            err = try
                 calc_pvt(input; kw...)
+                nothing
             catch e
-                sprint(showerror, e)
+                e
             end
-            @test occursin("takes signal groups", message)
-            @test occursin("SignalGroup(GPSL1CA()", message)
+            @test err isa ArgumentError
+            message = sprint(showerror, err)
+            @test occursin("concrete", message)
+            @test occursin("SignalObservation", message)
+            @test occursin("calc_pvt", message)
         end
-        @test_throws ArgumentError PositionVelocityTime.select_ionospheric_parameters(
-            (gps = gps,))
-        # An empty NamedTuple is an epoch with no groups, not a malformed one.
-        @test PositionVelocityTime._normalize_signal_groups((;)) === (;)
+        @test_throws ArgumentError PositionVelocityTime.select_ionospheric_parameters((
+            gps = SignalObservation[],
+        ))
     end
 
     @testset "collection is inferable and the solver compiles once" begin
-        groups = (gps = gps_group, galileo = gal_group)
+        groups = (gps = gps, galileo = gal)
         measurements, _ =
             PositionVelocityTime.collect_measurements(groups; approximate_year = 2021)
-        # The measurements are one concrete type with no type parameters, whatever the mix.
         @test measurements isa Vector{PositionVelocityTime.PreparedObservation}
         @test isconcretetype(eltype(measurements))
         @test length(measurements) == length(gps) + length(gal)
-        # Named groups make the collection pass statically dispatched: the measurements
-        # half of
-        # its result is inferred exactly. (The ionospheric-correction half is a small
-        # `Union` by design — the solver takes it wrapped in the concrete
-        # `IonosphericModel`, so that the model choice cannot multiply its compiled
-        # copies.)
         @test inferred_return_type(
-            PositionVelocityTime.collect_measurements, Tuple{typeof(groups)}
+            PositionVelocityTime.collect_measurements,
+            Tuple{typeof(groups)},
         ).parameters[1] === Vector{PositionVelocityTime.PreparedObservation}
         @test inferred_return_type(calc_pvt, Tuple{typeof(groups)}) === PVTSolution
-
-        # The point of the measurements: one compiled body of the solver serves every
-        # constellation mix. Solve six differently-shaped epochs and count the
-        # specializations of `_solve_pvt!` — there is one, whatever the mix and whether
-        # or not an ionospheric model is live.
-        for input in (
-            gps_group, gal_group, (a = gps_group,), (a = gps_group, b = gal_group),
-            (b = gal_group, a = gps_group), (gps_group, gal_group),
-        )
+        for input in (gps, gal, (a = gps,), (gps, gal), (b = gal, a = gps))
             calc_pvt(input; approximate_year = 2021)
         end
         specializations =
@@ -134,27 +70,23 @@
         @test count(!isnothing, collect(specializations)) == 1
     end
 
-    @testset "an epoch with no usable satellite is not a special case" begin
-        empty_group = PositionVelocityTime.SignalGroup(GPSL1CA(), SignalObservation[])
-        measurements, ionospheric_parameters =
-            PositionVelocityTime.collect_measurements(empty_group; approximate_year = 2021)
-        @test isempty(measurements)
-        @test isnothing(ionospheric_parameters)
-        # `decide_bias_layout` reports unsolvable, so `calc_pvt` hands `prev_pvt` back.
-        @test isnothing(PositionVelocityTime.decide_bias_layout(measurements))
-        previous = calc_pvt(gps_group; kw...)
-        @test calc_pvt(empty_group, previous; kw...) === previous
-        @test calc_pvt((a = empty_group, b = gps_group); kw...).position ==
-              previous.position
+    @testset "empty collections retain their type" begin
+        empty_gps = gps[1:0]
+        for input in (empty_gps, (), (;), Dictionary(Int[], empty_gps))
+            measurements, parameters =
+                PositionVelocityTime.collect_measurements(input; approximate_year = 2021)
+            @test isempty(measurements)
+            @test isnothing(parameters)
+            @test isnothing(PositionVelocityTime.decide_bias_layout(measurements))
+            previous = calc_pvt(gps; kw...)
+            @test calc_pvt(input, previous; kw...) === previous
+            @test calc_pvt((input = empty_gps, gps = gps); kw...).position ==
+                  previous.position
+        end
     end
 
-    @testset "a second solve of the same epoch does not allocate unboundedly" begin
-        # A regression ceiling, not a target: the measurements exist so a two-group
-        # solve costs about what a one-group solve of the same satellites costs, instead of
-        # the ~290 KB the pooled abstract vector used to spend on dispatch boxes. The
-        # bound is generous enough to survive ordinary code motion and tight enough to
-        # catch the abstraction coming back.
-        groups = (gps = gps_group, galileo = gal_group)
+    @testset "a second solve does not allocate unboundedly" begin
+        groups = (gps = gps, galileo = gal)
         previous = calc_pvt(groups; kw...)
         calc_pvt(groups, previous; kw...)
         @test (@allocated calc_pvt(groups, previous; kw...)) < 100 * 1024

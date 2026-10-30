@@ -250,8 +250,7 @@ end
 
     # Solve PVT. `approximate_year` resolves the GPS 1024-week rollover; the
     # recording is from 2014, not "now".
-    pvt = calc_pvt(PositionVelocityTime.SignalGroup(GPSL1CA(), states);
-        approximate_year = 2014)
+    pvt = calc_pvt(states; approximate_year = 2014)
     @test length(pvt.observations) >= 4
 
     lla = get_lla(pvt)
@@ -265,7 +264,8 @@ end
     # (GPS week 1811) — a genuine, parity-/ephemeris-validated end-to-end
     # decode, not just a plausible-looking geometry.
     @test all(
-        s -> GNSSDecoder.get_broadcast_week(s.decoder; approximate_year = 2014) ==
+        s ->
+            GNSSDecoder.get_broadcast_week(s.decoder; approximate_year = 2014) ==
             L125_GPS_WEEK,
         states,
     )

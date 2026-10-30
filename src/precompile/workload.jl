@@ -154,8 +154,7 @@ end
     e1b = galileo(GalileoE1B())
     # A `Dictionary`-backed group keyed by PRN — the shape a receiver carrying its
     # satellites per signal hands over, and what Tracking.jl builds.
-    group(signal, states) =
-        SignalGroup(signal, Dictionary([s.decoder.prn for s in states], states))
+    group(signal, states) = Dictionary([s.decoder.prn for s in states], states)
     @compile_workload begin
         for signal_group in (
             group(GPSL1CA(), l1ca),
@@ -177,16 +176,15 @@ end
             enable_ionospheric_correction = false,
             enable_tropospheric_correction = false,
         )
-        calc_pvt(SignalGroup(GPSL1CA(), l1ca); approximate_year = 2021)
+        calc_pvt(l1ca; approximate_year = 2021)
         mixed = (gps = l1ca_group, galileo = group(GalileoE1B(), e1b))
         mixed_pvt = calc_pvt(mixed; approximate_year = 2021)
         calc_pvt(mixed, mixed_pvt; approximate_year = 2021)
         # The in-place entry point; only its wrapper and the unsolvable-epoch copy are new.
         workspace = PVTWorkspace()
-        in_place = calc_pvt!(PVTSolution(), workspace, mixed, mixed_pvt;
-            approximate_year = 2021)
+        in_place =
+            calc_pvt!(PVTSolution(), workspace, mixed, mixed_pvt; approximate_year = 2021)
         in_place = calc_pvt!(in_place, workspace, mixed, in_place; approximate_year = 2021)
-        calc_pvt!(PVTSolution(), workspace, SignalGroup(GPSL1CA(), l1ca[1:3]), in_place;
-            approximate_year = 2021)
+        calc_pvt!(PVTSolution(), workspace, l1ca[1:3], in_place; approximate_year = 2021)
     end
 end

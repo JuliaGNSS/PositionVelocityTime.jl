@@ -106,9 +106,9 @@ satellites that clear the health gate are seen.
 """
 function select_ionospheric_parameters(groups)
     # Over the groups' `Tuple`, not the `NamedTuple`, as in `collect_measurements`.
-    candidates = map(values(_normalize_signal_groups(groups))) do group
+    candidates = map(observation_collections(groups)) do group
         group_candidates = NO_IONOSPHERIC_CANDIDATES
-        for state in group.satellites
+        for state in group
             group_candidates =
                 update_ionospheric_candidates(group_candidates, state.decoder)
         end
@@ -124,13 +124,13 @@ end
 Slant ionospheric group delay in metres for one satellite, using the
 constellation-wide `parameters` returned by [`select_ionospheric_parameters`](@ref):
 
-- `::Nothing` → `0.0` (no coefficients were decoded).
-- `KlobucharParameters` → Klobuchar model (IS-GPS-200, Fig. 20-4).
-- `BeiDouKlobucharParameters` → BeiDou's Klobuchar variant (BDS-SIS-ICD-B1I-3.0
-  §5.2.4.7).
-- `NeQuickGParameters` → NTCM-G model, which takes the Effective Ionisation Level
-  coefficients Galileo broadcasts for NeQuick-G.
-- `BDGIMParameters` → BDGIM (BDS-SIS-ICD-B1C-1.0 §7.8.2).
+  - `::Nothing` → `0.0` (no coefficients were decoded).
+  - `KlobucharParameters` → Klobuchar model (IS-GPS-200, Fig. 20-4).
+  - `BeiDouKlobucharParameters` → BeiDou's Klobuchar variant (BDS-SIS-ICD-B1I-3.0
+    §5.2.4.7).
+  - `NeQuickGParameters` → NTCM-G model, which takes the Effective Ionisation Level
+    coefficients Galileo broadcasts for NeQuick-G.
+  - `BDGIMParameters` → BDGIM (BDS-SIS-ICD-B1C-1.0 §7.8.2).
 
 `elevation`/`azimuth` (radians) give the line of sight from the user geodetic position
 `lla` (a `Geodesy.LLA`), precomputed so that an epoch shares one geodetic conversion with
@@ -163,7 +163,8 @@ function ionospheric_delay(
         (p.β_0, p.β_1, p.β_2, p.β_3),
     )
     # The delay is defined at L1 (IS-GPS-200); rescale by 1/f² to this carrier.
-    return SPEED_OF_LIGHT * l1_seconds *
+    return SPEED_OF_LIGHT *
+           l1_seconds *
            (ustrip(Hz, get_center_frequency(GPSL1CA)) / center_frequency)^2
 end
 
@@ -186,7 +187,8 @@ function ionospheric_delay(
         (p.β_0, p.β_1, p.β_2, p.β_3),
     )
     # The delay is defined at B1I (the ICD's I_B1I); rescale by 1/f² to this carrier.
-    return SPEED_OF_LIGHT * b1i_seconds *
+    return SPEED_OF_LIGHT *
+           b1i_seconds *
            (ustrip(Hz, get_center_frequency(GNSSSignals.BeiDouB1I)) / center_frequency)^2
 end
 

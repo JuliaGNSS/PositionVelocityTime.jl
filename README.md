@@ -27,7 +27,7 @@ The decoded data and the code phase of a satellite are combined in a `SignalObse
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
 # decode satellite
 gpsl1 = GPSL1CA()
-sat_state = SignalObservation(
+observation = SignalObservation(
     decoder = decoder,
     signal = gpsl1,
     code_phase = code_phase,
@@ -39,32 +39,39 @@ The `carrier_phase` is optional, as its effect on the user position is small.
 `code_phase` is in chips and `carrier_phase` in cycles, matching `Tracking`'s
 `get_code_phase` and `get_carrier_phase`.
 
-With Tracking.jl loaded, a `Tracking.TrackedSat` can be passed to `SignalObservation`
-instead of `code_phase`, `carrier_doppler` and `carrier_phase` — `tracked_sat` below
-is what `Tracking.get_sat_state` returns for a tracked satellite:
+Read the observables from a `Tracking.TrackedSat` with Tracking's accessors —
+`tracked_sat` below is what `Tracking.get_sat_state` returns for a tracked satellite:
 ```julia
 using Tracking
 # track and decode satellite
-sat_state = SignalObservation(decoder, gpsl1, tracked_sat)
+observation = SignalObservation(;
+    decoder,
+    signal = gpsl1,
+    code_phase = Tracking.get_code_phase(tracked_sat),
+    carrier_doppler = Tracking.get_carrier_doppler(tracked_sat),
+    carrier_phase = Tracking.get_carrier_phase(tracked_sat),
+)
 ```
 
 ## Usage
 
 ### Position, velocity and time
-Satellite states are handed over grouped by their ranging signal, one
-`PositionVelocityTime.SignalGroup` per signal:
+Pass a vector or `Dictionaries.Dictionary` of `SignalObservation`s with one concrete
+element type. Combine collections with different decoder or signal types in a tuple or
+`NamedTuple`:
 ```julia
-using PositionVelocityTime: SignalGroup
-
+previous = PVTSolution()
 pvt = calc_pvt((
-    gps = SignalGroup(GPSL1CA(), gps_sat_states),
-    galileo = SignalGroup(GalileoE1B(), galileo_sat_states),
-))
+    gps = gps_observations,
+    galileo = galileo_observations,
+), previous)
 lla = get_lla(pvt)  # latitude, longitude, altitude
 ```
-A single group can be passed on its own, and with Tracking.jl loaded
-`PositionVelocityTime.signal_groups(track_state, decoders)` builds a whole epoch's groups
-from a `TrackState`. Grouping is what keeps the solve type-stable across constellations.
+A single collection can be passed directly: `calc_pvt(gps_observations, previous)`.
+Collection names are ignored. Each collection's concrete element type keeps preparation
+statically dispatched; a pooled mixed vector with an abstract element type is refused
+at the entry point. Preserve the element type for an empty collection, for example
+`gps_observations[1:0]`.
 
 Besides `position`, `velocity` and `time`, the solution reports the receiver `clock_bias`
 (m) and `clock_drift` (m/s), the `dop`, the per-observation residuals in `observations`, and,
@@ -86,7 +93,8 @@ scratch buffers. `PVTSolution` is immutable, so keep the returned solution:
 ```julia
 pvt = PVTSolution()
 workspace = PVTWorkspace()
-pvt = calc_pvt!(pvt, workspace, groups, pvt)  # reuses only `pvt`; seeded from itself
+epoch = (gps = gps_observations, galileo = galileo_observations)
+pvt = calc_pvt!(pvt, workspace, epoch, pvt)  # reuses only `pvt`; seeded from itself
 ```
 The estimated time `pvt.time` is GNSSSignals' `TAITime` — whole TAI seconds since J2000
 plus a fraction. With AstroTime loaded, `TAIEpoch(pvt.time)` converts it exactly.

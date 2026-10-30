@@ -12,23 +12,28 @@
 One satellite's decoder state together with its code and carrier measurements.
 
 # Fields
-- `decoder::GNSSDecoderState`: the decoded navigation data.
-- `signal::AbstractGNSSSignal`: the ranging signal the code phase and Doppler were
-  measured on (e.g. `GPSL1CA()`, `GalileoE1C()`); may be a dataless pilot whose data
-  `decoder` decoded from the band's data component.
-- `code_phase::CP`: code phase in chips.
-- `carrier_doppler`: carrier Doppler in Hz.
-- `carrier_phase::CP`: carrier phase in cycles, as `Tracking.get_carrier_phase`
-  (default `0.0`).
+
+  - `decoder::GNSSDecoderState`: the decoded navigation data.
+  - `signal::AbstractGNSSSignal`: the ranging signal the code phase and Doppler were
+    measured on (e.g. `GPSL1CA()`, `GalileoE1C()`); may be a dataless pilot whose data
+    `decoder` decoded from the band's data component.
+  - `code_phase::CP`: code phase in chips.
+  - `carrier_doppler`: carrier Doppler in Hz.
+  - `carrier_phase::CP`: carrier phase in cycles, as `Tracking.get_carrier_phase`
+    (default `0.0`).
 
 # Constructors
-    SignalObservation(; decoder, signal, code_phase, carrier_doppler, carrier_phase=0.0)
-    SignalObservation(decoder, signal, tracked_sat)
 
-The second reads the measurements off a `Tracking.TrackedSat`; Tracking.jl defines
-it, so it is available once `Tracking` is loaded.
+    SignalObservation(; decoder, signal, code_phase, carrier_doppler, carrier_phase=0.0)
+
+To read a `Tracking.TrackedSat`, pass its `get_code_phase`, `get_carrier_doppler`
+and `get_carrier_phase` results to the keyword constructor.
 """
-@kwdef struct SignalObservation{CP<:Real,D<:GNSSDecoder.GNSSDecoderState,S<:AbstractGNSSSignal}
+@kwdef struct SignalObservation{
+    CP<:Real,
+    D<:GNSSDecoder.GNSSDecoderState,
+    S<:AbstractGNSSSignal,
+}
     decoder::D
     signal::S
     code_phase::CP
@@ -36,73 +41,31 @@ it, so it is available once `Tracking` is loaded.
     carrier_phase::CP = 0.0
 end
 
-"""
-    PositionVelocityTime.SignalGroup(signal, satellites)
+# A collection retains one concrete observation type, even when it is empty. A tuple
+# keeps different decoder/signal types separate until the concrete preparation barrier.
+const ObservationCollection =
+    Union{AbstractVector{<:SignalObservation},Dictionary{<:Any,<:SignalObservation}}
 
-One epoch's measurements of the satellites tracked on one ranging `signal`: the
-counterpart of `Tracking.SignalGroup`, which holds their loop state, with the same group
-and PRN keys. Unexported, so `using Tracking, PositionVelocityTime` does not clash.
-
-Within a group every satellite has one concrete `SignalObservation` type, so the collection
-pass dispatches statically on it (see [`collect_measurements`](@ref)).
-
-# Fields
-- `signal::AbstractGNSSSignal`: the ranging signal of every satellite in the group, known
-  even when the group is empty.
-- `satellites`: a `Dictionary{Int,<:SignalObservation}` keyed by PRN, or an
-  `AbstractVector{<:SignalObservation}`. Iteration order is significant (see
-  [`calc_pvt`](@ref)).
-
-Every satellite's `state.signal` must be `signal`; this is not checked.
-"""
-struct SignalGroup{S<:AbstractGNSSSignal,C}
-    signal::S
-    satellites::C
+function check_observation_collection(observations::ObservationCollection)
+    isconcretetype(eltype(observations)) || throw_observation_collections()
+    observations
 end
 
-# A NamedTuple passes through, a single group becomes `:default`, and a bare tuple is
-# numbered `group1`, `group2`, … (not named after the signals, which two groups may share).
-_normalize_signal_groups(groups::NamedTuple{<:Any,<:Tuple{Vararg{SignalGroup}}}) = groups
-_normalize_signal_groups(group::SignalGroup) = (default = group,)
-@generated function _normalize_signal_groups(groups::Tuple{Vararg{SignalGroup}})
-    names = ntuple(i -> Symbol(:group, i), length(groups.parameters))
-    :(NamedTuple{$names}(groups))
-end
+observation_collections(observations::ObservationCollection) =
+    (check_observation_collection(observations),)
+observation_collections(groups::Tuple{Vararg{ObservationCollection}}) =
+    map(check_observation_collection, groups)
+observation_collections(groups::NamedTuple{<:Any,<:Tuple{Vararg{ObservationCollection}}}) =
+    observation_collections(values(groups))
+observation_collections(groups) = throw_observation_collections()
 
-"""
-    PositionVelocityTime.signal_groups(track_state, decoders) -> NamedTuple of SignalGroup
-
-Build one epoch's signal groups, a `NamedTuple` of [`SignalGroup`](@ref)s, from a
-receiver's own per-signal state. Tracking.jl defines the method, taking a
-`Tracking.TrackState` and the receiver's decoders.
-
-There is no method taking a flat `Vector{SignalObservation}`: grouping a pooled vector each
-epoch would bring back the dynamic dispatch groups exist to remove. Build the groups where
-the satellites are tracked.
-"""
-function signal_groups end
-
-# Anything else is refused at the entry point, with directions, rather than failing deep
-# inside the collection pass.
-_normalize_signal_groups(groups) = throw_not_signal_groups(
-    "every group must be a `PositionVelocityTime.SignalGroup`, got a `$(typeof(groups))`",
-)
-
-function throw_not_signal_groups(what)
+function throw_observation_collections()
     throw(
         ArgumentError(
-            string(
-                "`calc_pvt` takes signal groups, ",
-                what,
-                ". Group the satellites by their ranging signal:\n\n",
-                "    using PositionVelocityTime: SignalGroup\n",
-                "    calc_pvt((gps     = SignalGroup(GPSL1CA(),   gps_states),\n",
-                "              galileo = SignalGroup(GalileoE1B(), galileo_states)))\n\n",
-                "A single group needs no NamedTuple around it, and each group's ",
-                "satellites may be a `Dictionary` keyed by PRN or a plain vector. ",
-                "With Tracking.jl loaded, `PositionVelocityTime.signal_groups(",
-                "track_state, decoders)` builds them from a whole `TrackState`.",
-            ),
+            "calc_pvt takes a concrete-typed collection of SignalObservation, or a tuple " *
+            "or NamedTuple of such collections: calc_pvt((gps = gps_observations, " *
+            "galileo = galileo_observations)). Keep different observation types in separate " *
+            "collections; an empty collection must retain its concrete element type.",
         ),
     )
 end
@@ -140,30 +103,31 @@ the message family, the decoder or the signal, so a mixed-constellation epoch is
 `Vector{PreparedObservation}`.
 
 # Fields
-- `prn::Int`: the satellite's PRN, unique only within its constellation.
-- `signal_id::Symbol`: `get_signal_id` of the ranging signal (`:GPSL1CA`, …), half of the
-  `(signal, PRN)` key of `PVTSolution.observations`.
-- `band_id::Symbol`: `get_band_id` of the ranging signal (`:L1`, `:L5`, …), which groups
-  the inter-frequency biases.
-- `time_system::SupportedTimeSystem`: `get_time_system` of the ranging signal, which
-  groups the receiver clock biases.
-- `transmit_time::Float64`: the transmit time ([`calc_transmit_time`](@ref)) as a
-  seconds-of-week count **on this satellite's own system's scale**.
-- `position::SVector{3,Float64}`: satellite ECEF position at `transmit_time` (m).
-- `velocity::SVector{3,Float64}`: satellite ECEF velocity at `transmit_time` (m/s).
-- `carrier_doppler::Float64`: the measured carrier Doppler (Hz, unitless).
-- `center_frequency::Float64`: the ranging signal's carrier (Hz, unitless) — the
-  Doppler wavelength, and the `1/f²` of every ionospheric model.
-- `satellite_clock_drift::Float64`: [`calc_satellite_clock_drift`](@ref) at
-  `transmit_time` (s/s).
-- `week::Int`: the absolute week number of `time_system`, with the GPS L1 C/A
-  1024-week rollover already resolved against `approximate_year`; its start is
-  GNSSSignals' `get_week_start_epoch(measurement.time_system, measurement.week)`.
-- `time_offset_to_gpst`, `time_offset_to_gst`, `time_offset_to_bdt`: this satellite's
-  broadcast time offsets toward GPS, Galileo and BeiDou Time (s), evaluated at
-  `transmit_time` by GNSSDecoder's `get_broadcast_time_offset`, or `nothing` where none
-  is broadcast; [`broadcast_time_offset`](@ref) picks one by target. Fields of their own
-  rather than a tuple, whose `Union` elements would be stored boxed.
+
+  - `prn::Int`: the satellite's PRN, unique only within its constellation.
+  - `signal_id::Symbol`: `get_signal_id` of the ranging signal (`:GPSL1CA`, …), half of the
+    `(signal, PRN)` key of `PVTSolution.observations`.
+  - `band_id::Symbol`: `get_band_id` of the ranging signal (`:L1`, `:L5`, …), which groups
+    the inter-frequency biases.
+  - `time_system::SupportedTimeSystem`: `get_time_system` of the ranging signal, which
+    groups the receiver clock biases.
+  - `transmit_time::Float64`: the transmit time ([`calc_transmit_time`](@ref)) as a
+    seconds-of-week count **on this satellite's own system's scale**.
+  - `position::SVector{3,Float64}`: satellite ECEF position at `transmit_time` (m).
+  - `velocity::SVector{3,Float64}`: satellite ECEF velocity at `transmit_time` (m/s).
+  - `carrier_doppler::Float64`: the measured carrier Doppler (Hz, unitless).
+  - `center_frequency::Float64`: the ranging signal's carrier (Hz, unitless) — the
+    Doppler wavelength, and the `1/f²` of every ionospheric model.
+  - `satellite_clock_drift::Float64`: [`calc_satellite_clock_drift`](@ref) at
+    `transmit_time` (s/s).
+  - `week::Int`: the absolute week number of `time_system`, with the GPS L1 C/A
+    1024-week rollover already resolved against `approximate_year`; its start is
+    GNSSSignals' `get_week_start_epoch(measurement.time_system, measurement.week)`.
+  - `time_offset_to_gpst`, `time_offset_to_gst`, `time_offset_to_bdt`: this satellite's
+    broadcast time offsets toward GPS, Galileo and BeiDou Time (s), evaluated at
+    `transmit_time` by GNSSDecoder's `get_broadcast_time_offset`, or `nothing` where none
+    is broadcast; [`broadcast_time_offset`](@ref) picks one by target. Fields of their own
+    rather than a tuple, whose `Union` elements would be stored boxed.
 """
 struct PreparedObservation
     prn::Int
@@ -187,8 +151,11 @@ function satellite_measurement(state::SignalObservation, approximate_year::Integ
     decoder = state.decoder
     signal = state.signal
     ephemeris = something(get_broadcast_ephemeris(decoder))
-    transmit_time = correct_clock(ephemeris, group_delay(decoder, signal),
-        calc_uncorrected_transmit_time(state))
+    transmit_time = correct_clock(
+        ephemeris,
+        group_delay(decoder, signal),
+        calc_uncorrected_transmit_time(state),
+    )
     pos_and_vel = calc_satellite_position_and_velocity(ephemeris, transmit_time)
     PreparedObservation(
         decoder.prn,
@@ -212,19 +179,18 @@ end
     collect_measurements(groups; approximate_year = year(now(UTC)))
         -> (Vector{PreparedObservation}, ionospheric_parameters)
 
-Flatten the signal groups of one epoch (see [`calc_pvt`](@ref)) into the solver's input: the
+Prepare the observation collections of one epoch (see [`calc_pvt`](@ref)) into the solver's input: the
 [`PreparedObservation`](@ref)s, and the ionospheric parameters
 [`select_ionospheric_parameters`](@ref) would pick from the same satellites.
 
 A satellite is kept only if its navigation data is complete (checked first, which
 guarantees its health bit is decoded) and it reports healthy. The measurements are in
-group order × within-group order (see [`calc_pvt`](@ref), also for `approximate_year`).
+collection order × within-collection order (see [`calc_pvt`](@ref), also for `approximate_year`).
 """
 function collect_measurements(groups; approximate_year::Integer = year(now(UTC)))
     measurements = PreparedObservation[]
     # Reserve the unfiltered count (a measurement is ~170 bytes) rather than regrow.
-    sizehint!(measurements, sum(group -> length(group.satellites),
-        _normalize_signal_groups(groups); init = 0))
+    sizehint!(measurements, sum(length, observation_collections(groups); init = 0))
     measurements, collect_measurements!(measurements, groups; approximate_year)
 end
 
@@ -245,21 +211,25 @@ collect_measurements!(
 
 # The collection pass proper. Positional, for the solver's own call.
 function _collect_measurements!(measurements, groups, approximate_year::Integer)
-    normalized = _normalize_signal_groups(groups)
+    normalized = observation_collections(groups)
     empty!(measurements)
     # In group order. Over the `Tuple`, not the `NamedTuple`, whose `map` would not
     # specialise on the closure and dispatch each group dynamically.
-    candidates = map(values(normalized)) do group
+    candidates = map(normalized) do group
         collect_group!(measurements, group, approximate_year)
     end
     select_from_ionospheric_candidates(merge_all_ionospheric_candidates(candidates))
 end
 
-# One group's satellites, appended to `measurements`; returns its ionospheric candidates.
+# One collection's observations, appended to `measurements`, and its ionospheric candidates.
 # Specialises on the group's `SignalObservation` type, so every call in the loop is static.
-function collect_group!(measurements, group::SignalGroup, approximate_year::Integer)
+function collect_group!(
+    measurements,
+    group::ObservationCollection,
+    approximate_year::Integer,
+)
     candidates = NO_IONOSPHERIC_CANDIDATES
-    for state in group.satellites
+    for state in group
         has_positioning_data(state.decoder) || continue
         is_sat_healthy(state.decoder) || continue
         push!(measurements, satellite_measurement(state, approximate_year))

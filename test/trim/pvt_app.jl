@@ -3,27 +3,43 @@
 # trimmed executable's output can be compared against a regular Julia session.
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
 using PositionVelocityTime:
-    SignalGroup, _precompile_states, _precompile_cnav, _precompile_cnav2, _precompile_fnav,
-    _PRECOMPILE_GPS_L1CA_STATES, _PRECOMPILE_GALILEO_E1B_STATES
+    _precompile_states,
+    _precompile_cnav,
+    _precompile_cnav2,
+    _precompile_fnav,
+    _PRECOMPILE_GPS_L1CA_STATES,
+    _PRECOMPILE_GALILEO_E1B_STATES
 using Unitful: Hz
 
-gps(signal, make_data = identity) = SignalGroup(
-    signal, _precompile_states(signal, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA()))
-galileo(signal, make_data = identity) = SignalGroup(
-    signal, _precompile_states(signal, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B()))
+gps(signal, make_data = identity) =
+    _precompile_states(signal, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA())
+galileo(signal, make_data = identity) =
+    _precompile_states(signal, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B())
 
 # The fixtures hold no BeiDou satellites, so this group's is undecoded and drops out as
 # unhealthy — the solution is that of the other groups — but the solve is compiled, and
 # so verified, for the BeiDou message family and its ionospheric model.
-beidou(signal) = SignalGroup(signal, [SignalObservation(;
-    decoder = GNSSDecoderState(signal, 1), signal, code_phase = 0.0, carrier_doppler = 0.0Hz)])
+beidou(signal) = [
+    SignalObservation(;
+        decoder = GNSSDecoderState(signal, 1),
+        signal,
+        code_phase = 0.0,
+        carrier_doppler = 0.0Hz,
+    ),
+]
 
 # One `print` per value: a long `print(io, xs...)` is not specialised on its
 # arguments' types, which leaves the call dynamic.
 function report(io, name, pvt)
     print(io, name, ":")
-    for x in (pvt.position..., pvt.velocity..., pvt.time.second, pvt.time.fraction,
-        pvt.dop.GDOP, length(pvt.observations))
+    for x in (
+        pvt.position...,
+        pvt.velocity...,
+        pvt.time.second,
+        pvt.time.fraction,
+        pvt.dop.GDOP,
+        length(pvt.observations),
+    )
         print(io, " ", x)
     end
     for (system, bias) in pairs(pvt.inter_system_biases)
@@ -36,13 +52,24 @@ function solve(io, name, groups)
     cold = calc_pvt(groups; approximate_year = 2021)
     report(io, name * " cold", cold)
     report(io, name * " warm", calc_pvt(groups, cold; approximate_year = 2021))
-    report(io, name * " uncorrected", calc_pvt(groups; approximate_year = 2021,
-        enable_ionospheric_correction = false, enable_tropospheric_correction = false))
+    report(
+        io,
+        name * " uncorrected",
+        calc_pvt(
+            groups;
+            approximate_year = 2021,
+            enable_ionospheric_correction = false,
+            enable_tropospheric_correction = false,
+        ),
+    )
     # The in-place solve, warm-started from (and reusing) its own solution.
     workspace = PVTWorkspace()
     in_place = calc_pvt!(PVTSolution(), workspace, groups, cold; approximate_year = 2021)
-    report(io, name * " in place", calc_pvt!(in_place, workspace, groups, in_place;
-        approximate_year = 2021))
+    report(
+        io,
+        name * " in place",
+        calc_pvt!(in_place, workspace, groups, in_place; approximate_year = 2021),
+    )
 end
 
 function (@main)(ARGS)
@@ -56,7 +83,16 @@ function (@main)(ARGS)
     solve(io, "Galileo E1B", e1b)
     solve(io, "Galileo E5a", galileo(GalileoE5aI(), _precompile_fnav))
     solve(io, "GPS + Galileo", (gps = l1ca, galileo = e1b))
-    solve(io, "GPS + Galileo + BeiDou", (gps = l1ca, galileo = e1b,
-        b1i = beidou(BeiDouB1I()), b1c = beidou(BeiDouB1C_D()), b2a = beidou(BeiDouB2aI())))
+    solve(
+        io,
+        "GPS + Galileo + BeiDou",
+        (
+            gps = l1ca,
+            galileo = e1b,
+            b1i = beidou(BeiDouB1I()),
+            b1c = beidou(BeiDouB1C_D()),
+            b2a = beidou(BeiDouB2aI()),
+        ),
+    )
     return 0
 end
