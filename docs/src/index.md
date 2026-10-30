@@ -75,11 +75,14 @@ tuple or `NamedTuple`:
 
 ```julia
 previous = PVTSolution()
-pvt = calc_pvt((
+result = calc_pvt((
     gps = gps_observations,
     galileo = galileo_observations,
 ), previous)
-lla = get_lla(pvt)  # latitude, longitude, altitude
+if result.status === PositionVelocityTime.solved
+    pvt = result.solution
+    lla = get_lla(pvt)  # latitude, longitude, altitude
+end
 ```
 
 Each collection must have one concrete `SignalObservation` element type, including a
@@ -93,9 +96,11 @@ Satellites from different constellations may be combined this way. One receiver 
 bias is estimated per time system, reported as effective `pvt.inter_system_biases` relative to
 `pvt.reference_system`, so a fix over `M` time systems needs `3 + M` satellites, unless a
 broadcast offset between two systems (Galileo's GGTO, BeiDou's BGTO) ties their clocks,
-which brings a mixed fix down to 4. An epoch that cannot be solved returns the `prev_pvt`
-[`calc_pvt`](@ref) was given rather than throwing, so a receiver can hand over whatever it
-tracks.
+which brings a mixed fix down to 4. [`calc_pvt`](@ref) returns a [`PVTResult`](@ref) whose
+`status` is `PositionVelocityTime.solved`, `PositionVelocityTime.insufficient_observations`,
+or `PositionVelocityTime.degenerate_geometry`. The `solution` is a new fix only for
+`solved`. A failed allocating call carries an empty solution; the seed never supplies a
+fallback implicitly.
 
 These effective clock differences assume one receiver delay shared by all systems on
 each band. Residual receiver delays can enter them, and disconnected constellation ×
@@ -113,8 +118,14 @@ nothing:
 pvt = PVTSolution()
 workspace = PVTWorkspace()
 for epoch in epochs
-    pvt = calc_pvt!(pvt, workspace, epoch, pvt)   # reuse `pvt`, seeded from itself
+    result = calc_pvt!(pvt, workspace, epoch, pvt)
+    if result.status === PositionVelocityTime.solved
+        pvt = result.solution
+    end
 end
 ```
 
-Keep the returned solution; [`calc_pvt!`](@ref) says what it reuses and overwrites.
+This loop explicitly keeps its last fix on failure. A failed [`calc_pvt!`](@ref) leaves
+the output's containers untouched and carries that output in its result; inspect the
+status before treating it as the current epoch's fix. On success the new solution takes
+over the output's containers, as documented by [`calc_pvt!`](@ref).

@@ -135,8 +135,9 @@ Position, velocity and time solved from GNSS measurements.
   PRN apart across constellations and across the signals of one satellite (see
   [`ObservationResult`](@ref)).
 
-Immutable. [`calc_pvt!`](@ref) returns a new solution that takes over the containers of
-the one handed to it; [`calc_pvt`](@ref) builds new ones and never modifies `prev_pvt`.
+Immutable. A successful [`calc_pvt!`](@ref) puts a new solution in its [`PVTResult`](@ref),
+taking over the output's containers. [`calc_pvt`](@ref) builds new ones and never modifies
+`prev_pvt`.
 """
 @kwdef struct PVTSolution
     position::ECEF{Float64} = ECEF(0.0, 0.0, 0.0)
@@ -155,6 +156,36 @@ the one handed to it; [`calc_pvt`](@ref) builds new ones and never modifies `pre
     dop::Union{DOP,Nothing} = nothing
     observations::Dictionary{Tuple{Symbol,Int},ObservationResult} =
         Dictionary{Tuple{Symbol,Int},ObservationResult}()
+end
+
+"""
+    PVTStatus
+
+Outcome of a positioning attempt: `PositionVelocityTime.solved`,
+`PositionVelocityTime.insufficient_observations` (too few usable observations for the
+bias layout), or `PositionVelocityTime.degenerate_geometry` (the position or velocity
+geometry could not be solved).
+"""
+@enum PVTStatus solved insufficient_observations degenerate_geometry
+
+"""
+    PVTResult
+
+The outcome of [`calc_pvt`](@ref) or [`calc_pvt!`](@ref).
+
+  - `status::PVTStatus`: whether the attempt solved, lacked observations, or had degenerate
+    geometry.
+  - `solution::PVTSolution`: valid as a new fix only when `status` is
+    `PositionVelocityTime.solved`. On failure, [`calc_pvt!`](@ref) carries its unchanged
+    output argument and [`calc_pvt`](@ref) carries an empty `PVTSolution()`. The seed is
+    never copied into a failed result. The caller chooses whether to retain an earlier fix.
+
+The fixed payload keeps warm solves allocation-free. Always inspect `status` before
+using the solution as the current epoch's fix.
+"""
+struct PVTResult
+    status::PVTStatus
+    solution::PVTSolution
 end
 
 """
@@ -189,47 +220,6 @@ Base.copy(pvt::PVTSolution) = PVTSolution(
     pvt.dop,
     copy(pvt.observations),
 )
-
-# A copy of `source` in the containers of `solution`, or `source` itself where they share
-# them: copying a container onto itself would empty it.
-function copy_into(solution::PVTSolution, source::PVTSolution)
-    solution.observations === source.observations &&
-        solution.inter_system_biases === source.inter_system_biases &&
-        solution.inter_frequency_biases === source.inter_frequency_biases &&
-        solution.broadcast_clock_constraints ===
-        source.broadcast_clock_constraints &&
-        return source
-    copy_container!(solution.observations, source.observations)
-    copy_container!(solution.inter_system_biases, source.inter_system_biases)
-    copy_container!(solution.inter_frequency_biases, source.inter_frequency_biases)
-    copy_container!(solution.broadcast_clock_constraints,
-        source.broadcast_clock_constraints)
-    PVTSolution(
-        source.position,
-        source.velocity,
-        source.course_over_ground,
-        source.time,
-        source.clock_bias,
-        source.clock_drift,
-        source.reference_system,
-        solution.inter_system_biases,
-        solution.broadcast_clock_constraints,
-        solution.inter_frequency_biases,
-        source.dop,
-        solution.observations,
-    )
-end
-
-function copy_container!(destination::Dictionary, source::Dictionary)
-    destination === source && return destination
-    empty_keeping_capacity!(destination)
-    for (key, value) in pairs(source)
-        set!(destination, key, value)
-    end
-    destination
-end
-copy_container!(destination::Vector, source::Vector) =
-    destination === source ? destination : copy!(destination, source)
 
 """
     empty_keeping_capacity!(dict::Dictionary) -> dict

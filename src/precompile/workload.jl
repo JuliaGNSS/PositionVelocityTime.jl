@@ -168,7 +168,7 @@ end
         end
         # The paths that do not vary with the data type, compiled once on GPS L1 C/A.
         l1ca_group = group(GPSL1CA(), l1ca)
-        pvt = calc_pvt(l1ca_group; approximate_year = 2021)
+        pvt = something(calc_pvt(l1ca_group; approximate_year = 2021).solution)
         calc_pvt(l1ca_group, pvt; approximate_year = 2021)
         calc_pvt(
             l1ca_group;
@@ -178,13 +178,16 @@ end
         )
         calc_pvt(l1ca; approximate_year = 2021)
         mixed = (gps = l1ca_group, galileo = group(GalileoE1B(), e1b))
-        mixed_pvt = calc_pvt(mixed; approximate_year = 2021)
+        mixed_pvt = something(calc_pvt(mixed; approximate_year = 2021).solution)
         calc_pvt(mixed, mixed_pvt; approximate_year = 2021)
-        # The in-place entry point; only its wrapper and the unsolvable-epoch copy are new.
+        # The in-place entry point, including the insufficient-observations outcome.
         workspace = PVTWorkspace()
-        in_place =
-            calc_pvt!(PVTSolution(), workspace, mixed, mixed_pvt; approximate_year = 2021)
-        in_place = calc_pvt!(in_place, workspace, mixed, in_place; approximate_year = 2021)
+        in_place = something(
+            calc_pvt!(PVTSolution(), workspace, mixed, mixed_pvt; approximate_year = 2021).solution,
+        )
+        in_place = something(
+            calc_pvt!(in_place, workspace, mixed, in_place; approximate_year = 2021).solution,
+        )
         calc_pvt!(PVTSolution(), workspace, l1ca[1:3], in_place; approximate_year = 2021)
     end
 end

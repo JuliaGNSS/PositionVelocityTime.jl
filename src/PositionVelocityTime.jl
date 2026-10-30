@@ -1,12 +1,6 @@
 module PositionVelocityTime
 using CoordinateTransformations,
-    Geodesy,
-    GNSSDecoder,
-    GNSSSignals,
-    LinearAlgebra,
-    StaticArrays,
-    Unitful,
-    Dates
+    Geodesy, GNSSDecoder, GNSSSignals, LinearAlgebra, StaticArrays, Unitful, Dates
 
 using Unitful: s, Hz, m, °, ustrip
 using Dictionaries: Dictionary, IndexError, set!
@@ -18,6 +12,8 @@ export calc_pvt,
     calc_pvt!,
     PVTWorkspace,
     PVTSolution,
+    PVTResult,
+    PVTStatus,
     ObservationResult,
     InterFrequencyBias,
     BroadcastClockConstraint,

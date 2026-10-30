@@ -51,7 +51,7 @@ PVTWorkspace() = PVTWorkspace(
     calc_pvt(groups, prev_pvt::PVTSolution = PVTSolution();
              approximate_year::Integer = year(now(UTC)),
              enable_ionospheric_correction::Bool = true,
-             enable_tropospheric_correction::Bool = true) -> PVTSolution
+             enable_tropospheric_correction::Bool = true) -> PVTResult
 
 Calculate position, velocity and time from GNSS satellite measurements.
 
@@ -103,10 +103,12 @@ tropospheric delay with a blind model (see [`tropospheric_delay`](@ref)).
 
 # Returns
 
-A new [`PVTSolution`](@ref); `prev_pvt` is never modified. An epoch that cannot be solved
-— too few healthy satellites (see [`decide_bias_layout`](@ref)) or a rank-deficient
-geometry — returns `prev_pvt` as passed, without throwing, so a receiver can hand over
-whatever it tracks and carry the last fix forward.
+A [`PVTResult`](@ref) with `status == PositionVelocityTime.solved` and the new
+[`PVTSolution`](@ref) in `solution`. Too few usable observations for the bias layout
+returns `PositionVelocityTime.insufficient_observations`; a rank-deficient position or
+velocity geometry returns `PositionVelocityTime.degenerate_geometry`. Both failures
+carry an empty `PVTSolution()` and do not throw; the payload is not a current fix. `prev_pvt` is only a warm-start seed and is
+never modified. The receiver chooses whether to carry an earlier fix forward.
 """
 function calc_pvt(
     groups,
@@ -116,7 +118,7 @@ function calc_pvt(
     enable_tropospheric_correction::Bool = true,
 )
     # A fresh solution lends the solve its containers.
-    _, solution = _calc_pvt!(
+    _calc_pvt!(
         PVTSolution(),
         PVTWorkspace(),
         groups,
@@ -125,24 +127,27 @@ function calc_pvt(
         enable_ionospheric_correction,
         enable_tropospheric_correction,
     )
-    solution
 end
 
 """
     calc_pvt!(solution::PVTSolution, workspace::PVTWorkspace, groups, prev_pvt::PVTSolution;
               approximate_year::Integer = year(now(UTC)),
               enable_ionospheric_correction::Bool = true,
-              enable_tropospheric_correction::Bool = true) -> PVTSolution
+              enable_tropospheric_correction::Bool = true) -> PVTResult
 
 [`calc_pvt`](@ref) — the same solve and result — reusing the containers of `solution`
 and the buffers of `workspace`, so a stream of epochs is solved without allocating. The
-fix is a new, immutable [`PVTSolution`](@ref); keep the return value:
+result is a [`PVTResult`](@ref); on success its `solution` is a new, immutable
+[`PVTSolution`](@ref):
 
 ```julia
 pvt = PVTSolution()
 workspace = PVTWorkspace()
 for groups in epochs
-    pvt = calc_pvt!(pvt, workspace, groups, pvt)
+    result = calc_pvt!(pvt, workspace, groups, pvt)
+    if result.status == PositionVelocityTime.solved
+        pvt = result.solution
+    end
 end
 ```
 
@@ -153,8 +158,9 @@ describe its own epoch but its containers the new one, so keep a
 `solution.observations` shares its keys and sees the change too). `prev_pvt` is only read,
 and may be `solution` itself, as in the loop above.
 
-An epoch that cannot be solved returns `prev_pvt`: itself where it shares `solution`'s
-containers, otherwise a copy of it in them.
+A failed attempt returns a status and the unchanged output `solution`, leaving every
+container untouched. Its payload is not a fix for the current epoch. `prev_pvt` only seeds the solve; retaining a previous fix is the
+caller's explicit choice, as in the loop above.
 
 It allocates nothing once `workspace` and `solution` have held an epoch of as many
 satellites and biases; that covers everything but the `groups`, which the caller builds
@@ -170,7 +176,7 @@ function calc_pvt!(
     enable_ionospheric_correction::Bool = true,
     enable_tropospheric_correction::Bool = true,
 )
-    solved, result = _calc_pvt!(
+    _calc_pvt!(
         solution,
         workspace,
         groups,
@@ -179,11 +185,9 @@ function calc_pvt!(
         enable_ionospheric_correction,
         enable_tropospheric_correction,
     )
-    solved ? result : copy_into(solution, prev_pvt)
 end
 
-# The collection pass and the solve: `(true, fix)` in `solution`'s containers, or
-# `(false, prev_pvt)` with `solution` untouched. Specialises on the group shape.
+# The collection pass and the solve, specialized on the observation collection shape.
 function _calc_pvt!(
     solution,
     workspace,
@@ -197,33 +201,33 @@ function _calc_pvt!(
     # behind.
     ionospheric_parameters =
         _collect_measurements!(workspace.measurements, groups, approximate_year)
-    _solve_pvt!(
+    status, fix = _solve_pvt!(
         solution,
         workspace,
+        workspace.measurements,
         IonosphericModel(enable_ionospheric_correction ? ionospheric_parameters : nothing),
         prev_pvt,
         enable_tropospheric_correction,
     )
+    PVTResult(status, fix)
 end
 
-# The solver, compiled once: every argument is concretely typed, the ionospheric model
-# wrapped in an `IonosphericModel`. Returns `(true, fix)` in `solution`'s containers or
-# `(false, prev_pvt)`; the containers are written only once the epoch is solvable and
-# everything is read from `prev_pvt`, which may be the same solution. A tuple, as a
-# `Union{Nothing,PVTSolution}` would be returned boxed.
+# The solver, compiled once behind the typed preparation pass. Containers are written
+# only after both geometry checks pass and everything has been read from `prev_pvt`,
+# which may be the output solution itself.
 function _solve_pvt!(
     solution::PVTSolution,
     workspace::PVTWorkspace,
+    measurements::Vector{PreparedObservation},
     ionospheric_model,
     prev_pvt::PVTSolution,
     enable_tropospheric_correction::Bool,
 )
-    measurements = workspace.measurements
     num_sats = length(measurements)
 
     # Solvability by the counts; a degenerate geometry is caught after the solve by the DOP.
     layout = workspace.layout
-    decide_bias_layout!(layout, measurements) || return (false, prev_pvt)
+    decide_bias_layout!(layout, measurements) || return (insufficient_observations, solution)
     (; clock_systems, extra_bands, reference_bands, constraints) = layout
     bias_columns = fit_bias_columns(layout)
     (; clock_columns, num_clock_biases) = bias_columns
@@ -373,7 +377,7 @@ function _solve_pvt!(
         layout.clock_group_columns[reference_index],
     )
 
-    isnan(dop.GDOP) && return (false, prev_pvt)
+    isnan(dop.GDOP) && return (degenerate_geometry, solution)
 
     # The velocity solve starts from the previous solution where the position solve trusts
     # it, from rest otherwise (see `estimate_velocity` for why one step suffices).
@@ -393,7 +397,7 @@ function _solve_pvt!(
         position,
         velocity_start,
     )
-    all(isfinite, user_velocity_and_clock_drift) || return (false, prev_pvt)
+    all(isfinite, user_velocity_and_clock_drift) || return (degenerate_geometry, solution)
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
         user_velocity_and_clock_drift[2],
@@ -461,7 +465,7 @@ function _solve_pvt!(
         )
     end
 
-    return true,
+    solved,
     PVTSolution(
         position,
         velocity,

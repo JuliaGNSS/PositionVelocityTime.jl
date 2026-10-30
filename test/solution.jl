@@ -16,10 +16,18 @@
         signal_group(gal[setdiff(1:length(gal), gal_h_idx)]),
     )
 
-    baseline = calc_pvt((signal_group(gps), signal_group(gal)); approximate_year = 2021,
-        enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    pvt = calc_pvt(groups; approximate_year = 2021,
-        enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    baseline = solved_pvt(
+        (signal_group(gps), signal_group(gal));
+        approximate_year = 2021,
+        enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false,
+    )
+    pvt = solved_pvt(
+        groups;
+        approximate_year = 2021,
+        enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false,
+    )
 
     # Both the GPS and the Galileo satellite with the shared PRN survive as
     # distinct entries — with a bare-Int PRN key one would have overwritten the
@@ -39,7 +47,8 @@ end
     ecef_from_enu = ECEFfromENU(user, wgs84)
     # ENU velocity → ECEF velocity vector: rotate the tip and drop the origin translation.
     ecef_velocity(e, n, u) = ECEF(ecef_from_enu(ENU(e, n, u))) - user
-    cog(e, n, u) = PositionVelocityTime.calc_course_over_ground(user, ecef_velocity(e, n, u))
+    cog(e, n, u) =
+        PositionVelocityTime.calc_course_over_ground(user, ecef_velocity(e, n, u))
 
     @test cog(0.0, 10.0, 0.0) ≈ 0° atol = 1e-6°      # North
     @test cog(10.0, 0.0, 0.0) ≈ 90° atol = 1e-6°     # East

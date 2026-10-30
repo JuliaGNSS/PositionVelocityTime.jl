@@ -9,19 +9,19 @@
     gal = galileo_e1b_states(0.0Hz)
 
     @testset "single, tuple and named collections describe the same epoch" begin
-        named = calc_pvt((gps = gps, galileo = gal); kw...)
-        @test calc_pvt((gps, gal); kw...).position == named.position
-        @test calc_pvt((other = gps, labels = gal); kw...).position == named.position
-        @test calc_pvt(gps; kw...).position == calc_pvt((gps,); kw...).position
+        named = solved_pvt((gps = gps, galileo = gal); kw...)
+        @test solved_pvt((gps, gal); kw...).position == named.position
+        @test solved_pvt((other = gps, labels = gal); kw...).position == named.position
+        @test solved_pvt(gps; kw...).position == solved_pvt((gps,); kw...).position
         as_dictionary = Dictionary([state.decoder.prn for state in gps], gps)
-        @test calc_pvt(as_dictionary; kw...).position == calc_pvt(gps; kw...).position
-        @test calc_pvt((gps = as_dictionary, galileo = gal); kw...).position ==
+        @test solved_pvt(as_dictionary; kw...).position == solved_pvt(gps; kw...).position
+        @test solved_pvt((gps = as_dictionary, galileo = gal); kw...).position ==
               named.position
     end
 
     @testset "observation order fixes reference-system ties and result order" begin
-        gps_first = calc_pvt((gps[1:3], gal[1:3]); kw...)
-        gal_first = calc_pvt((gal[1:3], gps[1:3]); kw...)
+        gps_first = solved_pvt((gps[1:3], gal[1:3]); kw...)
+        gal_first = solved_pvt((gal[1:3], gps[1:3]); kw...)
         @test gps_first.reference_system === GPST()
         @test gal_first.reference_system === GST()
         @test collect(keys(gal_first.observations)) == [
@@ -34,7 +34,7 @@
         for input in
             ([gps; gal], SignalObservation[], (gps = gps, bad = 1), (gps, 1), 1, [1, 2])
             err = try
-                calc_pvt(input; kw...)
+                solved_pvt(input; kw...)
                 nothing
             catch e
                 e
@@ -61,9 +61,9 @@
             PositionVelocityTime.collect_measurements,
             Tuple{typeof(groups)},
         ).parameters[1] === Vector{PositionVelocityTime.PreparedObservation}
-        @test inferred_return_type(calc_pvt, Tuple{typeof(groups)}) === PVTSolution
+        @test inferred_return_type(calc_pvt, Tuple{typeof(groups)}) === PVTResult
         for input in (gps, gal, (a = gps,), (gps, gal), (b = gal, a = gps))
-            calc_pvt(input; approximate_year = 2021)
+            solved_pvt(input; approximate_year = 2021)
         end
         specializations =
             Base.specializations(only(methods(PositionVelocityTime._solve_pvt!)))
@@ -78,17 +78,20 @@
             @test isempty(measurements)
             @test isnothing(parameters)
             @test isnothing(PositionVelocityTime.decide_bias_layout(measurements))
-            previous = calc_pvt(gps; kw...)
-            @test calc_pvt(input, previous; kw...) === previous
-            @test calc_pvt((input = empty_gps, gps = gps); kw...).position ==
+            previous = solved_pvt(gps; kw...)
+            result = calc_pvt(input, previous; kw...)
+            @test result.status === PositionVelocityTime.insufficient_observations
+            @test iszero(result.solution.position)
+            @test isempty(result.solution.observations)
+            @test solved_pvt((input = empty_gps, gps = gps); kw...).position ==
                   previous.position
         end
     end
 
     @testset "a second solve does not allocate unboundedly" begin
         groups = (gps = gps, galileo = gal)
-        previous = calc_pvt(groups; kw...)
-        calc_pvt(groups, previous; kw...)
+        previous = solved_pvt(groups; kw...)
+        solved_pvt(groups, previous; kw...)
         @test (@allocated calc_pvt(groups, previous; kw...)) < 100 * 1024
     end
 end

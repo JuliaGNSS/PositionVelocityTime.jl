@@ -30,7 +30,8 @@
         # Its own band — this is what earns E5b a separate inter-frequency bias, and
         # what keeps it from being grouped with E1 the way E1B and E1C are.
         @test GNSSSignals.get_band_id(GalileoE5bI()) == :E5b
-        @test GNSSSignals.get_band_id(GalileoE5bI()) != GNSSSignals.get_band_id(GalileoE1B())
+        @test GNSSSignals.get_band_id(GalileoE5bI()) !=
+              GNSSSignals.get_band_id(GalileoE1B())
         @test GNSSDecoder.get_broadcast_week(e5b; approximate_year = 2024) == d.WN
         # No GEO branch for Galileo.
         @test !ephemeris(e5b).is_geostationary
@@ -40,8 +41,13 @@
         # Same container, same constants values, so the shared propagator must not
         # merely agree to a tolerance — it must return the identical numbers.
         for t in (132000.0, 132769.0, 135000.0)
-            @test PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(e5b), t) ==
-                  PositionVelocityTime.calc_satellite_position_and_velocity(ephemeris(e1b), t)
+            @test PositionVelocityTime.calc_satellite_position_and_velocity(
+                ephemeris(e5b),
+                t,
+            ) == PositionVelocityTime.calc_satellite_position_and_velocity(
+                ephemeris(e1b),
+                t,
+            )
             @test PositionVelocityTime.calc_satellite_clock_drift(ephemeris(e5b), t) ==
                   PositionVelocityTime.calc_satellite_clock_drift(ephemeris(e1b), t)
         end
@@ -93,7 +99,7 @@
             enable_tropospheric_correction = false,
         )
         e1b_states = galileo_e1b_states(0.0Hz)
-        reference = calc_pvt(signal_group(e1b_states); kw...)
+        reference = solved_pvt(signal_group(e1b_states); kw...)
         @test length(reference.observations) >= 4
 
         # Split a transmit time into the decoder's bit count plus a sub-bit code
@@ -137,8 +143,10 @@
             )
         end
 
-        both = calc_pvt(
-            (signal_group(e1b_states), signal_group(map(as_e5b_state, e1b_states))); kw...)
+        both = solved_pvt(
+            (signal_group(e1b_states), signal_group(map(as_e5b_state, e1b_states)));
+            kw...,
+        )
         @test length(both.observations) == 2 * length(reference.observations)
         # One time system (both are Galileo) but two bands, so exactly one IFB column,
         # on E5b against the L1 reference.
@@ -209,11 +217,11 @@ end
 
     @testset "calc_pvt ignores it without touching its missing fields" begin
         ranging = galileo_e1b_states(0.0Hz)
-        reference = calc_pvt(signal_group(ranging); kw...)
+        reference = solved_pvt(signal_group(ranging); kw...)
         # Appending the E6-B state must change nothing: the health filter drops it
         # before anything reads `t_0e`, `a_f0` or any other field it does not have.
         # (Were it not filtered, this call would throw a `FieldError`, not misfix.)
-        with_e6b = calc_pvt((signal_group(ranging), signal_group([e6b_state])); kw...)
+        with_e6b = solved_pvt((signal_group(ranging), signal_group([e6b_state])); kw...)
         @test with_e6b.position == reference.position
         @test with_e6b.velocity == reference.velocity
         @test with_e6b.time == reference.time
@@ -223,23 +231,28 @@ end
     end
 
     @testset "an E6-B-only epoch is unsolvable rather than an error" begin
-        # `calc_pvt` returns `prev_pvt` unchanged when an epoch cannot be solved, so an
-        # epoch of nothing but E6-B satellites is the empty solution, not a throw.
         unsolved = calc_pvt(signal_group([e6b_state]); kw...)
-        @test unsolved.position == PVTSolution().position
-        @test isnothing(unsolved.time)
-        @test isempty(unsolved.observations)
+        @test unsolved.status === PositionVelocityTime.insufficient_observations
+        @test iszero(unsolved.solution.position)
+        @test isempty(unsolved.solution.observations)
     end
 end
 
 @testset "Galileo E1 replica variants keep canonical measurement identities" begin
     source = first(galileo_e1b_states(0.0Hz))
-    for (signal, expected_id) in ((GalileoE1B(), :GalileoE1B),
-        (GalileoE1B_CBOC(), :GalileoE1B), (GalileoE1C(), :GalileoE1C),
-        (GalileoE1C_CBOC(), :GalileoE1C))
-        state = SignalObservation(; decoder = source.decoder, signal,
-            code_phase = source.code_phase, carrier_doppler = source.carrier_doppler,
-            carrier_phase = source.carrier_phase)
+    for (signal, expected_id) in (
+        (GalileoE1B(), :GalileoE1B),
+        (GalileoE1B_CBOC(), :GalileoE1B),
+        (GalileoE1C(), :GalileoE1C),
+        (GalileoE1C_CBOC(), :GalileoE1C),
+    )
+        state = SignalObservation(;
+            decoder = source.decoder,
+            signal,
+            code_phase = source.code_phase,
+            carrier_doppler = source.carrier_doppler,
+            carrier_phase = source.carrier_phase,
+        )
         measurement = PositionVelocityTime.satellite_measurement(state, 2021)
         @test measurement.signal_id == expected_id
         @test measurement.band_id == :L1
@@ -276,8 +289,14 @@ end
         # CNAV-2: the full L1 ISC set. Its ISC_L2C/L5* are cross-band.
         GNSSDecoder.GPSCNAV2Data => [GPSL1C_D(), GPSL1C_P(), GPSL1CA()],
         # I/NAV: one message on E1 and E5b. Carries BGD(E1,E5a) too, cross-band.
-        GNSSDecoder.GalileoINAVData => [GalileoE1B(), GalileoE1C(),
-            GalileoE1B_CBOC(), GalileoE1C_CBOC(), GalileoE5bI(), GalileoE5bQ()],
+        GNSSDecoder.GalileoINAVData => [
+            GalileoE1B(),
+            GalileoE1C(),
+            GalileoE1B_CBOC(),
+            GalileoE1C_CBOC(),
+            GalileoE5bI(),
+            GalileoE5bQ(),
+        ],
         # F/NAV: E5a only.
         GNSSDecoder.GalileoFNAVData => [GalileoE5aI(), GalileoE5aQ(), GalileoE5aQP()],
         # D1/D2: one message on B1I and B3I. B3I needs no term at all.
@@ -292,12 +311,37 @@ end
     # Every civil ranging signal this package can be handed, by constellation. A new
     # signal added to GNSSSignals must be listed here and placed in `expected`.
     all_signals = Dict(
-        :GPS => [GPSL1CA(), GPSL1C_D(), GPSL1C_P(), GPSL2CM(), GPSL2CL(), GPSL5I(), GPSL5Q()],
-        :Galileo => [GalileoE1B(), GalileoE1C(), GalileoE1B_CBOC(), GalileoE1C_CBOC(),
-            GalileoE5aI(), GalileoE5aQ(), GalileoE5aQP(),
-            GalileoE5bI(), GalileoE5bQ(), GalileoE6B(), GalileoE6C()],
-        :BeiDou => [BeiDouB1I(), BeiDouB3I(), BeiDouB1C_D(), BeiDouB1C_P(),
-            BeiDouB2aI(), BeiDouB2aQ(), BeiDouB2bI()],
+        :GPS => [
+            GPSL1CA(),
+            GPSL1C_D(),
+            GPSL1C_P(),
+            GPSL2CM(),
+            GPSL2CL(),
+            GPSL5I(),
+            GPSL5Q(),
+        ],
+        :Galileo => [
+            GalileoE1B(),
+            GalileoE1C(),
+            GalileoE1B_CBOC(),
+            GalileoE1C_CBOC(),
+            GalileoE5aI(),
+            GalileoE5aQ(),
+            GalileoE5aQP(),
+            GalileoE5bI(),
+            GalileoE5bQ(),
+            GalileoE6B(),
+            GalileoE6C(),
+        ],
+        :BeiDou => [
+            BeiDouB1I(),
+            BeiDouB3I(),
+            BeiDouB1C_D(),
+            BeiDouB1C_P(),
+            BeiDouB2aI(),
+            BeiDouB2aQ(),
+            BeiDouB2bI(),
+        ],
     )
     constellation(D) =
         D <: GNSSDecoder.AbstractGPSData ? :GPS :

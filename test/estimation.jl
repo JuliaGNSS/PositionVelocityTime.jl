@@ -46,8 +46,16 @@
     # `NaN` DOPs returned gracefully, not an exception.
     H_singular = repeat([1.0 0.0 0.0 1.0], 4)
     dop_singular = PositionVelocityTime.calc_dop(H_singular, user)
-    @test all(isnan, (dop_singular.GDOP, dop_singular.PDOP, dop_singular.HDOP,
-        dop_singular.VDOP, dop_singular.TDOP))
+    @test all(
+        isnan,
+        (
+            dop_singular.GDOP,
+            dop_singular.PDOP,
+            dop_singular.HDOP,
+            dop_singular.VDOP,
+            dop_singular.TDOP,
+        ),
+    )
 
     # Multi-GNSS: 3 position + 2 clock columns (3 sats per system). GDOP/HDOP are
     # independent of which clock is the reference; TDOP reports the selected system's
@@ -57,8 +65,8 @@
     H_multi = reduce(
         vcat,
         [
-            [ecef_los(user, az, el)' (sys[i]==1 ? 1.0 : 0.0) (sys[i]==2 ? 1.0 : 0.0)] for
-            (i, (az, el)) in enumerate(azels6)
+            [ecef_los(user, az, el)' (sys[i]==1 ? 1.0 : 0.0) (sys[i]==2 ? 1.0 : 0.0)]
+            for (i, (az, el)) in enumerate(azels6)
         ],
     )
     d1 = PositionVelocityTime.calc_dop(H_multi, user, 1)
@@ -76,8 +84,10 @@ end
     @test PositionVelocityTime.calc_fit_covariance!(normal_matrix, H)
     # The upper triangle holds the inverse; the lower is left as the factorisation had it.
     @test Symmetric(normal_matrix, :U) ≈ inv(H' * H)
-    @test !PositionVelocityTime.calc_fit_covariance!(normal_matrix,
-        repeat([1.0 0.0 1.0], 4))
+    @test !PositionVelocityTime.calc_fit_covariance!(
+        normal_matrix,
+        repeat([1.0 0.0 1.0], 4),
+    )
 end
 
 # Regression: a degenerate geometry must be reported, not thrown out of a least-squares
@@ -88,7 +98,9 @@ end
     # The rank test `calc_dop` decides the geometry by: the normal-equations matrix `HᵀH`
     # of the design, Cholesky-factorised with a relative tolerance on its pivots.
     full_rank(H) = PositionVelocityTime.factorize_normal_matrix!(
-        Matrix{Float64}(undef, size(H, 2), size(H, 2)), H)
+        Matrix{Float64}(undef, size(H, 2), size(H, 2)),
+        H,
+    )
 
     @testset "the normal-matrix factorisation rejects what is not positive definite" begin
         @test full_rank([sqrt(2.0) 0.0; 0.0 sqrt(3.0)])          # HᵀH positive definite
@@ -130,15 +142,22 @@ end
     @testset "a degenerate line-of-sight set is degenerate for the velocity design" begin
         states = gps_l1_states(0.0Hz)[1:4]
         measurements, _ = PositionVelocityTime.collect_measurements(
-            signal_group(states); approximate_year = 2021)
+            signal_group(states);
+            approximate_year = 2021,
+        )
         # The solve takes its lines of sight from the satellite positions, so the rows'
         # satellites are moved onto synthetic directions from a nearby user position.
         user = SVector(3.9074e6, 3.0684e5, 5.0150e6)
         with_position(m, position) = PositionVelocityTime.PreparedObservation(
-            (name === :position ? position : getfield(m, name)
-             for name in fieldnames(PositionVelocityTime.PreparedObservation))...)
-        placed(dirs) = [with_position(m, user + 2.0e7 * normalize(SVector{3}(d)))
-                        for (m, d) in zip(measurements, dirs)]
+            (
+                name === :position ? position : getfield(m, name) for
+                name in fieldnames(PositionVelocityTime.PreparedObservation)
+            )...,
+        )
+        placed(dirs) = [
+            with_position(m, user + 2.0e7 * normalize(SVector{3}(d))) for
+            (m, d) in zip(measurements, dirs)
+        ]
         # The position design's columns — the negated lines of sight, as
         # `calc_design_matrix!` builds them — and one column of ones for the per-system
         # clock columns, which the velocity solve collapses into one drift.
@@ -162,9 +181,21 @@ end
         # residual rather than an arbitrary measured-minus-modeled difference, so it is
         # pinned directly instead of only by magnitude.
         let user_vel = SVector(solution[1], solution[2], solution[3])
-            A = reduce(vcat, [last(PositionVelocityTime.pseudorange_rate_and_gradient(user,
-                user_vel, solution[4], m.position, m.velocity, m.satellite_clock_drift))'
-                              for m in measurements])
+            A = reduce(
+                vcat,
+                [
+                    last(
+                        PositionVelocityTime.pseudorange_rate_and_gradient(
+                            user,
+                            user_vel,
+                            solution[4],
+                            m.position,
+                            m.velocity,
+                            m.satellite_clock_drift,
+                        ),
+                    )' for m in measurements
+                ],
+            )
             @test norm(A - design(spread)) < 1e-4
             @test norm(A' * rate_residuals) < 1e-6
         end
@@ -181,8 +212,8 @@ end
         # that produced SingularException(4) from the 4×4 solve.
         cosθ = 0.5
         sinθ = sqrt(1 - cosθ^2)
-        cone = [
-            [sinθ, 0.0, cosθ], [0.0, sinθ, cosθ], [-sinθ, 0.0, cosθ], [0.0, -sinθ, cosθ]]
+        cone =
+            [[sinθ, 0.0, cosθ], [0.0, sinθ, cosθ], [-sinθ, 0.0, cosθ], [0.0, -sinθ, cosθ]]
         @test !solvable(cone)
 
         # Should such a geometry reach the velocity solve all the same, it tests its own
@@ -207,12 +238,22 @@ end
 
     # ── Pseudorange ──────────────────────────────────────────────────────────────
     user = [3.9074e6, 3.0684e5, 5.0150e6]
-    dirs = [[0.3, 0.1, 0.95], [-0.6, 0.3, 0.75], [0.2, -0.8, 0.55],
-        [0.7, 0.5, 0.5], [-0.3, -0.5, 0.8], [0.0, 0.9, 0.45]]
+    dirs = [
+        [0.3, 0.1, 0.95],
+        [-0.6, 0.3, 0.75],
+        [0.2, -0.8, 0.55],
+        [0.7, 0.5, 0.5],
+        [-0.3, -0.5, 0.8],
+        [0.0, 0.9, 0.45],
+    ]
     sat_positions = reduce(hcat, [user .+ 2.0e7 .* normalize(d) for d in dirs])
     bias_columns = PositionVelocityTime.BiasColumns(ones(Int, 6), 1, zeros(Int, 6), 0)
     ρ = PositionVelocityTime.predict_pseudoranges!(
-        zeros(6), sat_positions, [user; 30.0], bias_columns)
+        zeros(6),
+        sat_positions,
+        [user; 30.0],
+        bias_columns,
+    )
     _, resid = PositionVelocityTime.estimate_position(sat_positions, ρ, bias_columns)
     @test maximum(abs, resid) < 1e-6   # self-consistent data ⇒ no residual
 
@@ -221,8 +262,13 @@ end
     # the sign of the perturbation: measuring long reads positive, short negative. (How
     # large the fraction is depends on the satellite's leverage, so only the sign and
     # the bound are pinned.)
-    perturbed(δ) = last(PositionVelocityTime.estimate_position(
-        sat_positions, (ρ_δ = copy(ρ); ρ_δ[3] += δ; ρ_δ), bias_columns))[3]
+    perturbed(δ) = last(
+        PositionVelocityTime.estimate_position(
+            sat_positions,
+            (ρ_δ = copy(ρ); ρ_δ[3] += δ; ρ_δ),
+            bias_columns,
+        ),
+    )[3]
     @test 0.0 < perturbed(100.0) < 100.0
     @test -100.0 < perturbed(-100.0) < 0.0
     # Antisymmetric to sub-mm: the model is nonlinear in position, so the two do not
@@ -250,7 +296,9 @@ end
     faster = copy(states)
     faster[3] = with_doppler(states[3], states[3].carrier_doppler + Δdoppler)
     _, closing = PositionVelocityTime.estimate_velocity(measurements(faster), user)
-    λ = PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(states[3].signal))
+    λ =
+        PositionVelocityTime.SPEED_OF_LIGHT /
+        ustrip(Hz, get_center_frequency(states[3].signal))
     @test -λ * ustrip(Hz, Δdoppler) < closing[3] - base[3] < 0.0
 end
 
@@ -261,14 +309,23 @@ end
 @testset "the velocity solve fits calc_pseudorange_rate's model" begin
     c = PositionVelocityTime.SPEED_OF_LIGHT
     groups = signal_group(gps_l1_states(0.0Hz))
-    pvt = calc_pvt(groups; approximate_year = 2021, enable_ionospheric_correction = false,
-        enable_tropospheric_correction = false)
+    pvt = solved_pvt(
+        groups;
+        approximate_year = 2021,
+        enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false,
+    )
     user_pos = SVector{3,Float64}(pvt.position)
     user_vel = SVector{3,Float64}(pvt.velocity)
     for measurement in measurements_of(groups)
-        modelled = PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel,
-            ustrip(m / s, pvt.clock_drift), measurement.position, measurement.velocity,
-            measurement.satellite_clock_drift)
+        modelled = PositionVelocityTime.calc_pseudorange_rate(
+            user_pos,
+            user_vel,
+            ustrip(m / s, pvt.clock_drift),
+            measurement.position,
+            measurement.velocity,
+            measurement.satellite_clock_drift,
+        )
         measured = -measurement.carrier_doppler * c / measurement.center_frequency
         key = (measurement.signal_id, measurement.prn)
         residual = ustrip(m / s, pvt.observations[key].rate_residual)
@@ -279,10 +336,13 @@ end
 
 # `measurement` with its carrier Doppler set so that its measured range rate is `rate`.
 with_pseudorange_rate(measurement, rate) = PositionVelocityTime.PreparedObservation(
-    (name === :carrier_doppler ? -rate * measurement.center_frequency /
-                                 PositionVelocityTime.SPEED_OF_LIGHT :
-     getfield(measurement, name)
-     for name in fieldnames(PositionVelocityTime.PreparedObservation))...)
+    (
+        name === :carrier_doppler ?
+        -rate * measurement.center_frequency / PositionVelocityTime.SPEED_OF_LIGHT :
+        getfield(measurement, name) for
+        name in fieldnames(PositionVelocityTime.PreparedObservation)
+    )...,
+)
 
 # The solve takes one Gauss–Newton step and relies on the model being nearly linear in
 # `[v; ċ]`. Measured rates generated by `calc_pseudorange_rate` itself at a known state,
@@ -293,25 +353,32 @@ with_pseudorange_rate(measurement, rate) = PositionVelocityTime.PreparedObservat
     ("Galileo E1B", galileo_e1b_states(0.0Hz)),
 )
     groups = signal_group(states)
-    pvt = calc_pvt(groups; approximate_year = 2021)
+    pvt = solved_pvt(groups; approximate_year = 2021)
     user_pos = SVector{3,Float64}(pvt.position)
     measurements = measurements_of(groups)
-    for (user_vel, clock_drift) in ((SVector(150.0, -200.0, 50.0), 3000.0),
-        (SVector(-600.0, 400.0, -300.0), -30000.0))
+    for (user_vel, clock_drift) in
+        ((SVector(150.0, -200.0, 50.0), 3000.0), (SVector(-600.0, 400.0, -300.0), -30000.0))
         truth = SVector(user_vel..., clock_drift)
-        exact = [with_pseudorange_rate(measurement,
-            PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel, clock_drift,
-                measurement.position, measurement.velocity,
-                measurement.satellite_clock_drift)) for measurement in measurements]
+        exact = [
+            with_pseudorange_rate(
+                measurement,
+                PositionVelocityTime.calc_pseudorange_rate(
+                    user_pos,
+                    user_vel,
+                    clock_drift,
+                    measurement.position,
+                    measurement.velocity,
+                    measurement.satellite_clock_drift,
+                ),
+            ) for measurement in measurements
+        ]
         # From rest: hundreds of m/s and kilometres per second of drift in one step.
-        solved, residuals =
-            PositionVelocityTime.estimate_velocity(exact, user_pos)
+        solved, residuals = PositionVelocityTime.estimate_velocity(exact, user_pos)
         @test norm(solved - truth) < 1e-6
         @test maximum(abs, residuals) < 1e-6
         # From a start a few m/s off, the previous epoch's solution, to rounding.
         start = truth + SVector(2.0, -1.5, 0.5, 0.3)
-        solved, residuals =
-            PositionVelocityTime.estimate_velocity(exact, user_pos, start)
+        solved, residuals = PositionVelocityTime.estimate_velocity(exact, user_pos, start)
         @test norm(solved - truth) < 1e-10
         @test maximum(abs, residuals) < 1e-10
     end

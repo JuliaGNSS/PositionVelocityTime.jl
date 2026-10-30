@@ -5,6 +5,8 @@
 ```@docs
 SignalObservation
 PVTSolution
+PVTResult
+PVTStatus
 ObservationResult
 InterFrequencyBias
 BroadcastClockConstraint
@@ -41,6 +43,12 @@ PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
 ```
 
 ## PVT Computation
+
+Both solve entry points return [`PVTResult`](@ref). Only
+`status === PositionVelocityTime.solved` makes `solution` a new fix for the epoch.
+Insufficient observations and degenerate geometry have explicit statuses. A failed
+allocating call carries an empty solution; a failed in-place call carries its untouched
+output. Warm-start seeds never become implicit fallbacks.
 
 ```@docs
 calc_pvt

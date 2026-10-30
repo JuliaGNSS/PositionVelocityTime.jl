@@ -61,11 +61,14 @@ element type. Combine collections with different decoder or signal types in a tu
 `NamedTuple`:
 ```julia
 previous = PVTSolution()
-pvt = calc_pvt((
+result = calc_pvt((
     gps = gps_observations,
     galileo = galileo_observations,
 ), previous)
-lla = get_lla(pvt)  # latitude, longitude, altitude
+if result.status === PositionVelocityTime.solved
+    pvt = result.solution
+    lla = get_lla(pvt)  # latitude, longitude, altitude
+end
 ```
 A single collection can be passed directly: `calc_pvt(gps_observations, previous)`.
 Collection names are ignored. Each collection's concrete element type keeps preparation
@@ -84,17 +87,24 @@ constrain receiver-clock differences under that model.
 
 A fix needs at least 4 healthy, fully decoded satellites (more for a multi-GNSS or
 multi-band set, unless a broadcast time offset such as Galileo's GGTO ties two systems'
-clocks together); when the epoch cannot be solved, the previous solution is returned
-unchanged instead of an error, so a receiver can pass whatever it currently tracks.
+clocks together). Both solve entry points return `PVTResult`: `status` is
+`PositionVelocityTime.solved`, `PositionVelocityTime.insufficient_observations`, or
+`PositionVelocityTime.degenerate_geometry`. Use `result.solution` as a new fix only for
+`solved`; the previous solution is only a warm-start seed. On failure, `calc_pvt` carries
+an empty solution and `calc_pvt!` carries its unchanged output argument.
 
 To solve epoch after epoch without allocating, use `calc_pvt!`, which reuses the
 containers of the solution passed as its first argument and a `PVTWorkspace` for the
-scratch buffers. `PVTSolution` is immutable, so keep the returned solution:
+scratch buffers. `PVTSolution` is immutable. This receiver explicitly keeps its previous
+fix on failure and replaces it on success:
 ```julia
 pvt = PVTSolution()
 workspace = PVTWorkspace()
 epoch = (gps = gps_observations, galileo = galileo_observations)
-pvt = calc_pvt!(pvt, workspace, epoch, pvt)  # reuses only `pvt`; seeded from itself
+result = calc_pvt!(pvt, workspace, epoch, pvt)
+if result.status === PositionVelocityTime.solved
+    pvt = result.solution
+end
 ```
 The estimated time `pvt.time` is GNSSSignals' `TAITime` — whole TAI seconds since J2000
 plus a fraction. With AstroTime loaded, `TAIEpoch(pvt.time)` converts it exactly.

@@ -9,8 +9,8 @@ const GALILEO_INPUT = make_galileo_input()
 const GPS_INPUT = make_gps_input()
 
 # Sanity-warm the inputs so we can supply prev_pvt for warm-start benchmarks.
-const GALILEO_PREV = calc_pvt(GALILEO_INPUT)
-const GPS_PREV = calc_pvt(GPS_INPUT)
+const GALILEO_PREV = something(calc_pvt(GALILEO_INPUT).solution)
+const GPS_PREV = something(calc_pvt(GPS_INPUT).solution)
 
 SUITE["calc_pvt"] = BenchmarkGroup()
 
@@ -32,7 +32,7 @@ end
 # vector its element type is abstract, and every per-satellite call inside the solve is
 # a dynamic dispatch.
 const MIXED_INPUT = (gps = GPS_INPUT, galileo = GALILEO_INPUT)
-const MIXED_PREV = calc_pvt(MIXED_INPUT)
+const MIXED_PREV = something(calc_pvt(MIXED_INPUT).solution)
 const MIXED_SATS = length(GPS_INPUT) + length(GALILEO_INPUT)
 
 SUITE["calc_pvt"]["GPSL1+GalileoE1B"] = BenchmarkGroup()
