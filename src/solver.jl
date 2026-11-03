@@ -341,17 +341,22 @@ function _solve_pvt!(
         !isnothing(prev_pvt.dop) &&
         (prev_pvt.dop.GDOP < 0 || prev_pvt.dop.PDOP > MAX_TRUSTED_WARM_START_PDOP)
 
-    # Seed each clock bias from the previous solution, as its reference bias plus its
-    # inter-system bias; a system it lacks gets the reference bias, metres off rather than
-    # the whole clock bias. A distrusted solution seeds nothing: the cold start, all zeros.
-    prev_abs_bias(sys) =
-        sys === prev_pvt.reference_system ? prev_pvt.time_correction :
-        prev_pvt.time_correction + get(prev_pvt.inter_system_biases, sys, 0.0m)
+    # Seed the reference clock bias from the previous position: the reference observation's
+    # pseudorange is zero, so its bias is minus its range, up to the atmosphere. Each other
+    # clock adds its previous inter-system bias, taken against the new reference; a system
+    # the previous solution lacks gets the reference bias, metres off rather than the whole
+    # clock bias. A distrusted solution, or none (the origin), seeds nothing: the cold
+    # start, all zeros.
+    prev_inter_system_bias(sys) = ustrip(m, get(prev_pvt.inter_system_biases, sys, 0.0m))
     prev_ξ = fill!(resize!(workspace.prev_ξ, num_params), 0.0)
     if !distrusted
         prev_ξ[1], prev_ξ[2], prev_ξ[3] = prev_pvt.position
-        for (k, sys) in enumerate(clock_systems)
-            prev_ξ[3+k] = ustrip(m, prev_abs_bias(sys))
+        if !iszero(prev_pvt.position)
+            reference_bias = -norm(prev_pvt.position - reference_observation.position) -
+                             prev_inter_system_bias(reference_system)
+            for (k, sys) in enumerate(clock_systems)
+                prev_ξ[3+k] = reference_bias + prev_inter_system_bias(sys)
+            end
         end
         # An IFB is seeded only against the same reference band, as another reference makes
         # it a different quantity. `haskey` and an index, not `get(…, nothing)`: a `Union`
@@ -435,9 +440,11 @@ function _solve_pvt!(
         user_velocity_and_clock_drift[2],
         user_velocity_and_clock_drift[3],
     )
-    time_correction = ξ[3+reference_clock_column]
-    # A receiver clock running ahead reads the epoch late by its bias.
-    corrected_reference_time = reference_time - time_correction / SPEED_OF_LIGHT
+    # The reference clock bias counts from the reference observation's transmit time, so
+    # it is minus the signal's travel time, not a receiver clock offset: it dates the
+    # epoch and is not reported.
+    clock_bias = ξ[3+reference_clock_column]
+    corrected_reference_time = reference_time - clock_bias / SPEED_OF_LIGHT
 
     # Everything is read from `prev_pvt` by now; `solution`'s containers are written from
     # here on. A duplicate `(signal, PRN)` is refused before any is, so a throw leaves
@@ -455,11 +462,11 @@ function _solve_pvt!(
             observation.transmit_time, residuals[j] * m, rate_residuals[j] * (m / s)))
     end
 
-    # The reference system's own bias is `time_correction`.
+    # Each other clock against the reference one.
     inter_system_biases = empty!(solution.inter_system_biases)
     for (k, sys) in enumerate(clock_systems)
         sys === reference_system && continue
-        inter_system_biases[sys] = (ξ[3+k] - time_correction) * m
+        inter_system_biases[sys] = (ξ[3+k] - clock_bias) * m
     end
 
     # The reference band's delay is folded into the clock biases.
@@ -474,7 +481,6 @@ function _solve_pvt!(
         position,
         velocity,
         calc_course_over_ground(position, velocity),
-        time_correction * m,
         week_start + corrected_reference_time,
         user_velocity_and_clock_drift[4] / SPEED_OF_LIGHT,
         dop,
