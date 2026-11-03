@@ -26,7 +26,7 @@ Collection names are ignored. For example,
 `calc_pvt((gps = gps_observations, galileo = galileo_observations), previous)` combines
 two collections without a wrapper.
 
-[`PositionVelocityTime.collect_measurements`](@ref) dispatches statically on each
+[`PositionVelocityTime.prepare_observations`](@ref) dispatches statically on each
 collection's element type. The solver sees one
 [`PositionVelocityTime.PreparedObservation`](@ref) per signal observation, a single
 concrete type, and compiles once for every constellation mix. Pooled mixed vectors with
@@ -34,11 +34,17 @@ abstract element types are refused at entry. Empty collections must retain their
 concrete element type, for example `gps_observations[1:0]` or
 `typeof(first(gps_observations))[]`.
 
+Preparation keeps healthy observations with complete positioning data and an available
+decoded time anchor. Select one observation per satellite and canonical broadcast
+component: replica modulations can differ while `get_signal_id` stays the same, as for
+`GalileoE1B()` and `GalileoE1B(CBOC)`. Preparation rejects duplicate `(signal_id, PRN)`
+keys, so they reach neither the solve nor an external estimator, including in epochs that
+cannot satisfy the observation counts.
+
 ```@docs
 PositionVelocityTime.PreparedObservation
-PositionVelocityTime.collect_measurements
-PositionVelocityTime.collect_measurements!
-PositionVelocityTime.collect_measurement_rows!
+PositionVelocityTime.prepare_observations
+PositionVelocityTime.prepare_observations!
 PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
 ```
 
@@ -61,7 +67,6 @@ nothing.
 calc_pvt!
 Base.copy(::PVTSolution)
 PVTWorkspace
-PositionVelocityTime.empty_keeping_capacity!
 ```
 
 ## Position and Velocity
@@ -82,7 +87,6 @@ read off a decoder by its `get_klobuchar_parameters`, `get_nequick_g_parameters`
 `get_bdgim_parameters`.
 
 ```@docs
-PositionVelocityTime.select_ionospheric_correction
 PositionVelocityTime.ionospheric_delay
 PositionVelocityTime.tropospheric_delay
 ```
@@ -91,10 +95,23 @@ PositionVelocityTime.tropospheric_delay
 
 The pieces [`calc_pvt`](@ref) is assembled from, as a contract for a consumer running its
 own estimator over the same measurement model, such as a navigation filter. They are
-unexported; bind them with `using PositionVelocityTime: collect_measurements, …`.
+supported qualified names; bind them with
+`using PositionVelocityTime: PreparedObservation, prepare_observations, …`.
+Workspace fields are internal. For an estimator that fills a [`PVTSolution`](@ref) of its
+own, [`PositionVelocityTime.empty_keeping_capacity!`](@ref) empties its containers keeping
+their storage, and
+[`PositionVelocityTime.applied_broadcast_inter_system_biases!`](@ref) records a
+`BiasLayout`'s constraints.
+
+`prepare_observations` returns a vector of prepared observations and an
+[`IonosphericModel`](@ref PositionVelocityTime.IonosphericModel).
+`prepare_observations!` empties and fills the supplied vector and returns only the model.
+Pass that model to the atmospheric-delay functions to retain the selected correction.
+Custom coefficients can be wrapped with `PositionVelocityTime.IonosphericModel(coefficients)`;
+`model.parameters` exposes the optional raw metadata.
 
 The surface is specified on the prepared observations: a consumer first calls
-[`PositionVelocityTime.collect_measurements`](@ref), and every per-observation input and
+[`PositionVelocityTime.prepare_observations`](@ref), and every per-observation input and
 output below follows the order of the
 `Vector{`[`PositionVelocityTime.PreparedObservation`](@ref)`}` it returns. The functions
 that read several fields of a prepared observation take the vector itself (the bias
@@ -112,19 +129,21 @@ read a decoder, through a [`SignalObservation`](@ref), and
 [`calc_satellite_clock_drift`](@ref PositionVelocityTime.calc_satellite_clock_drift) takes
 GNSSDecoder's `BroadcastEphemeris`, for a consumer building or amending a prepared
 observation itself; the decoder's week, time of week, ephemeris, group delays and
-broadcast time offsets are GNSSDecoder's `get_broadcast_week`, `get_decoded_time_of_week`,
-`get_broadcast_ephemeris`, `get_group_delay` and `get_broadcast_inter_system_time_offset`. Times are
-seconds-of-week counts on each satellite's own system unless a function says otherwise;
-the week arithmetic is GNSSSignals':
-`get_week_start_epoch` dates a week, `get_time_system_offset` relates two systems'
-counts, and `fold_week_crossover` folds a difference of two counts across a week
-crossover.
+broadcast inter-system time offsets are GNSSDecoder's `get_broadcast_week`,
+`get_decoded_time_of_week`, `get_broadcast_ephemeris`, `get_group_delay` and
+`get_broadcast_inter_system_time_offset` (dated by
+`get_broadcast_inter_system_time_offset_epoch`). Times are seconds-of-week counts on each
+satellite's own system unless a function says otherwise; GNSSSignals'
+`get_time_system_offset` gives the seconds that move one onto another system's count,
+[`calc_pseudorange`](@ref PositionVelocityTime.calc_pseudorange) differences two across a
+week crossover, and GNSSSignals' `get_week_start_epoch` dates a week.
 
 ```@docs
 PositionVelocityTime.SPEED_OF_LIGHT
 PositionVelocityTime.calc_transmit_time
 PositionVelocityTime.calc_uncorrected_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
+PositionVelocityTime.calc_pseudorange
 PositionVelocityTime.BiasColumns
 PositionVelocityTime.num_parameters
 PositionVelocityTime.ClockConstraint
@@ -137,15 +156,18 @@ PositionVelocityTime.select_reference_system
 PositionVelocityTime.predict_pseudoranges!
 PositionVelocityTime.calc_design_matrix
 PositionVelocityTime.calc_design_matrix!
+PositionVelocityTime.calc_fit_covariance!
 PositionVelocityTime.calc_dop
 PositionVelocityTime.calc_dop!
 PositionVelocityTime.calc_pseudorange_rate
 PositionVelocityTime.BroadcastInterSystemTimeOffsets
 PositionVelocityTime.broadcast_inter_system_time_offset
 PositionVelocityTime.broadcast_inter_system_bias
+PositionVelocityTime.applied_broadcast_inter_system_biases!
 PositionVelocityTime.predict_atmospheric_delays
 PositionVelocityTime.predict_atmospheric_delays!
 PositionVelocityTime.IonosphericModel
+PositionVelocityTime.empty_keeping_capacity!
 ```
 
 The unexported internals the surface above links to, documented for reference:

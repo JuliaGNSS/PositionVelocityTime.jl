@@ -11,7 +11,8 @@ The decoded time retains its carry past the end of the broadcast week.
 function calc_uncorrected_transmit_time(observation::SignalObservation)
     signal = observation.signal
     # GNSSDecoder advances the validated navigation stamp to the latest decoded bit.
-    # Preserve its week carry; the broadcast week still belongs to the stamp.
+    # Preserve its week carry; the broadcast week still belongs to the stamp. A decoder
+    # that `has_positioning_data` always has this time.
     t_decoded = something(get_decoded_time_of_week(observation.decoder))
     # With joint same-band tracking the code phase can run up to a whole bit,
     # which `t_decoded` already counts; keep only the residual within one bit.
@@ -65,8 +66,8 @@ decoder's time of week plus the bit and code-phase fractions, corrected
 by the clock polynomial, the relativistic term and the ranging signal's group delay
 (GNSSDecoder's `get_broadcast_ephemeris` and `get_group_delay`; a group delay not yet
 decoded in full counts as zero, a metre or so on one signal). Every ephemeris and clock
-evaluation takes it unconverted, on its own system's scale. The decoder must be complete
-for positioning.
+evaluation takes it unconverted (see [`calc_pseudorange`](@ref)). The decoder must be
+complete for positioning.
 """
 calc_transmit_time(observation::SignalObservation) = correct_clock(
     something(get_broadcast_ephemeris(observation.decoder)),

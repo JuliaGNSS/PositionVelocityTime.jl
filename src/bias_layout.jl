@@ -266,7 +266,7 @@ dop_bias_columns(layout::BiasLayout) = BiasColumns(layout.clock_group_columns,
 Decide the least-squares bias layout (see [`BiasLayout`](@ref)) for the
 [`PreparedObservation`](@ref)s of one epoch, or `nothing` when the epoch cannot be
 solved. `inter_system_time_offsets` are the epoch's broadcast offsets, as
-[`collect_measurements`](@ref) returns them; they may come from satellites outside
+[`prepare_observations`](@ref) returns them; they may come from satellites outside
 `prepared`, as an offset belongs to its pair of time systems.
 
 Every time system present gets its own clock column. A broadcast inter-system time offset
@@ -545,4 +545,22 @@ function broadcast_inter_system_bias_at(
     offset =
         broadcast_inter_system_time_offset_at(inter_system_time_offsets, system, target)
     isnothing(offset) ? nothing : -SPEED_OF_LIGHT * offset
+end
+
+"""
+    applied_broadcast_inter_system_biases!(biases, layout::BiasLayout) -> biases
+
+Replace the contents of `biases` with one [`BroadcastInterSystemBias`](@ref) per clock
+constraint of `layout`, in the order of `layout.constraints`.
+"""
+function applied_broadcast_inter_system_biases!(
+    biases::AbstractVector{BroadcastInterSystemBias},
+    layout::BiasLayout,
+)
+    empty!(biases)
+    for constraint in layout.constraints
+        push!(biases, BroadcastInterSystemBias(layout.clock_systems[constraint.column],
+            layout.clock_systems[constraint.target_column], constraint.value * m))
+    end
+    biases
 end

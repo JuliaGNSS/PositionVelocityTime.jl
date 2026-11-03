@@ -1,4 +1,4 @@
-# The collection pass: signal observations in, flat prepared observations out.
+# The preparation pass: signal observations in, flat prepared observations out.
 #
 # Everything that depends on a satellite's navigation-data type — decoder, ranging signal,
 # propagator, clock polynomial, broadcast inter-system time offsets — is evaluated here,
@@ -92,7 +92,7 @@ const SupportedTimeSystem = Union{map(typeof, SUPPORTED_TIME_SYSTEMS)...}
     PreparedObservation
 
 One signal observation's contribution to one epoch: the concrete, parameter-free record the solver
-works on. [`collect_measurements`](@ref) has already evaluated everything that depends on
+works on. [`prepare_observations`](@ref) has already evaluated everything that depends on
 the message family, the decoder or the signal, so a mixed-constellation epoch is one
 `Vector{PreparedObservation}`.
 
@@ -117,8 +117,9 @@ the message family, the decoder or the signal, so a mixed-constellation epoch is
   1024-week rollover already resolved against `approximate_year`; its start is
   GNSSSignals' `get_week_start_epoch(observation.time_system, observation.week)`.
 
-The broadcast time offsets a satellite carries belong to a pair of time systems, not to
-it; [`collect_measurements`](@ref) gathers them into one [`BroadcastInterSystemTimeOffsets`](@ref).
+The broadcast inter-system time offsets a satellite carries belong to a pair of time
+systems, not to it; [`prepare_observations`](@ref) gathers them into one
+[`BroadcastInterSystemTimeOffsets`](@ref).
 """
 struct PreparedObservation
     prn::Int
@@ -136,7 +137,7 @@ end
 
 # One signal observation → one prepared observation: every decoder- and signal-typed call
 # of the solve.
-function satellite_measurement(observation::SignalObservation, approximate_year::Integer)
+function prepare_observation(observation::SignalObservation, approximate_year::Integer)
     decoder = observation.decoder
     signal = observation.signal
     ephemeris = something(get_broadcast_ephemeris(decoder))
@@ -159,99 +160,101 @@ function satellite_measurement(observation::SignalObservation, approximate_year:
 end
 
 """
-    collect_measurements(observations; approximate_year = year(now(UTC)))
-        -> (Vector{PreparedObservation}, ionospheric_parameters, inter_system_time_offsets)
+    prepare_observations(observations; approximate_year = year(now(UTC)))
+        -> (; prepared::Vector{PreparedObservation},
+              ionospheric_model::IonosphericModel,
+              inter_system_time_offsets::BroadcastInterSystemTimeOffsets)
 
-Prepare the observation collections of one epoch (see [`calc_pvt`](@ref)) into the
-solver's input: the [`PreparedObservation`](@ref)s, the ionospheric parameters
-[`select_ionospheric_correction`](@ref) would pick from the same satellites, and the
-[`BroadcastInterSystemTimeOffsets`](@ref) between their time systems.
+Prepare the observation collections of one epoch (see [`calc_pvt`](@ref)) into the solver's
+input: the [`PreparedObservation`](@ref)s, and, gathered from the same observations, the
+[`IonosphericModel`](@ref) and the [`BroadcastInterSystemTimeOffsets`](@ref) between
+their time systems. A `NamedTuple`, to destructure by name:
 
-A satellite is kept only if its navigation data is complete (checked first, which
-guarantees its health bit is decoded) and it reports healthy. The prepared observations
-are in collection order × within-collection order (see [`calc_pvt`](@ref), also for
-`approximate_year`).
+```julia
+(; prepared, ionospheric_model, inter_system_time_offsets) =
+    prepare_observations(observations)
+```
+
+A satellite is kept only if its decoder is ready for positioning (GNSSDecoder's
+`has_positioning_data`: the message set is complete and its time is decoded; checked
+first, which guarantees the health bit is decoded) and it reports healthy. The
+prepared observations are in collection order × within-collection order (see
+[`calc_pvt`](@ref), also for `approximate_year`).
+A `(signal_id, PRN)` pair kept twice, such as `GalileoE1B()` and `GalileoE1B(CBOC)` of
+one satellite, throws an `ArgumentError`.
 """
-function collect_measurements(observations; approximate_year::Integer = year(now(UTC)))
+function prepare_observations(observations; approximate_year::Integer = year(now(UTC)))
     collections = observation_collections(observations)
     prepared = PreparedObservation[]
     # Reserve the unfiltered count (a prepared observation is 120 bytes) rather than regrow.
     sizehint!(prepared, sum(length, collections; init = 0))
     (; ionospheric_model, inter_system_time_offsets) =
-        _collect_measurements!(prepared, collections, approximate_year)
-    prepared, ionospheric_model.parameters, inter_system_time_offsets
+        _prepare_observations!(prepared, collections, approximate_year)
+    (; prepared, ionospheric_model, inter_system_time_offsets)
 end
 
 """
-    collect_measurements!(prepared::Vector{PreparedObservation}, observations;
+    prepare_observations!(prepared::Vector{PreparedObservation}, observations;
                           approximate_year = year(now(UTC)))
-        -> (prepared, ionospheric_parameters, inter_system_time_offsets)
-
-[`collect_measurements`](@ref) into an existing vector: `prepared` is emptied and
-refilled with this epoch's observations. What it held is overwritten.
-
-The returned tuple pairs the (non-`isbits`) vector with a `Union` of coefficient sets,
-which Julia returns boxed: one small allocation per call. A consumer that must not
-allocate calls [`collect_measurement_rows!`](@ref).
-"""
-function collect_measurements!(
-    prepared::Vector{PreparedObservation},
-    observations;
-    approximate_year::Integer = year(now(UTC)),
-)
-    (; ionospheric_model, inter_system_time_offsets) =
-        collect_measurement_rows!(prepared, observations; approximate_year)
-    prepared, ionospheric_model.parameters, inter_system_time_offsets
-end
-
-"""
-    collect_measurement_rows!(prepared::Vector{PreparedObservation}, observations;
-                              approximate_year = year(now(UTC)))
         -> (; ionospheric_model::IonosphericModel,
               inter_system_time_offsets::BroadcastInterSystemTimeOffsets)
 
-[`collect_measurements!`](@ref) without the vector in the result: `prepared` is
-emptied and refilled with this epoch's observations, and the ionospheric parameters,
-wrapped in a concrete [`IonosphericModel`](@ref), and the [`BroadcastInterSystemTimeOffsets`](@ref)
-are returned. Both are concrete, so Julia returns them unboxed, and once `prepared` has
-held as many observations before, this allocates nothing. It is the collection pass
-[`calc_pvt!`](@ref) runs, for a consumer that runs its own estimator over the same
-observations in a loop that must not allocate.
+[`prepare_observations`](@ref) into `prepared` (emptied first), returning the
+concrete [`IonosphericModel`](@ref) and the [`BroadcastInterSystemTimeOffsets`](@ref) for
+the measurement-model functions and [`decide_bias_layout!`](@ref). Allocates nothing once
+its buffers have grown. It is the pass [`calc_pvt!`](@ref) runs.
 """
-collect_measurement_rows!(
+prepare_observations!(
     prepared::Vector{PreparedObservation},
     observations;
     approximate_year::Integer = year(now(UTC)),
-) = _collect_measurements!(prepared, observation_collections(observations),
+) = _prepare_observations!(prepared, observation_collections(observations),
     approximate_year)
 
-# The collection pass proper, on validated collections. Positional for the solver.
-function _collect_measurements!(prepared, collections::Tuple, approximate_year::Integer)
+# The preparation pass proper, on validated collections. Positional for the solver.
+function _prepare_observations!(prepared, collections::Tuple, approximate_year::Integer)
     empty!(prepared)
     # In collection order. Over the `Tuple`, not the `NamedTuple`, whose `map` would not
     # specialise on the closure and dispatch each collection dynamically.
     per_collection = map(collections) do collection
-        collect_group!(prepared, collection, approximate_year)
+        prepare_collection!(prepared, collection, approximate_year)
     end
     parameters = select_from_ionospheric_candidates(
         merge_all_ionospheric_candidates(map(first, per_collection)))
     # Collection by collection, so a tie keeps the first observation's offset.
     inter_system_time_offsets = foldl(merge_inter_system_time_offsets,
         map(last, per_collection); init = BroadcastInterSystemTimeOffsets())
+    check_observation_keys(prepared)
     (; ionospheric_model = IonosphericModel(parameters), inter_system_time_offsets)
+end
+
+# A broadcast component and PRN identify one selected ranging observation, regardless
+# of replica variant. Checked on the kept observations, before any estimator sees them,
+# so that none double-counts one.
+function check_observation_keys(observations)
+    for j = 2:length(observations), k = 1:j-1
+        observations[j].signal_id === observations[k].signal_id &&
+            observations[j].prn == observations[k].prn &&
+            throw(
+                ArgumentError(
+                    "a (signal, PRN) pair appears twice in one epoch; select one observation per broadcast component",
+                ),
+            )
+    end
+    nothing
 end
 
 # One collection's observations, appended to `prepared`, its ionospheric candidates
 # and its broadcast inter-system time offsets. Specialises on the collection's
 # `SignalObservation` type, so every call in the loop is static.
-function collect_group!(prepared, collection::ObservationCollection,
+function prepare_collection!(prepared, collection::ObservationCollection,
     approximate_year::Integer)
     candidates = NO_IONOSPHERIC_CANDIDATES
     inter_system_time_offsets = BroadcastInterSystemTimeOffsets()
     for observation in collection
         has_positioning_data(observation.decoder) || continue
         is_sat_healthy(observation.decoder) || continue
-        prepared_observation = satellite_measurement(observation, approximate_year)
+        prepared_observation = prepare_observation(observation, approximate_year)
         push!(prepared, prepared_observation)
         candidates = update_ionospheric_candidates(candidates, observation.decoder)
         inter_system_time_offsets = update_inter_system_time_offsets(

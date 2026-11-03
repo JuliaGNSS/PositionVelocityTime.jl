@@ -1,5 +1,5 @@
 # Ionospheric correction from the broadcast coefficients alone: one model for the whole
-# solve, chosen by `select_ionospheric_correction` (see there for the order and why), and
+# solve, chosen by `prepare_observations` (see `IonosphericModel` for the order and why), and
 # applied to every satellite and band. The Klobuchar variants give a delay at a reference
 # carrier (L1, B1I) rescaled by 1/f²; NTCM-G and BDGIM give TEC, converted at the
 # satellite's own carrier. The coefficient sets and their readers are GNSSDecoder's
@@ -51,7 +51,7 @@ merge_all_ionospheric_candidates(candidates::Tuple) = merge_ionospheric_candidat
     merge_all_ionospheric_candidates(Base.tail(candidates)),
 )
 
-# The order of preference documented on `select_ionospheric_correction`, top rung first.
+# The order of preference documented on `IonosphericModel`, top rung first.
 function select_from_ionospheric_candidates(candidates)
     (; gps_klobuchar, beidou_klobuchar, bdgim, ntcm_g) = candidates
     !isnothing(ntcm_g) && return ntcm_g
@@ -63,28 +63,13 @@ end
 """
     IonosphericModel(parameters)
 
-The ionospheric `parameters` of one solve (see [`select_ionospheric_correction`](@ref)) in
-one concrete type, so that the solver compiles once whichever model was selected and
-passing it allocates nothing: the bare `Union` would be boxed.
-"""
-struct IonosphericModel
-    parameters::Union{
-        Nothing,
-        KlobucharParameters,
-        BeiDouKlobucharParameters,
-        NeQuickGParameters,
-        BDGIMParameters,
-    }
-end
+The ionospheric `parameters` of one solve in one concrete type, so that the solver compiles
+once whichever model was selected and passing it allocates nothing: the bare `Union` would
+be boxed. `parameters` is a `KlobucharParameters`, `BeiDouKlobucharParameters`,
+`NeQuickGParameters` or `BDGIMParameters`, or `nothing` for no correction.
 
-"""
-    select_ionospheric_correction(observations)
-        -> Union{KlobucharParameters,BeiDouKlobucharParameters,NeQuickGParameters,
-                 BDGIMParameters,Nothing}
-
-Scan the satellite decoders of one epoch's signal groups (see [`calc_pvt`](@ref)) and pick the
-single set of ionospheric parameters to correct the whole solve with, in a fixed order of
-preference:
+[`prepare_observations`](@ref) selects it from the decoders of the observations it keeps,
+the single set to correct the whole solve with, in a fixed order of preference:
 
  1. NTCM-G, if Galileo Effective Ionisation Level coefficients were decoded.
  2. BDGIM, if a BDS-3 B-CNAV (B1C/B2a/B2b) coefficient set was decoded.
@@ -99,22 +84,15 @@ a tie-break (NTCM-G kept ahead of BDGIM, GPS ahead of BeiDou), but it is fixed, 
 choice does not depend on the order the satellites arrive in. Each set is global to its
 constellation, so the first decoder carrying it is used, in the order of the prepared
 observations (see [`calc_pvt`](@ref)).
-
-This standalone form scans every satellite of `observations`, healthy or not;
-[`collect_measurements`](@ref) folds the same scan into the collection pass, where only
-satellites that clear the health gate are seen.
 """
-function select_ionospheric_correction(observations)
-    # Over the groups' `Tuple`, not the `NamedTuple`, as in `collect_measurements`.
-    candidates = map(observation_collections(observations)) do group
-        group_candidates = NO_IONOSPHERIC_CANDIDATES
-        for state in group
-            group_candidates =
-                update_ionospheric_candidates(group_candidates, state.decoder)
-        end
-        group_candidates
-    end
-    select_from_ionospheric_candidates(merge_all_ionospheric_candidates(candidates))
+struct IonosphericModel
+    parameters::Union{
+        Nothing,
+        KlobucharParameters,
+        BeiDouKlobucharParameters,
+        NeQuickGParameters,
+        BDGIMParameters,
+    }
 end
 
 """
@@ -122,7 +100,7 @@ end
         -> Float64
 
 Slant ionospheric group delay in metres for one satellite, using the
-constellation-wide `parameters` returned by [`select_ionospheric_correction`](@ref):
+constellation-wide `parameters` of an [`IonosphericModel`](@ref):
 
 - `::Nothing` → `0.0` (no coefficients were decoded).
 - `KlobucharParameters` → Klobuchar model (IS-GPS-200, Fig. 20-4).

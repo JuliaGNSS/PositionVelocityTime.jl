@@ -112,7 +112,7 @@ end
         gal_bare = mkstate(GNSSDecoderState(GalileoE1B(), 2), GalileoE1B())
         gal_ntcm = mkstate(galileo_decoder_with(121.13, 0.35, 0.013, 1100), GalileoE1B())
 
-        select = PositionVelocityTime.select_ionospheric_correction
+        select = ionospheric_parameters
         # Nothing decoded → no correction
         @test select((collection_of([gps_bare]), collection_of([gal_bare]))) === nothing
         # Only Klobuchar → Klobuchar. Both satellites are on one signal, so they are

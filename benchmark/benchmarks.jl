@@ -68,14 +68,14 @@ for (label, input, prev_pvt) in (
     SUITE["calc_pvt!"][label] = group
 end
 
-# The collection pass on its own: the half that specialises on the group shape, and the
-# half a consumer running its own estimator over the measurement model pays.
-SUITE["collect_measurements"] = BenchmarkGroup()
-SUITE["collect_measurements"]["GPSL1"] =
-    @benchmarkable PositionVelocityTime.collect_measurements($GPS_INPUT;
+# The preparation pass on its own: the half that specialises on the collection shape, and
+# the half a consumer running its own estimator over the measurement model pays.
+SUITE["prepare_observations"] = BenchmarkGroup()
+SUITE["prepare_observations"]["GPSL1"] =
+    @benchmarkable PositionVelocityTime.prepare_observations($GPS_INPUT;
         approximate_year = 2021,
     )
-SUITE["collect_measurements"]["GPSL1+GalileoE1B"] =
-    @benchmarkable PositionVelocityTime.collect_measurements($MIXED_INPUT;
+SUITE["prepare_observations"]["GPSL1+GalileoE1B"] =
+    @benchmarkable PositionVelocityTime.prepare_observations($MIXED_INPUT;
         approximate_year = 2021,
     )

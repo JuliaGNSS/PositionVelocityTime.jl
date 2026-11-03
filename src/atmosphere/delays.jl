@@ -9,7 +9,7 @@
 Per-satellite ionospheric plus tropospheric delay (m), to subtract from the pseudoranges,
 seen from `user_pos` (ECEF, m; any vector whose first three elements are the
 position, a state vector `[x, y, z, tc₁, …]` included). `model` holds the ionospheric
-parameters ([`select_ionospheric_correction`](@ref); `IonosphericModel(nothing)` skips the
+parameters ([`IonosphericModel`](@ref); `IonosphericModel(nothing)` skips the
 ionosphere), and `epoch` is the TAI epoch the delays are predicted for, of which
 [`tropospheric_delay`](@ref) takes the day of year, off its TAI calendar label.
 
