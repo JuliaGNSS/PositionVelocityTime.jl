@@ -92,7 +92,7 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
 - `time_correction::typeof(1.0m)`: Estimated receiver clock bias of the reference GNSS
   (meters). For a multi-GNSS solution this is the bias of `reference_system`;
   other systems' biases are `time_correction + inter_system_biases[system]`.
-- `time::Union{TAITime, Nothing}`: Estimated time as a TAI epoch (see [`TAITime`](@ref);
+- `time::Union{TAITime, Nothing}`: Estimated time as a TAI epoch (GNSSSignals' `TAITime`;
   with AstroTime loaded, `TAIEpoch(time)` converts it)
 - `relative_clock_drift::Float64`: Relative receiver clock drift (dimensionless)
 - `dop::Union{DOP, Nothing}`: Dilution of precision values
@@ -114,7 +114,7 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   system-time offset, so the Galileo entry equals `−c · Δt_systems`, `Δt_systems = GST −
   GPST` (the GGTO), and the BeiDou entry likewise carries the BDT steering residual (the
   BGTO's subject) — never the defined 14 s count offset, which is a convention already
-  removed from the observations (see [`calc_time_scale_offsets`](@ref)). It is
+  removed from the observations (GNSSSignals' `get_time_system_offset`). It is
   **estimated directly from the geometry whenever observable** (no broadcast error); the
   broadcast GGTO/BGTO is used to derive it only as a fallback (the offset-aided
   collapse), as that broadcast value may be erroneous. Reference-independent

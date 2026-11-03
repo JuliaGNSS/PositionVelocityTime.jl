@@ -15,12 +15,6 @@ PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
-[weakdeps]
-AstroTime = "c61b5328-d09d-5e37-a9a8-0eb41c39009c"
-
-[extensions]
-PositionVelocityTimeAstroTimeExt = "AstroTime"
-
 [compat]
 Acquisition = "2.6.4"
 Aqua = "0.8"
@@ -30,8 +24,8 @@ CoordinateTransformations = "0.6"
 Dates = "1"
 Dictionaries = "0.4"
 Downloads = "1"
-GNSSDecoder = "5.0.4"
-GNSSSignals = "4.1"
+GNSSDecoder = "6"
+GNSSSignals = "5"
 Geodesy = "0.5, 1.0"
 LinearAlgebra = "1"
 PrecompileTools = "1.2"

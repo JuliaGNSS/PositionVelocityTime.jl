@@ -1,11 +1,3 @@
-@testset "Week crossover" begin
-    @test PositionVelocityTime.fold_week_crossover(0) == 0
-
-    @test PositionVelocityTime.fold_week_crossover(350000) == 350000 - 604800
-
-    @test PositionVelocityTime.fold_week_crossover(-350000) == 604800 - 350000
-end
-
 # `calc_satellite_clock_drift` must be the time derivative of the clock correction that
 # `correct_clock` applies, so it has to be evaluated about the clock reference epoch
 # `t_0c` — not about `t`, which would offset the `a_f2` term by `2·a_f2·t_0c`.
@@ -17,7 +9,7 @@ end
     # The applied correction, differentiated in BigFloat: the Float64 round trip through
     # `correct_clock` (t ≈ 6e5 s, correction ≈ 2e-4 s) loses the ~1e-13 s difference.
     function numeric_drift(decoder, t)
-        applied(x) = x - PositionVelocityTime.correct_clock(decoder, GalileoE1B(), x)
+        applied(x) = x - PositionVelocityTime.correct_clock(ephemeris(decoder), GNSSDecoder.get_group_delay(decoder, GalileoE1B()), x)
         h = big(1.0)
         (applied(big(t) + h) - applied(big(t) - h)) / (2h)
     end
@@ -25,8 +17,8 @@ end
     @testset "a_f2 = 0 (the usual broadcast): drift is a_f1" begin
         decoder = with(; a_f1 = 1e-11, a_f2 = 0.0, t_0c = 132000.0)
         t = 132100.0
-        @test PositionVelocityTime.calc_satellite_clock_drift(decoder, t) == 1e-11
-        @test PositionVelocityTime.calc_satellite_clock_drift(decoder, t) ≈
+        @test PositionVelocityTime.calc_satellite_clock_drift(ephemeris(decoder), t) == 1e-11
+        @test PositionVelocityTime.calc_satellite_clock_drift(ephemeris(decoder), t) ≈
               Float64(numeric_drift(decoder, t)) atol = 1e-13
     end
 
@@ -37,13 +29,32 @@ end
         decoder = with(; a_f1 = 1e-11, a_f2 = a_f2, t_0c = t_0c)
         t = t_0c + 100.0
 
-        drift = PositionVelocityTime.calc_satellite_clock_drift(decoder, t)
+        drift = PositionVelocityTime.calc_satellite_clock_drift(ephemeris(decoder), t)
         @test drift ≈ 1e-11 + 2 * a_f2 * 100.0
         # Within the neglected relativistic-rate term, well below the 4.2e-9 s/s
         # (≈1.3 m/s of range rate) the `t`-based polynomial would have been off by.
         @test drift ≈ Float64(numeric_drift(decoder, t)) atol = 1e-13
         @test !isapprox(drift, 1e-11 + 2 * a_f2 * t, atol = 1e-12)
     end
+end
+
+# The decoder's time is relative to the broadcast week, even when its counter crosses
+# into the following week. Add only the residual code and carrier phase to that time.
+@testset "Decoded transmit time keeps week carry and residual phases" begin
+    signal = GPSL1CA()
+    decoder = GNSSDecoderState(GNSSDecoderState(signal, 1);
+        data = GNSSDecoder.GPSLNAVData(; TOW = 604794),
+        num_bits_since_time_reference = 400)
+    chips = ustrip(Hz, get_chip_rate(signal))
+    rate = ustrip(Hz, get_bit_rate(decoder))
+    carrier_phase = 0.25
+    residual = 0.001
+    state = SignalObservation(; decoder, signal,
+        code_phase = chips / rate + residual * chips,
+        carrier_doppler = 0.0Hz, carrier_phase)
+    @test get_decoded_time_of_week(decoder) == 604802.0
+    @test PositionVelocityTime.calc_uncorrected_transmit_time(state) ≈
+          604802.0 + residual + carrier_phase / 2π / ustrip(Hz, get_center_frequency(signal)) rtol = 0 atol = eps(604802.0)
 end
 
 # The clock polynomial's argument is a time *difference*, so it must be folded modulo the
@@ -59,13 +70,13 @@ end
 
     a_f1, a_f2 = 1e-11, 3.5e-15
     t_0c, t = 604000.0, 100.0
-    wrapped = t - t_0c + PositionVelocityTime.SECONDS_PER_WEEK
+    wrapped = t - t_0c + GNSSSignals.SECONDS_PER_WEEK
     @test wrapped == 900.0
 
     # The correction `correct_clock` applies, differenced against an otherwise identical
     # decoder with the drift terms zeroed: `a_f0`, the relativistic term and the group
     # delay cancel, leaving exactly `a_f1·Δt + a_f2·Δt²` — the part that sees the wrap.
-    applied(decoder) = t - PositionVelocityTime.correct_clock(decoder, GalileoE1B(), t)
+    applied(decoder) = t - PositionVelocityTime.correct_clock(ephemeris(decoder), GNSSDecoder.get_group_delay(decoder, GalileoE1B()), t)
     drift_terms =
         applied(with(; a_f1, a_f2, t_0c)) - applied(with(; a_f1 = 0.0, a_f2 = 0.0, t_0c))
     @test drift_terms ≈ a_f1 * wrapped + a_f2 * wrapped^2 atol = 1e-13
@@ -74,7 +85,7 @@ end
 
     # `calc_satellite_clock_drift` is the derivative of that same polynomial about that
     # same epoch, so it has to unwrap identically.
-    drift = PositionVelocityTime.calc_satellite_clock_drift(with(; a_f1, a_f2, t_0c), t)
+    drift = PositionVelocityTime.calc_satellite_clock_drift(ephemeris(with(; a_f1, a_f2, t_0c)), t)
     @test drift ≈ a_f1 + 2 * a_f2 * wrapped
     @test !isapprox(drift, a_f1 + 2 * a_f2 * (t - t_0c), rtol = 1e-3)
 end
@@ -86,9 +97,9 @@ end
     signal = GPSL1CA()
     decoder = GNSSDecoder.GNSSDecoderState(
         GNSSDecoderState(signal, 1);
-        num_bits_after_valid_syncro_sequence = 0,
-        data = GNSSDecoder.GPSL1CAData(; TOW = 0),
-        raw_data = GNSSDecoder.GPSL1CAData(; TOW = 0),
+        num_bits_since_time_reference = 0,
+        data = GNSSDecoder.GPSLNAVData(; TOW = 0),
+        raw_data = GNSSDecoder.GPSLNAVData(; TOW = 0),
     )
     time_of(carrier_phase) = PositionVelocityTime.calc_uncorrected_transmit_time(
         SignalObservation(; decoder, signal, code_phase = 0.0, carrier_doppler = 0.0Hz,

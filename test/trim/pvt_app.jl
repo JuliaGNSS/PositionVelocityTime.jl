@@ -11,6 +11,11 @@ gps(signal, make_data = identity) = SignalGroup(
     signal, _precompile_states(signal, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA()))
 galileo(signal, make_data = identity) = SignalGroup(
     signal, _precompile_states(signal, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B()))
+gps_pilot(signal) = SignalGroup(signal,
+    map(gps(GPSL1C_D(), _precompile_cnav2).satellites) do state
+        SignalObservation(; decoder = state.decoder, signal, code_phase = state.code_phase,
+            carrier_doppler = state.carrier_doppler, carrier_phase = state.carrier_phase)
+    end)
 
 # The fixtures hold no BeiDou satellites, so this group's is undecoded and drops out as
 # unhealthy — the solution is that of the other groups — but the solve is compiled, and
@@ -53,7 +58,10 @@ function (@main)(ARGS)
     solve(io, "GPS L5", gps(GPSL5I(), _precompile_cnav))
     solve(io, "GPS L2C", gps(GPSL2CM(), _precompile_cnav))
     solve(io, "GPS L1C", gps(GPSL1C_D(), _precompile_cnav2))
+    solve(io, "GPS L1C pilot BOC", gps_pilot(GPSL1C_P()))
+    solve(io, "GPS L1C pilot TMBOC", gps_pilot(GPSL1C_P(TMBOC)))
     solve(io, "Galileo E1B", e1b)
+    solve(io, "Galileo E1B CBOC", galileo(GalileoE1B(CBOC)))
     solve(io, "Galileo E5a", galileo(GalileoE5aI(), _precompile_fnav))
     solve(io, "GPS + Galileo", (gps = l1ca, galileo = e1b))
     solve(io, "GPS + Galileo + BeiDou", (gps = l1ca, galileo = e1b,

@@ -5,14 +5,13 @@
 ```@docs
 SignalObservation
 PVTSolution
-TAITime
 ObservationResiduals
 InterFrequencyBias
 ```
 
-With AstroTime loaded, a package extension converts between [`TAITime`](@ref) and
-AstroTime's `TAIEpoch` both ways — `TAIEpoch(pvt.time)` and `TAITime(epoch)` — exactly,
-as the two share their layout.
+A solution's `time` is GNSSSignals' `TAITime`, a trim-safe TAI epoch; with AstroTime
+loaded, `TAIEpoch(pvt.time)` and `TAITime(epoch)` convert between it and AstroTime's
+`TAIEpoch` exactly.
 
 ## Signal Groups
 
@@ -39,7 +38,6 @@ PositionVelocityTime.SignalGroup
 PositionVelocityTime.SignalGroups
 PositionVelocityTime.signal_groups
 PositionVelocityTime.PreparedObservation
-PositionVelocityTime.BroadcastTimeOffset
 PositionVelocityTime.collect_measurements
 PositionVelocityTime.collect_measurements!
 PositionVelocityTime.collect_measurement_rows!
@@ -80,7 +78,10 @@ calc_elevation_and_azimuth
 ## Atmospheric Corrections
 
 These corrections are applied automatically by [`calc_pvt`](@ref); they are
-documented here for reference and for diagnostic use.
+documented here for reference and for diagnostic use. The broadcast coefficient sets the
+ionospheric models take, `KlobucharParameters`, `BeiDouKlobucharParameters`,
+`NeQuickGParameters` and `BDGIMParameters`, are GNSSDecoder's, read off a decoder by its
+`get_klobuchar_parameters`, `get_nequick_g_parameters` and `get_bdgim_parameters`.
 
 ```@docs
 PositionVelocityTime.select_ionospheric_correction
@@ -88,15 +89,8 @@ PositionVelocityTime.ionospheric_delay
 PositionVelocityTime.tropospheric_delay
 PositionVelocityTime.saastamoinen_zenith_delays
 PositionVelocityTime.niell_mapping_functions
-PositionVelocityTime.KlobucharParams
 PositionVelocityTime.klobuchar_group_delay
-PositionVelocityTime.BeiDouKlobucharParams
 PositionVelocityTime.beidou_klobuchar_group_delay
-PositionVelocityTime.NTCMGParams
-PositionVelocityTime.BDGIMParams
-PositionVelocityTime.klobuchar_params
-PositionVelocityTime.ntcm_g_params
-PositionVelocityTime.bdgim_params
 ```
 
 ## Dilution of Precision
@@ -126,23 +120,25 @@ type parameters, so a
 consumer's own estimator compiles once over it as well, however many constellations it
 mixes.
 
-Only [`calc_transmit_time`](@ref PositionVelocityTime.calc_transmit_time),
-[`calc_satellite_clock_drift`](@ref PositionVelocityTime.calc_satellite_clock_drift),
-[`get_week`](@ref PositionVelocityTime.get_week),
-[`broadcast_time_offset`](@ref PositionVelocityTime.broadcast_time_offset) and the
-decoder form of [`time_offset_available`](@ref PositionVelocityTime.time_offset_available)
-still read a decoder — they are what the collection pass is built from, and are listed
-so a consumer can build or amend an observation itself.
+Only [`calc_transmit_time`](@ref PositionVelocityTime.calc_transmit_time) reads a
+decoder, through a [`SignalObservation`](@ref), and
+[`calc_satellite_clock_drift`](@ref PositionVelocityTime.calc_satellite_clock_drift) takes
+GNSSDecoder's `BroadcastEphemeris`, for a consumer building or amending a prepared
+observation itself; the decoder's week, time of week, ephemeris, group delays and
+broadcast time offsets are GNSSDecoder's `get_broadcast_week`, `get_decoded_time_of_week`,
+`get_broadcast_ephemeris`, `get_group_delay` and `get_broadcast_time_offset`.
 
 Times returned or taken here are seconds-of-week counts on each satellite's own system
-scale unless a function says otherwise.
+scale unless a function says otherwise. The week arithmetic is GNSSSignals':
+`get_week_start_epoch` dates a week, `get_time_system_offset` relates two systems'
+counts, and `fold_week_crossover` folds a difference of two counts across a week
+crossover.
 
 ```@docs
 PositionVelocityTime.SPEED_OF_LIGHT
 PositionVelocityTime.EARTH_ROTATION_RATE
 PositionVelocityTime.calc_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
-PositionVelocityTime.fold_week_crossover
 PositionVelocityTime.BiasColumns
 PositionVelocityTime.decide_bias_layout
 PositionVelocityTime.decide_bias_layout!
@@ -157,15 +153,9 @@ PositionVelocityTime.calc_dop!
 PositionVelocityTime.calc_pseudorange_rate
 PositionVelocityTime.estimate_velocity
 PositionVelocityTime.estimate_velocity!
-PositionVelocityTime.time_scale_offset_to_gpst
-PositionVelocityTime.calc_time_scale_offsets
-PositionVelocityTime.time_offset_available
+PositionVelocityTime.BroadcastTimeOffsets
 PositionVelocityTime.broadcast_time_offset
-PositionVelocityTime.calc_steering_offset
 PositionVelocityTime.broadcast_inter_system_bias
-PositionVelocityTime.get_week
-PositionVelocityTime.system_start_epoch
-PositionVelocityTime.day_of_year
 PositionVelocityTime.predict_atmospheric_delays
 PositionVelocityTime.predict_atmospheric_delays!
 PositionVelocityTime.IonosphericModel
@@ -215,17 +205,14 @@ its output against a regular session. Signal groups are what make that possible 
 constellation mix — each group is concretely typed, and the solver behind them sees one
 concrete observation type.
 
-Two dependencies the package would otherwise have cannot be trimmed, so it carries
-trim-safe stand-ins for the part of each it uses, as self-contained submodules with the
-original's interface — to be dropped once the originals can be trimmed:
-
-- [`PositionVelocityTime.TAITimes`](@ref) replaces AstroTime's `TAIEpoch` as the type
-  of `PVTSolution.time` (AstroTime's own `__init__` cannot be trimmed), and
-- [`PositionVelocityTime.LevenbergMarquardt`](@ref) replaces LsqFit's `curve_fit`,
-  which calls the model through abstractly typed fields.
+LsqFit, which the package would otherwise use, cannot be trimmed, so it carries a
+trim-safe stand-in for the part it uses, a self-contained submodule with the original's
+interface — to be dropped once the original can be trimmed:
+[`PositionVelocityTime.LevenbergMarquardt`](@ref) replaces LsqFit's `curve_fit`, which
+calls the model through abstractly typed fields. AstroTime's `TAIEpoch` cannot be
+trimmed either, which is why a solution is dated in GNSSSignals' trim-safe `TAITime`.
 
 ```@docs
-PositionVelocityTime.TAITimes
 PositionVelocityTime.LevenbergMarquardt
 PositionVelocityTime.LevenbergMarquardt.curve_fit!
 PositionVelocityTime.LevenbergMarquardt.LMWorkspace
