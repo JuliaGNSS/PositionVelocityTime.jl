@@ -49,9 +49,9 @@
     @test dop_singular.GDOP == -1
     @test dop_singular.PDOP == -1
 
-    # Multi-GNSS: 3 position + 2 clock columns (3 sats per system). GDOP/HDOP are
-    # independent of which clock is "primary"; TDOP reports the selected system's
-    # clock variance, so it changes with primary_clock_index.
+    # Multi-GNSS: 3 position + 2 clock columns (3 satellites per system). GDOP/HDOP are
+    # independent of which clock is the reference; TDOP reports the selected system's
+    # clock variance, so it changes with reference_clock_column.
     azels6 = [azels; (deg2rad(300), deg2rad(35))]
     sys = [1, 1, 1, 2, 2, 2]
     H_multi = reduce(
@@ -119,16 +119,16 @@ end
     # reach a singular solve if the DOP check were ever moved after it.
     @testset "a degenerate line-of-sight set is degenerate for the velocity design" begin
         states = gps_l1_states(0.0Hz)[1:4]
-        measurements, _ = PositionVelocityTime.collect_measurements(
+        prepared, _ = PositionVelocityTime.collect_measurements(
             signal_group(states); approximate_year = 2021)
         # The solve takes its lines of sight from the satellite positions, so the rows'
         # satellites are moved onto synthetic directions from a nearby user position.
         user = SVector(3.9074e6, 3.0684e5, 5.0150e6)
-        with_position(m, position) = PositionVelocityTime.SatelliteMeasurement(
+        with_position(m, position) = PositionVelocityTime.PreparedObservation(
             (name === :position ? position : getfield(m, name)
-             for name in fieldnames(PositionVelocityTime.SatelliteMeasurement))...)
+             for name in fieldnames(PositionVelocityTime.PreparedObservation))...)
         placed(dirs) = [with_position(m, user + 2.0e7 * normalize(SVector{3}(d)))
-                        for (m, d) in zip(measurements, dirs)]
+                        for (m, d) in zip(prepared, dirs)]
         # The position design's columns — the negated lines of sight, as `calc_H!` builds
         # them — and one column of ones for the per-system clock columns, which the
         # velocity solve collapses into one drift.
@@ -142,7 +142,7 @@ end
             PositionVelocityTime.calc_user_velocity_and_clock_drift(rows, user)
         @test length(solution) == 4
         @test all(isfinite, solution)
-        @test length(rate_residuals) == length(measurements)
+        @test length(rate_residuals) == length(prepared)
         @test all(isfinite, rate_residuals)
         # A post-fit least-squares residual is orthogonal to every column of its design
         # — the gradient of the modelled rate at the solved state. That is the position
@@ -189,10 +189,10 @@ end
 
 @testset "residuals are observed minus computed" begin
     # The reported orientation is a convention rather than a by-product: `LsqFit`
-    # residuates `model - data`, and the velocity solve's own measurement `yⱼ` carries
+    # residuates `model - data`, and the velocity solve's own observation `yⱼ` carries
     # `-doppler * λ`, so either domain would report the opposite sign if left to itself.
     # Both are pinned here in the sense RTKLIB's `rescode` / `resdop` define — a
-    # measurement exceeding the model reads positive — because a silent flip is
+    # observation exceeding the model reads positive — because a silent flip is
     # invisible to every magnitude-based assertion elsewhere in this suite.
 
     # ── Pseudorange ──────────────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ end
     _, resid = PositionVelocityTime.user_position(sat_positions, ρ, bias_columns)
     @test maximum(abs, resid) < 1e-6   # self-consistent data ⇒ no residual
 
-    # ±100 m on satellite 3's measurement alone. Least squares spreads part of it over
+    # ±100 m on satellite 3's observation alone. Least squares spreads part of it over
     # the four unknowns, so the satellite keeps `1 - P₃₃` of it — a fraction, but with
     # the sign of the perturbation: measuring long reads positive, short negative. (How
     # large the fraction is depends on the satellite's leverage, so only the sign and
@@ -226,9 +226,9 @@ end
     # respect; getting it wrong inverts the field without changing any magnitude.
     # The fixture's own satellites, seen from `user` (near the fixture's fix).
     states = gps_l1_states(0.0Hz)[1:5]
-    with_doppler(state, doppler) = PositionVelocityTime.SatelliteState(;
+    with_doppler(state, doppler) = PositionVelocityTime.SignalObservation(;
         decoder = state.decoder,
-        system = state.system,
+        signal = state.signal,
         code_phase = state.code_phase,
         carrier_phase = state.carrier_phase,
         carrier_doppler = doppler,
@@ -241,7 +241,7 @@ end
     faster = copy(states)
     faster[3] = with_doppler(states[3], states[3].carrier_doppler + Δdoppler)
     _, closing = PositionVelocityTime.calc_user_velocity_and_clock_drift(rows(faster), user)
-    λ = PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(states[3].system))
+    λ = PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(states[3].signal))
     @test -λ * ustrip(Hz, Δdoppler) < closing[3] - base[3] < 0.0
 end
 
@@ -256,22 +256,22 @@ end
         enable_tropospheric_correction = false)
     user_pos = SVector{3,Float64}(pvt.position)
     user_vel = SVector{3,Float64}(pvt.velocity)
-    for row in measurement_rows(groups)
+    for row in prepared_of(groups)
         modelled = PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel,
             pvt.relative_clock_drift * c, row.position, row.velocity, row.clock_drift)
         measured = -row.carrier_doppler * c / row.center_frequency
-        residual = ustrip(m / s, pvt.sats[(row.signal_id, row.prn)].rate_residual)
+        residual = ustrip(m / s, pvt.observations[(row.signal_id, row.prn)].rate_residual)
         @test abs(residual) > 1e-3
         @test measured - modelled ≈ residual atol = 1e-9
     end
 end
 
-# `measurement` with its carrier Doppler set so that its measured range rate is `rate`.
-with_pseudorange_rate(measurement, rate) = PositionVelocityTime.SatelliteMeasurement(
-    (name === :carrier_doppler ? -rate * measurement.center_frequency /
+# `observation` with its carrier Doppler set so that its measured range rate is `rate`.
+with_pseudorange_rate(observation, rate) = PositionVelocityTime.PreparedObservation(
+    (name === :carrier_doppler ? -rate * observation.center_frequency /
                                  PositionVelocityTime.SPEED_OF_LIGHT :
-     getfield(measurement, name)
-     for name in fieldnames(PositionVelocityTime.SatelliteMeasurement))...)
+     getfield(observation, name)
+     for name in fieldnames(PositionVelocityTime.PreparedObservation))...)
 
 # The solve takes one Gauss–Newton step and relies on the model being nearly linear in
 # `[v; ċ]`. Measured rates generated by `calc_pseudorange_rate` itself at a known state,
@@ -284,7 +284,7 @@ with_pseudorange_rate(measurement, rate) = PositionVelocityTime.SatelliteMeasure
     groups = signal_group(states)
     pvt = calc_pvt(groups; approximate_year = 2021)
     user_pos = SVector{3,Float64}(pvt.position)
-    rows = measurement_rows(groups)
+    rows = prepared_of(groups)
     for (user_vel, clock_drift) in ((SVector(150.0, -200.0, 50.0), 3000.0),
         (SVector(-600.0, 400.0, -300.0), -30000.0))
         truth = SVector(user_vel..., clock_drift)

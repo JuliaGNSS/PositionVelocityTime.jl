@@ -8,33 +8,41 @@
 # vector of them is resized in place where a matrix cannot be.
 satellite_count(sat_positions::AbstractMatrix) = size(sat_positions, 2)
 satellite_count(sat_positions::AbstractVector) = length(sat_positions)
-satellite_position(sat_positions::AbstractMatrix, j) =
-    SVector{3}(sat_positions[1, j], sat_positions[2, j], sat_positions[3, j])
-satellite_position(sat_positions::AbstractVector, j) = SVector{3,Float64}(sat_positions[j])
+satellite_position(sat_positions::AbstractMatrix, j) = SVector{3}(
+    sat_positions[1, j], sat_positions[2, j], sat_positions[3, j])
+satellite_position(sat_positions::AbstractVector, j) =
+    SVector{3,Float64}(sat_positions[j])
 
 """
-Computes ̂ρ, the distance between the satellite and the estimated user position
-
 $SIGNATURES
-`ξ`: Estimated user position, one clock correction per GNSS time system, and one
-     receiver inter-frequency bias per frequency band beyond the reference band, i.e.
-     `[x, y, z, tc₁, …, tc_num_clock_biases, ifb₁, …, ifb_num_ifb]`
-`sat_positions`: Satellite positions, a `3 × N` matrix or a vector of `SVector{3}`s
-`bias_columns`: The per-satellite [`BiasColumns`](@ref) (clock column and
-     inter-frequency-bias column of each satellite). Known range corrections (atmosphere,
-     GGTO offset) are already folded into the measured `ρ` by [`calc_pvt`](@ref).
+
+The predicted pseudoranges ρ̂ at the state `ξ`, written into `pseudoranges`: per
+satellite, the range to the Earth-rotation-corrected satellite plus its clock and
+inter-frequency biases.
+
+- `sat_positions`: a `3 × N` matrix or a vector of `SVector{3}`s.
+- `ξ`: `[x, y, z, tc₁, …, ifb₁, …]`, laid out by `bias_columns` (see
+  [`BiasColumns`](@ref)).
+
+Atmospheric delays and the broadcast offsets onto the hub are not modelled here;
+[`calc_pvt`](@ref) removes them from the measured pseudoranges.
 """
-function calc_ρ_hat!(ρ, sat_positions, ξ, bias_columns::BiasColumns)
+function calc_ρ_hat!(
+    pseudoranges,
+    sat_positions,
+    ξ,
+    bias_columns::BiasColumns,
+)
     rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
     for j in 1:satellite_count(sat_positions)
         sat_pos = satellite_position(sat_positions, j)
-        ifb =
-            bias_columns.ifb_indices[j] == 0 ? 0.0 :
-            ξ[3+bias_columns.num_clock_biases+bias_columns.ifb_indices[j]]
-        ρ[j] = norm(satellite_position_at_reception(rₙ, sat_pos) - rₙ) +
-               ξ[3+bias_columns.clock_bias_indices[j]] + ifb
+        ifb_column = bias_columns.ifb_indices[j]
+        ifb = ifb_column == 0 ? 0.0 : ξ[3+bias_columns.num_clock_biases+ifb_column]
+        pseudoranges[j] =
+            norm(satellite_position_at_reception(rₙ, sat_pos) - rₙ) +
+            ξ[3+bias_columns.clock_bias_indices[j]] + ifb
     end
-    return ρ
+    return pseudoranges
 end
 
 # The ECEF frame turns by `EARTH_ROTATION_RATE · Δt` while a signal is in flight for
@@ -179,33 +187,26 @@ function calc_line_of_sight(sat_pos, ξ)
 end
 
 """
-Computes Geometry Matrix H
-
-The matrix has [`num_lsq_params`](@ref)`(layout)` columns: three for the position
-partials, one per GNSS time system, and one per frequency band beyond the reference
-band. Each row carries a `1.0` in its system's clock column (`3 + clock_bias_indices[j]`)
-and, unless the satellite is on the reference band, a `1.0` in its band's
-inter-frequency-bias column (`3 + num_clock_biases + ifb_indices[j]`); the remaining
-bias columns are zero.
-
 $SIGNATURES
-`ξ`: Estimated user position, per-system clock corrections, and per-band inter-frequency biases
-`sat_positions`: Satellite positions, a `3 × N` matrix or a vector of `SVector{3}`s
-`bias_columns`: The per-satellite [`BiasColumns`](@ref)
+
+The Jacobian of [`calc_ρ_hat!`](@ref) at `ξ`, written into `H`, with
+[`num_lsq_params`](@ref)`(bias_columns)` columns: three for the position partials, one
+per GNSS time system, and one per frequency band beyond the reference band. Each row
+holds the negated line of sight and a `1.0` in its clock column and, off the reference
+band, in its inter-frequency-bias column.
 """
 function calc_H!(H, sat_positions, ξ, bias_columns::BiasColumns)
     fill!(H, 0.0)
     for j in 1:satellite_count(sat_positions)
         sat_pos = satellite_position(sat_positions, j)
-        # The position partial ∂ρ/∂r is the negative of the receiver→satellite
-        # line of sight.
         e = calc_line_of_sight(sat_pos, ξ)
         H[j, 1] = -e[1]
         H[j, 2] = -e[2]
         H[j, 3] = -e[3]
         H[j, 3+bias_columns.clock_bias_indices[j]] = 1.0
-        if bias_columns.ifb_indices[j] != 0
-            H[j, 3+bias_columns.num_clock_biases+bias_columns.ifb_indices[j]] = 1.0
+        ifb_column = bias_columns.ifb_indices[j]
+        if ifb_column != 0
+            H[j, 3+bias_columns.num_clock_biases+ifb_column] = 1.0
         end
     end
     return H
@@ -214,29 +215,23 @@ end
 """
     calc_H(sat_positions, ξ, bias_columns::BiasColumns) -> Matrix{Float64}
 
-Allocating form of [`calc_H!`](@ref PositionVelocityTime.calc_H!): the
-least-squares design matrix at the state `ξ`, one row per satellite, with
-[`num_lsq_params`](@ref PositionVelocityTime.num_lsq_params)`(bias_columns)`
-columns.
+Allocating form of [`calc_H!`](@ref PositionVelocityTime.calc_H!).
 """
-calc_H(sat_positions, ξ, bias_columns::BiasColumns) =
-    calc_H!(Matrix{Float64}(undef, satellite_count(sat_positions), num_lsq_params(bias_columns)),
-        sat_positions, ξ, bias_columns)
+calc_H(sat_positions, ξ, bias_columns::BiasColumns) = calc_H!(
+    Matrix{Float64}(undef, satellite_count(sat_positions),
+        num_lsq_params(bias_columns)),
+    sat_positions, ξ, bias_columns)
 
 """
-Computes the directional second derivative of `calc_ρ_hat` along `v`,
-used by the Levenberg-Marquardt geodesic acceleration.
-
-For each satellite j the residual is `r_j(ξ) = ‖s_j' - r_n‖ + tc - ρ_j`,
-where s_j' is the Earth-rotation-corrected satellite position. Treating
-s_j' as constant w.r.t. ξ (the rotation depends on ξ via travel time,
-but ω_e/c ≈ 2e-13 makes that contribution negligible here), the Hessian
-is block-diagonal: the position block is `(I - û û^T) / d_j`, the time
-block is zero. So `v^T H_j v = (‖v_r‖² - (û · v_r)²) / d_j`.
-
 $SIGNATURES
+
+The second directional derivative of `calc_ρ_hat!` along the step `v`, for the
+Levenberg–Marquardt geodesic acceleration: `(‖v_r‖² − (û · v_r)²) / d_j` per
+satellite, with `v_r` the step's position block, `û` the line of sight and `d_j` the
+range, treating the rotated satellite as fixed (its dependence on `ξ` is scaled by
+`ω_e/c ≈ 2e-13`).
 """
-function calc_Avv!(dir_deriv, sat_positions, ξ, v)
+function calc_Avv!(curvature, sat_positions, ξ, v)
     rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
     v_r = SVector{3}(v[1], v[2], v[3])
     v_r_sq = dot(v_r, v_r)
@@ -245,9 +240,9 @@ function calc_Avv!(dir_deriv, sat_positions, ξ, v)
         u = satellite_position_at_reception(rₙ, sat_pos) - rₙ
         d = norm(u)
         û = u / d
-        dir_deriv[j] = (v_r_sq - dot(û, v_r)^2) / d
+        curvature[j] = (v_r_sq - dot(û, v_r)^2) / d
     end
-    return dir_deriv
+    return curvature
 end
 
 """

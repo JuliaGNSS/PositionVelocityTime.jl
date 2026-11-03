@@ -21,14 +21,14 @@ julia> ]
 pkg> add PositionVelocityTime
 ```
 
-Decoded data and code phase of satellite must be combined in the provided `SatelliteState` struct. 
+Decoded data and code phase of satellite must be combined in the provided `SignalObservation` struct. 
 ```julia
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
 # decode satellite
 gpsl1 = GPSL1CA()
-sat_state = SatelliteState(
+sat_state = SignalObservation(
     decoder = decoder,
-    system = gpsl1,
+    signal = gpsl1,
     code_phase = code_phase,
     carrier_doppler = carrier_doppler,
     carrier_phase = carrier_phase # optional, in radians
@@ -38,13 +38,13 @@ The declaration of `carrier_phase` is optional due to its small effect on the us
 `code_phase` is in chips and `carrier_phase` in radians, matching `Tracking`'s
 `get_code_phase` and `get_carrier_phase`.
 
-With Tracking.jl 9.1 or later loaded, a `Tracking.TrackedSat` can be passed to `SatelliteState` instead of
+With Tracking.jl 9.1 or later loaded, a `Tracking.TrackedSat` can be passed to `SignalObservation` instead of
 `code_phase`, `carrier_doppler` and `carrier_phase` — `tracked_sat` below is what
 `Tracking.get_sat_state` returns for a tracked satellite:
 ```julia
 using Tracking
 # track and decode satellite
-sat_state = SatelliteState(decoder, gpsl1, tracked_sat)
+sat_state = SignalObservation(decoder, gpsl1, tracked_sat)
 ```
 
 ## Usage

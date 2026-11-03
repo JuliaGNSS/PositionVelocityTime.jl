@@ -2,19 +2,19 @@
 # counts, and the TAI epochs and weeks that date them.
 
 """
-    time_offset_available(measurement::SatelliteMeasurement, target) -> Bool
+    time_offset_available(observation::PreparedObservation, target) -> Bool
     time_offset_available(decoder::GNSSDecoderState, target) -> Bool
 
 Whether a usable broadcast offset from this satellite's own GNSS time system to
-`target` is available. Such an offset lets that constellation's measurements be
+`target` is available. Such an offset lets that constellation's observations be
 expressed on the target system's clock, which makes a fix possible when the geometry
 is too weak to estimate an independent clock bias for it — see
 [`decide_bias_layout`](@ref), which collapses onto a hub system this way. Toward GPS
 Time that is Galileo's GGTO and BeiDou's BGTO; toward Galileo System Time it is
 BeiDou's BGTO variant and the GGTO GPS itself broadcasts on CNAV/CNAV-2.
 
-The measurement form reads the flag [`collect_measurements`](@ref) already flattened
-into `measurement.time_offsets` (equivalently `measurement.time_offsets[i].available`),
+The observation form reads the flag [`collect_measurements`](@ref) already flattened
+into `observation.time_offsets` (equivalently `observation.time_offsets[i].available`),
 and is `false` for any `target` outside [`CANDIDATE_HUB_SYSTEMS`](@ref), which no
 message broadcasts an offset toward.
 
@@ -28,11 +28,11 @@ decoded before the week number is. Always `false` when `target` is the decoder's
 system: the offset from a scale to itself is not a broadcast quantity.
 """
 function time_offset_available(
-    measurement::SatelliteMeasurement,
+    observation::PreparedObservation,
     target::GNSSSignals.TimeSystem,
 )
     index = hub_system_index(target)
-    isnothing(index) ? false : measurement.time_offsets[index].available
+    isnothing(index) ? false : observation.time_offsets[index].available
 end
 
 time_offset_available(
@@ -97,7 +97,7 @@ end
 
 The single [`BroadcastTimeOffset`](@ref) from `decoder`'s own GNSS time system toward
 `target`, as [`collect_measurements`](@ref) flattens it onto every
-[`SatelliteMeasurement`](@ref) — the standalone form, for a consumer evaluating a
+[`PreparedObservation`](@ref) — the standalone form, for a consumer evaluating a
 broadcast time offset outside a fix. Unavailable (`available == false`) for a `target`
 outside [`CANDIDATE_HUB_SYSTEMS`](@ref), and for any message that carries no such
 offset (see [`time_offset_available`](@ref)).
@@ -124,7 +124,7 @@ instant — `get_tai_offset(GPST) − get_tai_offset(time_system)`, so **negativ
 where the system's count reads lower (BDT: `19 − 33 = −14.0`), and `0.0` for a
 system that counts alike. `calc_time_scale_offsets` adds the *difference of two
 of these* to a transmit time, which is what puts the +14 s onto a BeiDou time
-in a GPS-primary solve.
+in a GPS-referenced solve.
 
 This is structural, not a bias: it follows from the time scales' definitions, not
 from either system's steering. Both GPST and GST are `TAI − 19 s`, so they count
@@ -136,7 +136,7 @@ of week 14, the 14 leap seconds that had accrued between the two epochs.
 Derived from `GNSSSignals.get_tai_offset` rather than tabulated, so a constellation
 added later is covered without touching this.
 
-!!! note "Why this is a measurement correction and not a time-scale shift"
+!!! note "Why this is an observation correction and not a time-scale shift"
 
     It would be tempting to fold the 14 s into `get_time_of_week` and be done. That
     would be wrong: the satellite position is propagated from the *same* transmit
@@ -149,17 +149,17 @@ time_scale_offset_to_gpst(time_system::GNSSSignals.TimeSystem) =
     ustrip(s, get_tai_offset(GPST()) - get_tai_offset(time_system))
 
 """
-    calc_time_scale_offsets(measurements, primary_system) -> Vector{Float64}
+    calc_time_scale_offsets(prepared, reference_system) -> Vector{Float64}
 
 Seconds to add to each satellite's transmit time to express it in
-`primary_system`'s count, so that `calc_pseudoranges` may difference them.
+`reference_system`'s count, so that `calc_pseudoranges` may difference them.
 `0.0` for every satellite of a system that counts alike — which is every GPS and
 Galileo satellite, and all of them in a single-constellation epoch.
 
-Relative to the *primary* system rather than to GPS Time, because the primary
+Relative to the *reference* system rather than to GPS Time, because the reference
 system's count is also what dates the reported epoch: `reference_time` comes out
-of the same differencing, and is combined with the primary system's week and
-`system_start_epoch`. Anchoring on GPST instead leaves a BeiDou-primary solve
+of the same differencing, and is combined with the reference system's week and
+`system_start_epoch`. Anchoring on GPST instead leaves a BeiDou-referenced solve
 reporting a GPS-count time of week dated from the BDT epoch — a 14 s error in
 `PVTSolution.time` traded for the one this removes from the pseudoranges.
 
@@ -167,27 +167,27 @@ This is applied to the times *handed to the differencing*, and nowhere else. The
 satellite position must still be propagated from the untouched transmit time
 against the message's own `t_0e`, which is on the broadcasting system's scale, so
 shifting the time itself would move the offset into the ephemeris — about 55 km
-of along-track error at BeiDou MEO velocities. `SatInfo.time` and
+of along-track error at BeiDou MEO velocities. `ObservationResiduals.transmit_time` and
 [`calc_steering_offset`](@ref) likewise keep the unconverted value.
 """
-calc_time_scale_offsets(measurements, primary_system) = calc_time_scale_offsets!(
-    Vector{Float64}(undef, length(measurements)), measurements, primary_system)
+calc_time_scale_offsets(prepared, reference_system) = calc_time_scale_offsets!(
+    Vector{Float64}(undef, length(prepared)), prepared, reference_system)
 
 # `calc_time_scale_offsets` into `offsets`, resized to the satellite count.
-function calc_time_scale_offsets!(offsets, measurements, primary_system)
-    offsets = resize!(offsets, length(measurements))
-    primary = time_scale_offset_to_gpst(primary_system)
-    # Each row already carries its own anchor (`count_offset_to_gpst`), precomputed by
+function calc_time_scale_offsets!(offsets, prepared, reference_system)
+    offsets = resize!(offsets, length(prepared))
+    reference = time_scale_offset_to_gpst(reference_system)
+    # Each observation already carries its own anchor (`count_offset_to_gpst`), precomputed by
     # `collect_measurements`, so this reads a number rather than branching on the
     # `time_system` field per satellite.
-    for (j, measurement) in enumerate(measurements)
-        offsets[j] = primary - measurement.count_offset_to_gpst
+    for (j, observation) in enumerate(prepared)
+        offsets[j] = reference - observation.count_offset_to_gpst
     end
     offsets
 end
 
 """
-    system_start_epoch(system) -> TAITime
+    system_start_epoch(signal) -> TAITime
 
 Absolute TAI epoch of a ranging signal's GNSS time-scale origin (week 0, time of
 week 0), from GNSSSignals' `get_tai_system_start_time` — the epoch already
@@ -198,7 +198,7 @@ label) and AstroTime's leap-aware conversion; GNSSSignals 4.1 states the TAI
 labels itself, which is also what makes the value safe to derive at
 precompile time.
 """
-system_start_epoch(system) = TAITime(get_tai_system_start_time(system))
+system_start_epoch(signal) = TAITime(get_tai_system_start_time(signal))
 
 """
     get_week(decoder::GNSSDecoderState{<:GPSL1CAData}; approximate_year)

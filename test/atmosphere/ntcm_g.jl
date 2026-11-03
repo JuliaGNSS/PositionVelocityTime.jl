@@ -64,9 +64,9 @@
                 WN = 1100,
             ),
         )
-        state = SatelliteState(;
+        state = SignalObservation(;
             decoder = gal,
-            system = GalileoE1B(),
+            signal = GalileoE1B(),
             code_phase = 0.0,
             carrier_doppler = 0.0Hz,
         )

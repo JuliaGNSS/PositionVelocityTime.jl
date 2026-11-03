@@ -3,10 +3,10 @@
 ## Types
 
 ```@docs
-SatelliteState
+SignalObservation
 PVTSolution
 TAITime
-SatInfo
+ObservationResiduals
 InterFrequencyBias
 ```
 
@@ -16,29 +16,29 @@ as the two share their layout.
 
 ## Signal Groups
 
-One epoch's measurements reach [`calc_pvt`](@ref) as *signal groups*: a `NamedTuple` of
+One epoch's observations reach [`calc_pvt`](@ref) as *signal groups*: a `NamedTuple` of
 [`PositionVelocityTime.SignalGroup`](@ref)s, one per ranging signal. Deliberately the
 same names `Tracking.jl` uses, and deliberately unexported, so
 `using Tracking, PositionVelocityTime` does not clash and both types print fully
 qualified.
 
 Grouping is what makes the solve type-stable: within a group every satellite shares one
-concrete [`SatelliteState`](@ref) type, so the per-satellite work of
+concrete [`SignalObservation`](@ref) type, so the per-satellite work of
 [`PositionVelocityTime.collect_measurements`](@ref) is statically dispatched. Behind that
 collection pass the solver sees one flat, parameter-free
-[`PositionVelocityTime.SatelliteMeasurement`](@ref) row per satellite and therefore
+[`PositionVelocityTime.PreparedObservation`](@ref) row per satellite and therefore
 compiles **once** for every constellation mix.
 
 Groups are built where the satellites are tracked, not derived from a pooled vector at
 solve time — [`PositionVelocityTime.signal_groups`](@ref) builds a whole epoch's groups
 from a `Tracking.TrackState`. There is deliberately no conversion from a flat
-`Vector{SatelliteState}`; `calc_pvt` refuses one with an error saying what to build.
+`Vector{SignalObservation}`; `calc_pvt` refuses one with an error saying what to build.
 
 ```@docs
 PositionVelocityTime.SignalGroup
 PositionVelocityTime.SignalGroups
 PositionVelocityTime.signal_groups
-PositionVelocityTime.SatelliteMeasurement
+PositionVelocityTime.PreparedObservation
 PositionVelocityTime.BroadcastTimeOffset
 PositionVelocityTime.collect_measurements
 PositionVelocityTime.collect_measurements!
@@ -125,11 +125,12 @@ stated contract. The names are deliberately not exported (they are solver
 internals, not part of every user's vocabulary); bind them explicitly with
 `using PositionVelocityTime: collect_measurements, …`.
 
-**The surface is specified on the flat measurement row.** A consumer's first call is
+**The surface is specified on the observations.** A consumer's first call is
 [`PositionVelocityTime.collect_measurements`](@ref), which turns its signal groups into
-a `Vector{`[`PositionVelocityTime.SatelliteMeasurement`](@ref)`}`; every function below
-that takes per-satellite input takes those rows, in that order, and returns one value
-per row in the same order. A row is a single concrete type with no type parameters, so a
+a `Vector{`[`PositionVelocityTime.PreparedObservation`](@ref)`}`; every function below
+that takes per-satellite input takes those observations, in that order, and returns one
+value per observation in the same order. An observation is a single concrete type with no
+type parameters, so a
 consumer's own estimator compiles once over it as well, however many constellations it
 mixes.
 
@@ -139,7 +140,7 @@ Only [`calc_corrected_time`](@ref PositionVelocityTime.calc_corrected_time),
 [`broadcast_time_offset`](@ref PositionVelocityTime.broadcast_time_offset) and the
 decoder form of [`time_offset_available`](@ref PositionVelocityTime.time_offset_available)
 still read a decoder — they are what the collection pass is built from, and are listed
-so a consumer can build or amend a row itself.
+so a consumer can build or amend an observation itself.
 
 Times returned or taken here are seconds-of-week counts on each satellite's own system
 scale unless a function says otherwise.
@@ -200,11 +201,11 @@ three keys, all provided by GNSSSignals (3.3+) and read from a satellite's rangi
 `GNSSSignals.get_time_system` (a `GNSSSignals.TimeSystem`, i.e. `GPST()`/`GST()`/`BDT()`) drives
 receiver-clock grouping (one bias per time system); `GNSSSignals.get_band_id` (e.g. `:L1`,
 `:L5`) drives inter-frequency-bias grouping (one bias per band); and
-`GNSSSignals.get_signal_id` (e.g. `:GPSL1CA`) is the per-signal identity used in the `sats`
+`GNSSSignals.get_signal_id` (e.g. `:GPSL1CA`) is the per-signal identity used in the `satellites`
 key of [`PVTSolution`](@ref), and the key a
 [`PositionVelocityTime.SignalGroup`](@ref) is one signal's worth of. All three are read
 off the ranging signal once, by the collection pass, and carried on every
-[`PositionVelocityTime.SatelliteMeasurement`](@ref) as `time_system`, `band_id` and
+[`PositionVelocityTime.PreparedObservation`](@ref) as `time_system`, `band_id` and
 `signal_id`.
 
 The receiver inter-frequency biases and their reference bands (reported per
@@ -222,7 +223,7 @@ The solver compiles into a `juliac --trim=safe` executable (Julia 1.12+ with
 so for every navigation-data type and a mixed GPS + Galileo + BeiDou epoch, and checks
 its output against a regular session. Signal groups are what make that possible for any
 constellation mix — each group is concretely typed, and the solver behind them sees one
-concrete row type.
+concrete observation type.
 
 Two dependencies the package would otherwise have cannot be trimmed, so it carries
 trim-safe stand-ins for the part of each it uses, as self-contained submodules with the

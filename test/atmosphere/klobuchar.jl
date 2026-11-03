@@ -96,9 +96,9 @@ end
             data = GNSSDecoder.GalileoINAVData(dec.data; a_i0, a_i1, a_i2, WN),
         )
     end
-    mkstate(dec, sys) = SatelliteState(;
+    mkstate(dec, sys) = SignalObservation(;
         decoder = dec,
-        system = sys,
+        signal = sys,
         code_phase = 0.0,
         carrier_doppler = 0.0Hz,
     )

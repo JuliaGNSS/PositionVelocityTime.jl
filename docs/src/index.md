@@ -1,6 +1,6 @@
 # PositionVelocityTime.jl
 
-Calculates position, velocity, and time from GNSS satellite measurements.
+Calculates position, velocity, and time from GNSS signal observations.
 
 ## Features
 
@@ -12,7 +12,7 @@ Calculates position, velocity, and time from GNSS satellite measurements.
 - Dilution of Precision (DOP) computation
 - Support for GPS (L1 C/A, L2C, L5, L1C), Galileo (E1B, E5a, E5b) and BeiDou
   (B1I, B3I, B1C, B2a, B2b), including combined multi-GNSS solutions. Each
-  measurement is one satellite-band pseudorange; the group-delay/ISC correction is
+  observation is one satellite-band pseudorange; the group-delay/ISC correction is
   selected by the signal the range was generated on (which may be a pilot such as
   GPS L1C-P, Galileo E1C or BeiDou B2a-Q), while the ephemeris and clock come from
   the band's data-component decoder.
@@ -37,15 +37,15 @@ Pkg.add("PositionVelocityTime")
 
 ## Quick Start
 
-Decoded data and code phase of a satellite must be combined in the [`SatelliteState`](@ref) struct:
+Decoded data and code phase of a satellite must be combined in the [`SignalObservation`](@ref) struct:
 
 ```julia
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
 
 gpsl1 = GPSL1CA()
-sat_state = SatelliteState(
+sat_state = SignalObservation(
     decoder = decoder,
-    system = gpsl1,
+    signal = gpsl1,
     code_phase = code_phase,
     carrier_doppler = carrier_doppler,
     carrier_phase = carrier_phase,  # optional, in radians
@@ -61,7 +61,7 @@ Doppler, and carrier phase are read off it:
 
 ```julia
 using Tracking
-sat_state = SatelliteState(decoder, gpsl1, tracked_sat)
+sat_state = SignalObservation(decoder, gpsl1, tracked_sat)
 ```
 
 Group the satellites by their ranging signal and compute the PVT solution:
@@ -94,12 +94,12 @@ satellites for `M` distinct systems. The per-system clock offsets are reported a
 
 !!! note "Migrating from 5.x"
 
-    `calc_pvt` used to take a flat `AbstractVector{<:SatelliteState}`. Pooling several
+    `calc_pvt` used to take a flat `AbstractVector{<:SignalObservation}`. Pooling several
     constellations into one vector made its element type abstract, which turned every
     per-satellite call inside the solve into a dynamic dispatch — a mixed 14-satellite
     epoch cost about five times a single-constellation one. Groups fix that at the
     source, and behind them the solver now works on one flat, parameter-free
-    measurement row and compiles once for every constellation mix.
+    observation row and compiles once for every constellation mix.
 
     There is deliberately no conversion function from the old input: `calc_pvt` refuses
     a pooled vector with an error saying what to build. A converter would have had to
@@ -110,9 +110,9 @@ satellites for `M` distinct systems. The per-system clock offsets are reported a
     `GNSSReceiver.jl` already carry, and hand the same groups to `calc_pvt`.
 
     The measurement-model surface moved with it: its per-satellite functions now take
-    the [`PositionVelocityTime.SatelliteMeasurement`](@ref) rows that
+    the [`PositionVelocityTime.PreparedObservation`](@ref) rows that
     [`PositionVelocityTime.collect_measurements`](@ref) produces, rather than
-    `SatelliteState`s plus parallel classification vectors. See
+    `SignalObservation`s plus parallel classification vectors. See
     [The Measurement-Model Surface](@ref).
 
     `pvt.time` is a [`TAITime`](@ref) rather than an AstroTime `TAIEpoch`, and AstroTime
@@ -143,7 +143,7 @@ end
 ```
 
 A [`PVTSolution`](@ref) is immutable, so `calc_pvt!` returns the new fix; what it reuses
-are the `sats` and bias containers of its first argument, which the returned solution
+are the `satellites` and bias containers of its first argument, which the returned solution
 takes over. That argument is the only thing overwritten — `prev_pvt` is only read, so
 passing a different solution there keeps it intact — and it is spent by the call: keep
 the returned solution, and `copy(pvt)` any solution you want to keep beyond the next

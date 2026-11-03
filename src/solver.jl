@@ -12,11 +12,11 @@ const MAX_TRUSTED_WARM_START_PDOP = 50.0
 """
     PVTWorkspace()
 
-The reusable scratch storage of [`calc_pvt!`](@ref): the flat measurement rows, the bias
-layout, the pseudoranges and their corrections, the least-squares buffers, the design
-and normal-equations matrices, the velocity solve's design rows and the residuals. Every buffer grows to the largest epoch
-it has seen and is reused from then on; its contents after a solve are not part of any
-interface.
+The reusable scratch storage of [`calc_pvt!`](@ref): the observations, the bias layout,
+the pseudoranges and their corrections, the least-squares buffers, the design and
+normal-equations matrices, the velocity solve's design rows and the residuals. Every
+buffer grows to the largest epoch it has seen and is reused from then on; its contents
+after a solve are not part of any interface.
 
 Satellite positions are kept as a `Vector{SVector{3,Float64}}` — a fixed-size quantity
 per satellite, in a vector that is resized in place. The least-squares state, whose
@@ -25,7 +25,7 @@ instead of a static one, so the solver compiles once rather than once per layout
 matrices sized by it are kept at their largest and used through views.
 """
 mutable struct PVTWorkspace
-    measurements::Vector{SatelliteMeasurement}
+    prepared::Vector{PreparedObservation}
     layout::BiasLayoutWorkspace
     unique_systems::Vector{SupportedTimeSystem}
     sat_positions::Vector{SVector{3,Float64}}
@@ -43,7 +43,7 @@ mutable struct PVTWorkspace
 end
 
 PVTWorkspace() = PVTWorkspace(
-    SatelliteMeasurement[],
+    PreparedObservation[],
     BiasLayoutWorkspace(),
     SupportedTimeSystem[],
     SVector{3,Float64}[],
@@ -66,7 +66,7 @@ PVTWorkspace() = PVTWorkspace(
              enable_ionospheric_correction::Bool = true,
              enable_tropospheric_correction::Bool = true) -> PVTSolution
 
-Calculate Position, Velocity, and Time (PVT) from GNSS satellite measurements.
+Calculate Position, Velocity, and Time (PVT) from GNSS signal observations.
 
 Satellites from different GNSS and frequency bands may be combined. Because each
 constellation references its broadcasts to its own system time, one receiver clock
@@ -78,11 +78,11 @@ band beyond a reference band (shared across constellations on that band; see
 extra bands. Position and time are found by least squares; velocity and clock drift
 are solved from carrier Doppler.
 
-A solution requires `n ≥ 3 + M + B` healthy satellite measurements (each system needs at
+A solution requires `n ≥ 3 + M + B` healthy satellite observations (each system needs at
 least one satellite, and a system contributing a single satellite spends it entirely
 on that system's clock bias), of which `3 + M` must come from *distinct* satellites: a
 satellite tracked on several bands supplies one line of sight, and its extra
-measurements constrain the inter-frequency biases rather than the geometry. When either
+observations constrain the inter-frequency biases rather than the geometry. When either
 condition fails, constellations whose messages carry a broadcast offset to another
 tracked system — Galileo's GGTO (Galileo–GPS Time Offset), BeiDou's BGTO (BDT–GNSS
 Time Offset, toward GPS or Galileo), or the GGTO GPS itself broadcasts on CNAV/CNAV-2
@@ -107,9 +107,9 @@ zenith delays mapped to the line of sight by the Niell mapping functions.
 See [`tropospheric_delay`](@ref).
 
 # Arguments
-- `groups`: this epoch's measurements, as [`SignalGroups`](@ref) — a `NamedTuple` of
+- `groups`: this epoch's observations, as [`SignalGroups`](@ref) — a `NamedTuple` of
   [`SignalGroup`](@ref)s, one per ranging signal, each holding that signal's
-  [`SatelliteState`](@ref)s. A bare `Tuple` of groups is accepted (and numbered
+  [`SignalObservation`](@ref)s. A bare `Tuple` of groups is accepted (and numbered
   `group1`, `group2`, …), as is a single `SignalGroup` (which becomes the `:default`
   group), so a one-constellation solve stays a one-liner:
 
@@ -125,18 +125,18 @@ See [`tropospheric_delay`](@ref).
   the solver behind it compiles once for every constellation mix. Build the groups where
   the satellites are tracked — with Tracking.jl 9.1 or later loaded,
   [`signal_groups`](@ref)`(track_state, decoders)` builds them from a whole `TrackState`.
-  A pooled `Vector{SatelliteState}`, which is what this function took before 6.0, is
+  A pooled `Vector{SignalObservation}`, which is what this function took before 6.0, is
   refused with an error saying what to build instead.
 
   Each `(signal, PRN)` pair must appear at most once — a receiver produces one
-  measurement per signal per satellite, and a duplicate would enter the least-squares
+  observation per signal per satellite, and a duplicate would enter the least-squares
   solve twice. A `Dictionary`-backed group prevents this within itself; two groups that
   share a ranging signal can still collide, and are not checked for.
 
-  **Order is significant**, as vector order was before it: the flat measurement order
-  is group order × within-group order, and it fixes the primary system's tie-break
+  **Order is significant**, as vector order was before it: the flat observation order
+  is group order × within-group order, and it fixes the reference system's tie-break
   ("most satellites, ties by first appearance"), [`band_ifb_layout`](@ref)'s
-  reference-band tie-break, and the insertion order of `PVTSolution.sats`.
+  reference-band tie-break, and the insertion order of `PVTSolution.observations`.
 - `prev_pvt`: Previous PVT solution used as initial guess (default: origin). A
   previous solution whose own DOP is implausible (`GDOP < 0`, or `PDOP` above
   `MAX_TRUSTED_WARM_START_PDOP` = 50) is not used as a seed and the epoch is
@@ -163,7 +163,7 @@ satellite information; `prev_pvt` is never modified. [`calc_pvt!`](@ref) is the 
 solve reusing the containers of a solution passed to it, without allocating. Returns `prev_pvt` if the epoch cannot be solved: too few healthy
 satellites to solve the constellation (including the GGTO fallback and the
 distinct-satellite condition — a satellite tracked on several bands supplies one line of
-sight, so measurements alone are not enough), a geometry whose solved design matrix is
+sight, so observations alone are not enough), a geometry whose solved design matrix is
 rank deficient (reported as a negative GDOP). None of these throw, so a receiver can pass
 whatever it currently tracks each epoch and carry `prev_pvt` forward. Distrust of
 `prev_pvt` (see above) affects only the seed: an unsolvable epoch still returns
@@ -205,12 +205,12 @@ end
 ```
 
 **`solution` is the output argument, and the only thing overwritten**: the returned
-solution takes over its `sats`, `inter_system_biases` and `inter_frequency_biases`
+solution takes over its `satellites`, `inter_system_biases` and `inter_frequency_biases`
 containers, which are emptied and refilled with this epoch's values. `solution` itself
 is therefore spent — its own fields still describe the epoch it was computed for, but
 its containers now hold the new one — so use the returned solution from here on, and
 keep a [`copy`](@ref Base.copy(::PVTSolution)) of `solution` if you need it after the
-call (a `Dictionary` made by `map` over `solution.sats` shares its keys, and sees the
+call (a `Dictionary` made by `map` over `solution.observations` shares its keys, and sees the
 change too). `prev_pvt` is only read. Passing the same solution as both is allowed and
 is the usual receiver loop above: every value the seed needs is read before anything is
 written.
@@ -256,14 +256,14 @@ function _calc_pvt!(
     enable_tropospheric_correction,
 )
     # The function barrier. `_collect_measurements!` specialises on the group shape and
-    # reduces it to flat rows; `_solve_pvt!` below is one compiled body for every
+    # reduces it to observations; `_solve_pvt!` below is one compiled body for every
     # constellation mix there is.
-    ionospheric_correction =
-        _collect_measurements!(workspace.measurements, groups, approximate_year)
+    ionospheric_parameters =
+        _collect_measurements!(workspace.prepared, groups, approximate_year)
     _solve_pvt!(
         solution,
         workspace,
-        IonosphericModel(enable_ionospheric_correction ? ionospheric_correction : nothing),
+        IonosphericModel(enable_ionospheric_correction ? ionospheric_parameters : nothing),
         prev_pvt,
         enable_tropospheric_correction,
     )
@@ -288,7 +288,7 @@ function _solve_pvt!(
     prev_pvt::PVTSolution,
     enable_tropospheric_correction::Bool,
 )
-    measurements = workspace.measurements
+    prepared = workspace.prepared
 
     # Gauss-Newton converges within its seed's basin, so a spurious far-away root
     # would re-seed itself epoch after epoch. Such roots flag themselves with an
@@ -299,77 +299,77 @@ function _solve_pvt!(
         !isnothing(prev_pvt.dop) &&
         (prev_pvt.dop.GDOP < 0 || prev_pvt.dop.PDOP > MAX_TRUSTED_WARM_START_PDOP)
 
-    num_sats = length(measurements)
+    num_observations = length(prepared)
 
     # Every satellite that was not decoded-complete-and-healthy has already been
-    # dropped by the collection pass, and each surviving row carries the GNSSSignals
+    # dropped by the collection pass, and each surviving observation carries the GNSSSignals
     # keys that drive the solution: `time_system` (`GPST()`/`GST()`/`BDT()`) groups the
     # receiver clock bias — one per time system, ordered by first appearance —
     # and `band_id` (`:L1`, `:L5`, …) groups the receiver inter-frequency bias — one
     # per band beyond a per-coverage-component reference. (`signal_id`, `:GPSL1CA` …, is
-    # the per-signal `sats` identity used below, not a grouping key.)
+    # the per-signal `satellites` identity used below, not a grouping key.)
     #
     # Solvability is decided here: `decide_bias_layout!` keeps only observable IFBs and
     # falls back to a hub collapse when the geometry is disconnected or
     # under-determined. A degenerate geometry, which no count can see, is caught after
     # the solve by the DOP.
-    decide_bias_layout!(workspace.layout, measurements) || return (false, prev_pvt)
+    decide_bias_layout!(workspace.layout, prepared) || return (false, prev_pvt)
     (; bias_columns, clock_systems, extra_bands, reference_bands, hub_system, hub_rows) =
         bias_layout(workspace.layout)
     (; clock_bias_indices, num_clock_biases) = bias_columns
     num_params = num_lsq_params(bias_columns)
 
     # The propagated ephemerides, already evaluated per satellite by the collection pass.
-    sat_positions = resize!(workspace.sat_positions, num_sats)
-    for j in 1:num_sats
-        sat_positions[j] = measurements[j].position
+    sat_positions = resize!(workspace.sat_positions, num_observations)
+    for j in 1:num_observations
+        sat_positions[j] = prepared[j].position
     end
 
-    # Primary system — its clock bias, reference time, week and start epoch
+    # Reference system — its clock bias, reference time, week and start epoch
     # define the reported time (see `select_primary_system`).
     unique_systems = unique_time_systems!(workspace.unique_systems,
-        measurement.time_system for measurement in measurements)
-    primary_system = select_primary_system(measurements, hub_system)
-    # `something`, not a bare `findfirst`: the primary system is either one of the
+        observation.time_system for observation in prepared)
+    reference_system = select_primary_system(prepared, hub_system)
+    # `something`, not a bare `findfirst`: the reference system is either one of the
     # systems present or the hub, which `decide_bias_layout!` only picks when it is
     # present — so this never fails, and saying so keeps the index an `Int` rather than
     # a `Union{Int,Nothing}` that would widen the clock column and the DOP call below.
-    primary_index = something(
-        findfirst(measurement -> measurement.time_system === primary_system, measurements))
-    primary_clock_index = clock_bias_indices[primary_index]
+    reference_index = something(
+        findfirst(observation -> observation.time_system === reference_system, prepared))
+    reference_clock_column = clock_bias_indices[reference_index]
 
-    # The common reference cancels out of the reported time (the primary clock
+    # The common reference cancels out of the reported time (the reference clock
     # bias absorbs it), so any latest-transmit-time reference works — but the times
     # must first be put on one count (`calc_time_scale_offsets!`).
     # A BeiDou second-of-week reads 14 s below a GPS time of week for the same instant,
-    # so differencing them raw hands every BeiDou measurement 4.2e9 m of structural
+    # so differencing them raw hands every BeiDou observation 4.2e9 m of structural
     # offset: not merely a biased BeiDou clock column, but a parameter nine orders of
     # magnitude above the others in the normal equations. Zero for GPS and Galileo, and
     # for any single-constellation epoch.
     # The offsets are written straight into the pseudorange buffer, and the transmit
     # times added onto them, so no separate offset buffer is needed.
     pseudoranges =
-        calc_time_scale_offsets!(workspace.pseudoranges, measurements, primary_system)
-    for (j, measurement) in enumerate(measurements)
-        pseudoranges[j] += measurement.time
+        calc_time_scale_offsets!(workspace.pseudoranges, prepared, reference_system)
+    for (j, observation) in enumerate(prepared)
+        pseudoranges[j] += observation.transmit_time
     end
     _, reference_time = calc_pseudoranges!(pseudoranges)
     # The known per-satellite broadcast steering offset (zero unless that system was
-    # collapsed onto the hub), as a measurement correction like the atmospheric delays
+    # collapsed onto the hub), as an observation correction like the atmospheric delays
     # below. Kept for the inter-system-bias readout at the end, which reports this
     # term alone: the time-count difference already removed above is a convention, not
     # a bias, and belongs in neither the readout nor the solve.
     hub_offsets =
-        calc_hub_range_offsets!(workspace.hub_offsets, measurements, hub_rows, hub_system)
+        calc_hub_range_offsets!(workspace.hub_offsets, prepared, hub_rows, hub_system)
     pseudoranges .-= hub_offsets
 
-    # The primary system's week and start epoch date the epoch absolutely: the day of
+    # The reference system's week and start epoch date the epoch absolutely: the day of
     # year feeds the tropospheric mapping's seasonal term here, and week/start epoch
     # date the reported time after the solve.
-    primary_measurement = measurements[primary_index]
-    week = primary_measurement.week
-    start_time = primary_measurement.system_start_epoch
-    doy = day_of_year(primary_measurement.system_start_time, week, reference_time)
+    reference_observation = prepared[reference_index]
+    week = reference_observation.week
+    start_time = reference_observation.system_start_epoch
+    doy = day_of_year(reference_observation.system_start_time, week, reference_time)
 
     # Seed each clock bias from the previous solution, reconstructing a system's
     # absolute bias from the reference bias plus its stored inter-system bias. A
@@ -404,7 +404,7 @@ function _solve_pvt!(
         prev_ifbs = prev_pvt.inter_frequency_biases
         for (i, band) in enumerate(extra_bands)
             prev_ξ[3+num_clock_biases+i] =
-                haskey(prev_ifbs, band) && prev_ifbs[band].reference == reference_bands[i] ?
+                haskey(prev_ifbs, band) && prev_ifbs[band].reference_band == reference_bands[i] ?
                 ustrip(m, prev_ifbs[band].value) : 0.0
         end
     end
@@ -418,12 +418,12 @@ function _solve_pvt!(
     # model selected) nor the troposphere contributes, skip the prediction entirely and
     # the solve runs on the raw pseudoranges.
     correct_atmosphere =
-        !isnothing(ionospheric_model.correction) || enable_tropospheric_correction
+        !isnothing(ionospheric_model.parameters) || enable_tropospheric_correction
     function corrected_ranges(ξ_prediction)
         delays = predict_atmospheric_delays!(
-            workspace.atmospheric_delays, ξ_prediction, measurements, ionospheric_model,
+            workspace.atmospheric_delays, ξ_prediction, prepared, ionospheric_model,
             reference_time, doy, enable_tropospheric_correction)
-        resize!(workspace.corrected_ranges, num_sats) .= pseudoranges .- delays
+        resize!(workspace.corrected_ranges, num_observations) .= pseudoranges .- delays
     end
     least_squares = workspace.least_squares
 
@@ -450,8 +450,9 @@ function _solve_pvt!(
             correct_atmosphere ? corrected_ranges(prev_ξ) : pseudoranges, bias_columns,
             prev_ξ)
     end
-    workspace.design_matrix = grown(workspace.design_matrix, num_sats, num_params)
-    H = calc_H!(view(workspace.design_matrix, 1:num_sats, 1:num_params), sat_positions, ξ,
+    workspace.design_matrix = grown(workspace.design_matrix, num_observations, num_params)
+    H = calc_H!(view(workspace.design_matrix, 1:num_observations, 1:num_params),
+        sat_positions, ξ,
         bias_columns)
     position = ECEF(ξ[1], ξ[2], ξ[3])
 
@@ -466,7 +467,7 @@ function _solve_pvt!(
     # `calc_user_velocity_and_clock_drift`).
     workspace.normal_matrix = grown(workspace.normal_matrix, num_params, num_params)
     dop = calc_DOP!(view(workspace.normal_matrix, 1:num_params, 1:num_params), H, position,
-        primary_clock_index)
+        reference_clock_column)
 
     dop.GDOP < 0 && return (false, prev_pvt)
 
@@ -483,14 +484,14 @@ function _solve_pvt!(
         previous_velocity_and_drift : zero(SVector{4,Float64})
     user_velocity_and_clock_drift, rate_residuals =
         calc_user_velocity_and_clock_drift!(workspace.rate_residuals,
-            workspace.velocity_design, measurements, position, velocity_start)
+            workspace.velocity_design, prepared, position, velocity_start)
     all(isfinite, user_velocity_and_clock_drift) || return (false, prev_pvt)
     velocity = ECEF(
         user_velocity_and_clock_drift[1],
         user_velocity_and_clock_drift[2],
         user_velocity_and_clock_drift[3],
     )
-    time_correction = ξ[3+primary_clock_index]
+    time_correction = ξ[3+reference_clock_column]
     # The estimated time correction is negative
     # See https://github.com/JuliaGNSS/PositionVelocityTime.jl/issues/8
     corrected_reference_time = reference_time - time_correction / SPEED_OF_LIGHT
@@ -498,7 +499,7 @@ function _solve_pvt!(
     # Everything is read from `prev_pvt` by now, so the containers of `solution` —
     # possibly `prev_pvt`'s own — are written from here on.
     #
-    # Per-satellite `sats` key: (signal id, PRN) — signal-level (not time system), so a
+    # Per-satellite `satellites` key: (signal id, PRN) — signal-level (not time system), so a
     # satellite tracked on two signals of one constellation stays distinct; the
     # receiver-clock grouping is separate, by time system.
     #
@@ -507,19 +508,20 @@ function _solve_pvt!(
     # `prev_pvt` itself — as it was, not half-refilled. Not with `insert!`, which formats
     # the key into its message — a dynamic `show` a `juliac --trim` build rejects — so
     # the message here is fixed.
-    for j in 2:num_sats, k in 1:j-1
-        measurements[j].signal_id === measurements[k].signal_id &&
-            measurements[j].prn == measurements[k].prn && throw(IndexError(
+    for j in 2:num_observations, k in 1:j-1
+        prepared[j].signal_id === prepared[k].signal_id &&
+            prepared[j].prn == prepared[k].prn && throw(IndexError(
                 "a (signal, PRN) pair appears twice in one epoch; each must appear once"))
     end
-    sats = empty_keeping_capacity!(solution.sats)
-    for (j, measurement) in enumerate(measurements)
-        key = (measurement.signal_id, measurement.prn)
-        set!(sats, key, SatInfo(measurement.position, measurement.time, residuals[j] * m,
+    observations = empty_keeping_capacity!(solution.observations)
+    for (j, observation) in enumerate(prepared)
+        key = (observation.signal_id, observation.prn)
+        set!(observations, key, ObservationResiduals(observation.position,
+            observation.transmit_time, residuals[j] * m,
             rate_residuals[j] * (m / s)))
     end
 
-    # Inter-system biases relative to the reference (primary) system's clock, in
+    # Inter-system biases relative to the reference system's clock, in
     # meters. The reference is omitted (its bias is `time_correction`); for a
     # collapsed system this is the broadcast offset −c·Δt_systems, `hub_offsets` as
     # `inter_system_bias` computed it, read at the system's first satellite (the
@@ -527,8 +529,8 @@ function _solve_pvt!(
     # transmit-time spread — sub-millimetre).
     inter_system_biases = empty!(solution.inter_system_biases)
     for sys in unique_systems
-        sys === primary_system && continue
-        j = something(findfirst(measurement -> measurement.time_system === sys, measurements))
+        sys === reference_system && continue
+        j = something(findfirst(observation -> observation.time_system === sys, prepared))
         inter_system_biases[sys] =
             (ξ[3+clock_bias_indices[j]] + hub_offsets[j] - time_correction) * m
     end
@@ -556,8 +558,8 @@ function _solve_pvt!(
         ),
         user_velocity_and_clock_drift[4] / SPEED_OF_LIGHT,
         dop,
-        sats,
-        primary_system,
+        observations,
+        reference_system,
         inter_system_biases,
         inter_frequency_biases,
     )

@@ -44,9 +44,9 @@
     end
 
     @testset "group order is significant, exactly as vector order was" begin
-        # The primary system is the most-populated one, ties broken by first
+        # The reference system is the most-populated one, ties broken by first
         # appearance — so two groups of equal size swap which one dates the fix.
-        # Three each: two systems need 3 + 2 measurements from as many distinct
+        # Three each: two systems need 3 + 2 observations from as many distinct
         # satellites, so a pair each would not solve at all.
         three_gps = PositionVelocityTime.SignalGroup(GPSL1CA(), gps[1:3])
         three_gal = PositionVelocityTime.SignalGroup(GalileoE1B(), gal[1:3])
@@ -54,8 +54,8 @@
         gal_first = calc_pvt((a = three_gal, b = three_gps); kw...)
         @test gps_first.reference_system == GPST()
         @test gal_first.reference_system == GST()
-        # And `sats` is built in flat order: group order × within-group order.
-        @test collect(keys(gal_first.sats)) == [
+        # And `observations` is built in flat order: group order × within-group order.
+        @test collect(keys(gal_first.observations)) == [
             [(:GalileoE1B, state.decoder.prn) for state in gal[1:3]]
             [(:GPSL1CA, state.decoder.prn) for state in gps[1:3]]
         ]
@@ -78,7 +78,7 @@
         @test occursin("SignalGroup(GPSL1CA()", message)
         # And it is raised at the entry point, not somewhere inside the solver.
         @test occursin("calc_pvt", message)
-        @test occursin("not a vector of `SatelliteState`s", message)
+        @test occursin("not a vector of `SignalObservation`s", message)
     end
 
     @testset "groups of bare state vectors are refused, with the same directions" begin
@@ -105,7 +105,7 @@
         groups = (gps = gps_group, galileo = gal_group)
         rows, _ = PositionVelocityTime.collect_measurements(groups; approximate_year = 2021)
         # The rows are one concrete type with no type parameters, whatever the mix.
-        @test rows isa Vector{PositionVelocityTime.SatelliteMeasurement}
+        @test rows isa Vector{PositionVelocityTime.PreparedObservation}
         @test isconcretetype(eltype(rows))
         @test length(rows) == length(gps) + length(gal)
         # Named groups make the collection pass statically dispatched: the rows half of
@@ -115,7 +115,7 @@
         # copies.)
         @test inferred_return_type(
             PositionVelocityTime.collect_measurements, Tuple{typeof(groups)}
-        ).parameters[1] === Vector{PositionVelocityTime.SatelliteMeasurement}
+        ).parameters[1] === Vector{PositionVelocityTime.PreparedObservation}
         @test inferred_return_type(calc_pvt, Tuple{typeof(groups)}) === PVTSolution
 
         # The point of the flat row: one compiled body of the solver serves every
@@ -134,7 +134,7 @@
     end
 
     @testset "an epoch with no usable satellite is not a special case" begin
-        empty_group = PositionVelocityTime.SignalGroup(GPSL1CA(), SatelliteState[])
+        empty_group = PositionVelocityTime.SignalGroup(GPSL1CA(), SignalObservation[])
         rows, correction =
             PositionVelocityTime.collect_measurements(empty_group; approximate_year = 2021)
         @test isempty(rows)

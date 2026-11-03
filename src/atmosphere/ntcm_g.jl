@@ -54,17 +54,17 @@ function _mslm_mapping_function(elevation)
 end
 
 """
-    ntcm_g_vtec(φ_pp, λ_pp, doy, ut, azpar) -> Float64
+    ntcm_g_vtec(φ_pp, λ_pp, day_of_year, universal_time, azpar) -> Float64
 
 Vertical TEC in TECU at the ionospheric pierce point (geographic latitude/longitude
-`φ_pp`/`λ_pp` in radians) for day of year `doy`, universal time `ut` in hours, and
+`φ_pp`/`λ_pp` in radians) on `day_of_year`, at `universal_time` in hours, and
 Effective Ionisation Level `azpar` in solar flux units. Implements the NTCM-G model
 `VTEC = F1·F2·F3·F4·F5` (Eq. 3-15).
 """
-function ntcm_g_vtec(φ_pp, λ_pp, doy, ut, azpar)
+function ntcm_g_vtec(φ_pp, λ_pp, day_of_year, universal_time, azpar)
     k = _NTCM_K
-    lt = ut + rad2deg(λ_pp) / 15                      # local time [h] (Eq. 27)
-    δ = _sun_declination(doy)
+    lt = universal_time + rad2deg(λ_pp) / 15          # local time [h] (Eq. 27)
+    δ = _sun_declination(day_of_year)
 
     # Solar zenith angle dependence (Eq. 29-30)
     cosχ3 = cos(φ_pp - δ) + 0.4                        # cosχ*** (PF1 = 0.4)
@@ -85,8 +85,8 @@ function ntcm_g_vtec(φ_pp, λ_pp, doy, ut, azpar)
         )
 
     # F2 — seasonal dependency (Eq. 8-10)
-    V_A = 2π * (doy - 18) / 365.25
-    V_SA = 4π * (doy - 6) / 365.25
+    V_A = 2π * (day_of_year - 18) / 365.25
+    V_SA = 4π * (day_of_year - 6) / 365.25
     F2 = 1 + k[6] * cos(V_A) + k[7] * cos(V_SA)
 
     # Geomagnetic latitude of the pierce point (Eq. 31)
@@ -111,16 +111,20 @@ function ntcm_g_vtec(φ_pp, λ_pp, doy, ut, azpar)
 end
 
 """
-    ntcm_g_stec(elevation, azimuth, lla, doy, ut, a_i0, a_i1, a_i2) -> Float64
+    ntcm_g_stec(elevation, azimuth, lla, day_of_year, universal_time, a_i0, a_i1, a_i2)
+        -> Float64
 
 Slant TEC in TECU along the user→satellite line of sight using NTCM-G, for the
 satellite `elevation`/`azimuth` (radians) seen from the user geodetic position
-`lla` (a `Geodesy.LLA`), day of year `doy`, universal time `ut` (hours), and the
+`lla` (a `Geodesy.LLA`), on `day_of_year`, at `universal_time` (hours), and the
 broadcast Galileo Effective Ionisation Level coefficients `a_i0`/`a_i1`/`a_i2`.
 """
-function ntcm_g_stec(elevation, azimuth, lla, doy, ut, a_i0, a_i1, a_i2)
-    φ_pp, λ_pp = _pierce_point(deg2rad(lla.lat), deg2rad(lla.lon), elevation, azimuth)
-    vtec = ntcm_g_vtec(φ_pp, λ_pp, doy, ut, _azpar(a_i0, a_i1, a_i2))
+function ntcm_g_stec(elevation, azimuth, lla, day_of_year, universal_time,
+    a_i0, a_i1, a_i2)
+    φ_pp, λ_pp =
+        _pierce_point(deg2rad(lla.lat), deg2rad(lla.lon), elevation, azimuth)
+    azpar = _azpar(a_i0, a_i1, a_i2)
+    vtec = ntcm_g_vtec(φ_pp, λ_pp, day_of_year, universal_time, azpar)
     return _mslm_mapping_function(elevation) * vtec
 end
 
