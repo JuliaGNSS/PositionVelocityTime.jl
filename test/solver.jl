@@ -131,11 +131,8 @@ end
     @test Set(first(k) for k in keys(pvt.observations)) == Set([:GPSL1CA, :GalileoE1B])
     @test length(pvt.observations) ==
           length(gps_only.observations) + length(gal_only.observations)
-    let (sig, prn) = first(keys(pvt.observations))
-        @test get_sat_info(pvt, sig, prn) === pvt.observations[(sig, prn)]
-    end
-    # A satellite not used in the fix returns `nothing` rather than throwing.
-    @test get_sat_info(pvt, :GPSL1CA, 999) === nothing
+    # A satellite not used in the fix has no entry.
+    @test !haskey(pvt.observations, (:GPSL1CA, 999))
 
     # Per-observation post-fit residuals are exposed via ObservationResiduals (measured −
     # modeled pseudorange, metres); finite and small for a good fix.

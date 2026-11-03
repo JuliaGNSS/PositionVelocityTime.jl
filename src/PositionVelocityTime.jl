@@ -1,6 +1,5 @@
 module PositionVelocityTime
 using CoordinateTransformations,
-    DocStringExtensions,
     Geodesy,
     GNSSDecoder,
     GNSSSignals,
@@ -27,8 +26,6 @@ export calc_pvt,
     InterFrequencyBias,
     SignalObservation,
     get_lla,
-    get_sat_info,
-    calc_satellite_position,
     calc_satellite_position_and_velocity,
     calc_elevation_and_azimuth
 

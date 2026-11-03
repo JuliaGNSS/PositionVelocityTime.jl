@@ -77,7 +77,7 @@
             pv = PositionVelocityTime.calc_satellite_position_and_velocity(dc, t)
             h = 0.5
             fd =
-                (PositionVelocityTime.calc_satellite_position(dc, t + h) .- PositionVelocityTime.calc_satellite_position(dc, t - h)) ./
+                (PositionVelocityTime.calc_satellite_position_and_velocity(dc, t + h).position .- PositionVelocityTime.calc_satellite_position_and_velocity(dc, t - h).position) ./
                 (2h)
             @test pv.velocity ≈ fd atol = 1e-3
         end

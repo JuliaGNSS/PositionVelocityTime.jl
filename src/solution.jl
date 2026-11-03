@@ -158,21 +158,6 @@ it reads.
 end
 
 """
-    get_sat_info(pvt_solution::PVTSolution, signal::Symbol, prn::Integer)
-        -> Union{ObservationResiduals,Nothing}
-
-Return the [`ObservationResiduals`](@ref) (position, transmit time and the post-fit
-pseudorange/range-rate residuals) of the
-satellite with the given `prn` on GNSS `signal` (e.g. `:GPSL1CA`, `:GalileoE1B`; see
-`get_signal_id`), or `nothing` if that satellite was not used in the fix. The
-signal tag is required because the same PRN can belong to different constellations or
-be tracked on several signals; see the `observations` field of [`PVTSolution`](@ref).
-"""
-function get_sat_info(pvt_solution::PVTSolution, signal::Symbol, prn::Integer)
-    get(pvt_solution.observations, (signal, Int(prn)), nothing)
-end
-
-"""
     calc_course_over_ground(position::ECEF, velocity::ECEF) -> typeof(1.0°)
 
 Course over ground (degrees): the azimuth of `velocity` in the local East-North-Up

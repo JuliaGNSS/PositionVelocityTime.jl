@@ -387,8 +387,8 @@
             # kilometres per second. Check it against a central difference of the
             # position, which shares none of the derivative code.
             h = 1e-3
-            forward = PositionVelocityTime.calc_satellite_position(geo_frame, t + h)
-            backward = PositionVelocityTime.calc_satellite_position(geo_frame, t - h)
+            forward = PositionVelocityTime.calc_satellite_position_and_velocity(geo_frame, t + h).position
+            backward = PositionVelocityTime.calc_satellite_position_and_velocity(geo_frame, t - h).position
             @test pv_geo.velocity ≈ (forward - backward) / (2h) atol = 1e-4
         end
 
@@ -594,7 +594,7 @@
         # a synthesis error that looks exactly like a decoder bug.
         t_tx = t_rx - 0.075                      # ~one light-time as a seed
         for _ = 1:6
-            position = PositionVelocityTime.calc_satellite_position(decoder, t_tx)
+            position = PositionVelocityTime.calc_satellite_position_and_velocity(decoder, t_tx).position
             rotated = PositionVelocityTime.satellite_position_at_reception(user, position)
             t_tx = t_rx - norm(rotated - user) / C
         end

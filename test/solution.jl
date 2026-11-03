@@ -26,8 +26,8 @@
     # other and the used-satellite count would have dropped.
     @test haskey(pvt.observations, (:GPSL1CA, shared_prn))
     @test haskey(pvt.observations, (:GalileoE1B, shared_prn))
-    @test get_sat_info(pvt, :GPSL1CA, shared_prn) !==
-          get_sat_info(pvt, :GalileoE1B, shared_prn)
+    @test pvt.observations[(:GPSL1CA, shared_prn)] !==
+          pvt.observations[(:GalileoE1B, shared_prn)]
     @test length(pvt.observations) == length(baseline.observations)
 end
 

@@ -14,7 +14,8 @@ get_satellite_position(sat_positions::AbstractVector, j) =
     SVector{3,Float64}(sat_positions[j])
 
 """
-$SIGNATURES
+    predict_pseudoranges!(pseudoranges, sat_positions, ξ, bias_columns::BiasColumns)
+        -> pseudoranges
 
 The predicted pseudoranges ρ̂ at the state `ξ`, written into `pseudoranges`: per
 satellite, the range to the Earth-rotation-corrected satellite plus its clock and
@@ -187,7 +188,7 @@ function calc_line_of_sight(sat_pos, ξ)
 end
 
 """
-$SIGNATURES
+    calc_design_matrix!(H, sat_positions, ξ, bias_columns::BiasColumns) -> H
 
 The Jacobian of [`predict_pseudoranges!`](@ref) at `ξ`, written into `H`, with
 [`num_parameters`](@ref)`(bias_columns)` columns: three for the position partials, one
@@ -223,7 +224,7 @@ calc_design_matrix(sat_positions, ξ, bias_columns::BiasColumns) = calc_design_m
     sat_positions, ξ, bias_columns)
 
 """
-$SIGNATURES
+    calc_pseudorange_curvature!(curvature, sat_positions, ξ, Δξ) -> curvature
 
 The second directional derivative of `predict_pseudoranges!` along the step `Δξ`, for the
 Levenberg–Marquardt geodesic acceleration: `(‖Δuser_pos‖² − (a · Δuser_pos)²) / d_j`

@@ -162,28 +162,6 @@ function calc_eccentric_anomaly(decoder::GNSSDecoder.GNSSDecoderState, t)
 end
 
 """
-    calc_satellite_position(decoder::GNSSDecoder.GNSSDecoderState, t)
-    calc_satellite_position(observation::SignalObservation)
-
-Calculate the satellite ECEF position from orbital parameters at time `t`.
-
-The first method takes a decoder state and explicit time. The second method
-computes the corrected transmission time from the [`SignalObservation`](@ref) automatically.
-
-# Arguments
-- `decoder`: GNSS decoder state containing ephemeris data
-- `t`: Transmission time in system time (seconds)
-- `observation`: A [`SignalObservation`](@ref) combining decoder, signal, and phase measurements
-
-# Returns
-An `SVector{3, Float64}` with the satellite position in ECEF coordinates (meters).
-"""
-function calc_satellite_position(decoder::GNSSDecoder.GNSSDecoderState, t)
-    pos_and_vel = calc_satellite_position_and_velocity(decoder, t)
-    pos_and_vel.position
-end
-
-"""
     calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderState, t)
     calc_satellite_position_and_velocity(observation::SignalObservation)
 
@@ -340,10 +318,6 @@ function calc_satellite_position_and_velocity(decoder::GNSSDecoder.GNSSDecoderSt
         time_from_ephemeris_reference_epoch) : (position = position, velocity = velocity)
 end
 
-function calc_satellite_position(observation::SignalObservation)
-    pos_and_vel = calc_satellite_position_and_velocity(observation)
-    pos_and_vel.position
-end
 function calc_satellite_position_and_velocity(observation::SignalObservation)
     t = calc_transmit_time(observation)
     calc_satellite_position_and_velocity(observation.decoder, t)

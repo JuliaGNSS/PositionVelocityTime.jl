@@ -15,7 +15,7 @@
     # Central difference of the propagated position, in BigFloat: `t ≈ 1.3e5 s` against a
     # ~3.6e6 m coordinate leaves too little Float64 headroom for a metre-level difference.
     function numeric_velocity(decoder, t; h = big(1.0))
-        pos(x) = PositionVelocityTime.calc_satellite_position(decoder, x)
+        pos(x) = calc_satellite_position_and_velocity(decoder, x).position
         (pos(big(t) + h) - pos(big(t) - h)) / (2h)
     end
 

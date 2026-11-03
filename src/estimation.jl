@@ -26,7 +26,7 @@ function factorize_normal_matrix!(normal_matrix, H)
 end
 
 """
-$SIGNATURES
+    calc_dop(H, user_pos::ECEF, reference_clock_column = 1) -> DOP
 
 The dilution of precision of the design matrix `H` ([`calc_design_matrix`](@ref)) at the
 user position. `H` has `3 + num_clock_biases + num_ifbs` columns (three position partials, one per
@@ -99,7 +99,8 @@ function calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_column = 1)
 end
 
 """
-$SIGNATURES
+    estimate_position(sat_positions, pseudoranges, bias_columns::BiasColumns,
+                      prev_ξ = zeros(num_parameters(bias_columns))) -> (ξ, residuals)
 
 The user position, receiver clock biases and inter-frequency biases that fit the
 `pseudoranges` by least squares, starting from `prev_ξ`. The algorithm is based on the
@@ -198,7 +199,9 @@ function estimate_position!(
 end
 
 """
-$SIGNATURES
+    estimate_velocity(prepared, user_pos,
+                      prev_vel_and_drift = zero(SVector{4,Float64}))
+        -> (velocity_and_drift::SVector{4}, rate_residuals)
 
 The user velocity and a single receiver clock drift, returned together with
 the per-satellite post-fit range-rate residuals as `([vx, vy, vz, ċ], rate_residuals)`.
@@ -334,18 +337,4 @@ end
 # The measured range rate, receding-positive as the model runs.
 @inline measured_pseudorange_rate(observation) =
     -observation.carrier_doppler * SPEED_OF_LIGHT / observation.center_frequency
-
-"""
-    get_sat_position(sat_pv) -> SVector{3,Float64}
-
-Satellite ECEF position (m) of one [`calc_satellite_position_and_velocity`](@ref) result.
-"""
-get_sat_position(x) = x.position
-
-"""
-    get_sat_velocity(sat_pv) -> SVector{3,Float64}
-
-Satellite ECEF velocity (m/s) of one [`calc_satellite_position_and_velocity`](@ref) result.
-"""
-get_sat_velocity(x) = x.velocity
 

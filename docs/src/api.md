@@ -73,7 +73,6 @@ PositionVelocityTime.empty_keeping_capacity!
 
 ```@docs
 get_lla
-calc_satellite_position
 calc_satellite_position_and_velocity
 calc_elevation_and_azimuth
 ```
@@ -107,12 +106,6 @@ The DOP values are read from the `dop` field of a [`PVTSolution`](@ref), e.g.
 
 ```@docs
 PositionVelocityTime.DOP
-```
-
-## Utilities
-
-```@docs
-get_sat_info
 ```
 
 ## The Measurement-Model Surface
@@ -149,8 +142,6 @@ PositionVelocityTime.SPEED_OF_LIGHT
 PositionVelocityTime.EARTH_ROTATION_RATE
 PositionVelocityTime.calc_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
-PositionVelocityTime.get_sat_position
-PositionVelocityTime.get_sat_velocity
 PositionVelocityTime.fold_week_crossover
 PositionVelocityTime.BiasColumns
 PositionVelocityTime.decide_bias_layout
