@@ -31,7 +31,8 @@ function same_solution(a::PVTSolution, b::PVTSolution)
         collect(pairs(a.observations)) == collect(pairs(b.observations)) &&
         a.reference_system === b.reference_system &&
         a.inter_system_biases == b.inter_system_biases &&
-        a.inter_frequency_biases == b.inter_frequency_biases
+        a.inter_frequency_biases == b.inter_frequency_biases &&
+        a.applied_broadcast_inter_system_biases == b.applied_broadcast_inter_system_biases
 end
 
 # `copy` copies a solution's containers and shares everything else, which keeps the
@@ -41,8 +42,9 @@ end
 immutable_value(T::Union) = immutable_value(T.a) && immutable_value(T.b)
 immutable_value(T::DataType) =
     T === Symbol || !ismutabletype(T) && all(immutable_value, fieldtypes(T))
-container_of_immutables(T) = T <: Union{Dictionary,Dict} &&
-                             immutable_value(keytype(T)) && immutable_value(valtype(T))
+container_of_immutables(T) =
+    T <: Union{Dictionary,Dict} && immutable_value(keytype(T)) &&
+    immutable_value(valtype(T)) || T <: Vector && immutable_value(eltype(T))
 
 snapshot(pvt::PVTSolution) = deepcopy(pvt)
 
@@ -123,6 +125,8 @@ end
         @test returned.observations === solution.observations
         @test returned.inter_system_biases === solution.inter_system_biases
         @test returned.inter_frequency_biases === solution.inter_frequency_biases
+        @test returned.applied_broadcast_inter_system_biases ===
+              solution.applied_broadcast_inter_system_biases
         again = calc_pvt!(returned, PVTWorkspace(), l1ca, prev_pvt; kw...)
         @test again.observations === solution.observations
         @test length(again.observations) == length(l1ca.satellites)
@@ -160,7 +164,8 @@ end
             # No container shared — including any added to `PVTSolution` later.
             for name in fieldnames(PVTSolution)
                 value = getfield(pvt, name)
-                value isa Union{Dictionary,Dict} && @test getfield(kept, name) !== value
+                value isa Union{Dictionary,Dict,Vector} &&
+                    @test getfield(kept, name) !== value
             end
             before = snapshot(pvt)
             calc_pvt!(pvt, PVTWorkspace(), e1b, pvt; kw...)   # refills `pvt`'s containers
@@ -305,6 +310,7 @@ end
         @test isempty(solution.observations)
         @test isempty(solution.inter_system_biases)
         @test isempty(solution.inter_frequency_biases)
+        @test isempty(solution.applied_broadcast_inter_system_biases)
     end
 
     @testset "the observations are collected without allocating" begin
