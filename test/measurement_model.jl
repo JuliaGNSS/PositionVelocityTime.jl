@@ -63,10 +63,10 @@ allocated_rate(args) = @allocated PositionVelocityTime.calc_pseudorange_rate(arg
 end
 
 @testset "calc_line_of_sight points receiver → satellite" begin
-    # The textbook convention (Misra & Enge's 1ₖ, RTKLIB's `e`), pinned directly
-    # because every H-based assertion is insensitive to it: `calc_design_matrix!` negates the
-    # vector into the pseudorange's position partial, so a flipped convention with a
-    # matching flip there would pass the whole suite unnoticed.
+    # The textbook convention (Misra & Enge's 1ₖ, RTKLIB's `e`), pinned directly because
+    # every H-based assertion is insensitive to it: `calc_design_matrix!` negates the vector
+    # into the pseudorange's position partial, so a flipped convention with a matching flip
+    # there would pass the whole suite unnoticed.
     user = [3.9074e6, 3.0684e5, 5.0150e6]
     sat = user + 2.0e7 * normalize([0.3, 0.1, 0.95])
     e = PositionVelocityTime.calc_line_of_sight(sat, [user; 0.0])
