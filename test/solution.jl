@@ -16,9 +16,9 @@
         collection_of(gal[setdiff(1:length(gal), gal_h_idx)]),
     )
 
-    baseline = calc_pvt((collection_of(gps), collection_of(gal)); approximate_year = 2021,
+    baseline = solved_pvt((collection_of(gps), collection_of(gal)); approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    pvt = calc_pvt(observations; approximate_year = 2021,
+    pvt = solved_pvt(observations; approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
 
     # Both the GPS and the Galileo satellite with the shared PRN survive as

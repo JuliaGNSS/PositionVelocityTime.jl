@@ -93,7 +93,7 @@
             enable_tropospheric_correction = false,
         )
         e1b_states = galileo_e1b_states(0.0Hz)
-        reference = calc_pvt(collection_of(e1b_states); kw...)
+        reference = solved_pvt(collection_of(e1b_states); kw...)
         @test length(reference.observations) >= 4
 
         # Split a transmit time into the decoder's bit count plus a sub-bit code
@@ -136,7 +136,7 @@
             )
         end
 
-        both = calc_pvt(
+        both = solved_pvt(
             (collection_of(e1b_states), collection_of(map(as_e5b_state, e1b_states))); kw...)
         @test length(both.observations) == 2 * length(reference.observations)
         # One time system (both are Galileo) but two bands, so exactly one IFB column,
@@ -207,11 +207,11 @@ end
 
     @testset "calc_pvt ignores it without touching its missing fields" begin
         ranging = galileo_e1b_states(0.0Hz)
-        reference = calc_pvt(collection_of(ranging); kw...)
+        reference = solved_pvt(collection_of(ranging); kw...)
         # Appending the E6-B state must change nothing: the health filter drops it
         # before anything reads `t_0e`, `a_f0` or any other field it does not have.
         # (Were it not filtered, this call would throw a `FieldError`, not misfix.)
-        with_e6b = calc_pvt((collection_of(ranging), collection_of([e6b_state])); kw...)
+        with_e6b = solved_pvt((collection_of(ranging), collection_of([e6b_state])); kw...)
         @test with_e6b.position == reference.position
         @test with_e6b.velocity == reference.velocity
         @test with_e6b.time == reference.time
@@ -221,12 +221,10 @@ end
     end
 
     @testset "an E6-B-only epoch is unsolvable rather than an error" begin
-        # `calc_pvt` returns `prev_pvt` unchanged when an epoch cannot be solved, so an
-        # epoch of nothing but E6-B satellites is the empty solution, not a throw.
         unsolved = calc_pvt(collection_of([e6b_state]); kw...)
-        @test unsolved.position == PVTSolution().position
-        @test isnothing(unsolved.time)
-        @test isempty(unsolved.observations)
+        @test unsolved.status === PositionVelocityTime.insufficient_observations
+        @test iszero(unsolved.solution.position)
+        @test isempty(unsolved.solution.observations)
     end
 end
 

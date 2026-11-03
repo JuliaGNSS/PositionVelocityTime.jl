@@ -51,7 +51,8 @@ allocated_solve(solution, workspace, observations, prev_pvt; kw...) =
     @allocated calc_pvt!(solution, workspace, observations, prev_pvt; kw...)
 function allocated_loop(pvt, workspace, observations; kw...)
     @allocated for _ in 1:10
-        pvt = calc_pvt!(pvt, workspace, observations, pvt; kw...)
+        result = calc_pvt!(pvt, workspace, observations, pvt; kw...)
+        result.status === PositionVelocityTime.solved && (pvt = result.solution)
     end
 end
 
@@ -93,30 +94,30 @@ end
 
     @testset "the same solve as calc_pvt: $name" for (name, observations) in epochs
         for correction in corrections
-            cold = calc_pvt(observations; kw..., correction...)
-            warm = calc_pvt(observations, cold; kw..., correction...)
+            cold = solved_pvt(observations; kw..., correction...)
+            warm = solved_pvt(observations, cold; kw..., correction...)
             workspace = PVTWorkspace()
-            pvt = calc_pvt!(PVTSolution(), workspace, observations, PVTSolution(); kw...,
+            pvt = solved_pvt!(PVTSolution(), workspace, observations, PVTSolution(); kw...,
                 correction...)
             @test same_solution(pvt, cold)
             # Warm, with the solution as its own seed — the receiver loop.
-            pvt = calc_pvt!(pvt, workspace, observations, pvt; kw..., correction...)
+            pvt = solved_pvt!(pvt, workspace, observations, pvt; kw..., correction...)
             @test same_solution(pvt, warm)
         end
     end
 
     @testset "PVTSolution stays immutable" begin
         @test !ismutabletype(PVTSolution)
-        @test_throws ErrorException calc_pvt(l1ca; kw...).position = ECEF(0.0, 0.0, 0.0)
+        @test_throws ErrorException solved_pvt(l1ca; kw...).position = ECEF(0.0, 0.0, 0.0)
     end
 
     @testset "reuses the solution it is given, and only that" begin
         observations = (gps = l1ca, galileo = e1b)
-        prev_pvt = calc_pvt(observations; kw...)
+        prev_pvt = solved_pvt(observations; kw...)
         before = snapshot(prev_pvt)
-        solution = calc_pvt(l1ca; kw...)          # something else, to be reused
-        returned = calc_pvt!(solution, PVTWorkspace(), observations, prev_pvt; kw...)
-        @test same_solution(returned, calc_pvt(observations, prev_pvt; kw...))
+        solution = solved_pvt(l1ca; kw...)          # something else, to be reused
+        returned = solved_pvt!(solution, PVTWorkspace(), observations, prev_pvt; kw...)
+        @test same_solution(returned, solved_pvt(observations, prev_pvt; kw...))
         @test same_solution(prev_pvt, before)      # `prev_pvt` is only read
         # The returned solution took over `solution`'s containers, refilled.
         @test returned.observations === solution.observations
@@ -124,38 +125,46 @@ end
         @test returned.inter_frequency_biases === solution.inter_frequency_biases
         @test returned.applied_broadcast_inter_system_biases ===
               solution.applied_broadcast_inter_system_biases
-        again = calc_pvt!(returned, PVTWorkspace(), l1ca, prev_pvt; kw...)
+        again = solved_pvt!(returned, PVTWorkspace(), l1ca, prev_pvt; kw...)
         @test again.observations === solution.observations
         @test length(again.observations) == length(l1ca)
         # `calc_pvt` still never touches its `prev_pvt`.
-        calc_pvt(l1ca, prev_pvt; kw...)
+        solved_pvt(l1ca, prev_pvt; kw...)
         @test same_solution(prev_pvt, before)
     end
 
-    @testset "an unsolvable epoch returns prev_pvt" begin
-        unsolvable = first_satellites(l1ca, 3)
-        # With inter-system and inter-frequency biases, so every container is copied.
-        for prev_pvt in (calc_pvt(l1ca; kw...), calc_pvt(epochs[8][2]; kw...),
-            calc_pvt((gps = l1ca, galileo = e1b); kw...))
-            @test calc_pvt(unsolvable, prev_pvt; kw...) === prev_pvt
-            before = snapshot(prev_pvt)
-            # Into another solution's containers: a copy, and `prev_pvt` untouched.
-            solution = calc_pvt(e1b; kw...)
-            copied = calc_pvt!(solution, PVTWorkspace(), unsolvable, prev_pvt; kw...)
-            @test same_solution(copied, prev_pvt)
-            @test copied.observations === solution.observations
-            @test same_solution(prev_pvt, before)
-            # As its own output: `prev_pvt` itself, as it was.
-            @test calc_pvt!(prev_pvt, PVTWorkspace(), unsolvable, prev_pvt; kw...) ===
-                  prev_pvt
-            @test same_solution(prev_pvt, before)
+    @testset "failed attempts leave output and seed containers untouched" begin
+        insufficient = first_satellites(l1ca, 3)
+        degenerate = [with_prn(first(l1ca), prn) for prn = 1:4]
+        for (observations, expected_status) in (
+                (insufficient, PositionVelocityTime.insufficient_observations),
+                (degenerate, PositionVelocityTime.degenerate_geometry),
+            ),
+            seed in (
+                solved_pvt(l1ca; kw...), solved_pvt(epochs[8][2]; kw...),
+                solved_pvt((gps = l1ca, galileo = e1b); kw...),
+            )
+
+            before_seed = snapshot(seed)
+            output = solved_pvt(e1b; kw...)
+            before_output = snapshot(output)
+            result = calc_pvt!(output, PVTWorkspace(), observations, seed; kw...)
+            @test result.status === expected_status
+            @test result.solution === output
+            @test same_solution(output, before_output)
+            @test same_solution(seed, before_seed)
+            # The same guarantee holds when output is also the warm-start seed.
+            result = calc_pvt!(seed, PVTWorkspace(), observations, seed; kw...)
+            @test result.status === expected_status
+            @test result.solution === seed
+            @test same_solution(seed, before_seed)
         end
     end
 
     @testset "copy keeps a solution the loop reuses" begin
         # With inter-system and inter-frequency biases, so every container is filled.
-        for pvt in (calc_pvt((gps = l1ca, galileo = e1b); kw...),
-            calc_pvt(epochs[8][2]; kw...))
+        for pvt in (solved_pvt((gps = l1ca, galileo = e1b); kw...),
+            solved_pvt(epochs[8][2]; kw...))
             kept = copy(pvt)
             @test same_solution(kept, pvt)
             # No container shared — including any added to `PVTSolution` later.
@@ -165,7 +174,7 @@ end
                     @test getfield(kept, name) !== value
             end
             before = snapshot(pvt)
-            calc_pvt!(pvt, PVTWorkspace(), e1b, pvt; kw...)   # refills `pvt`'s containers
+            solved_pvt!(pvt, PVTWorkspace(), e1b, pvt; kw...)   # refills `pvt`'s containers
             @test same_solution(kept, before)
         end
         @test same_solution(copy(PVTSolution()), PVTSolution())
@@ -180,13 +189,13 @@ end
         # Two collections sharing a ranging signal, as `Dictionary(keys, values)` refused it
         # before the solution was filled in place.
         twice = (a = l1ca, b = l1ca)
-        @test_throws Dictionaries.IndexError calc_pvt(twice; kw...)
-        @test_throws Dictionaries.IndexError calc_pvt!(
+        @test_throws Dictionaries.IndexError solved_pvt(twice; kw...)
+        @test_throws Dictionaries.IndexError solved_pvt!(
             PVTSolution(), PVTWorkspace(), twice, PVTSolution(); kw...)
         # As its own output, the refused epoch leaves `prev_pvt` as it was.
-        prev_pvt = calc_pvt((gps = l1ca, galileo = e1b); kw...)
+        prev_pvt = solved_pvt((gps = l1ca, galileo = e1b); kw...)
         before = snapshot(prev_pvt)
-        @test_throws Dictionaries.IndexError calc_pvt!(
+        @test_throws Dictionaries.IndexError solved_pvt!(
             prev_pvt, PVTWorkspace(), twice, prev_pvt; kw...)
         @test same_solution(prev_pvt, before)
     end
@@ -197,8 +206,8 @@ end
         # Growing, shrinking and growing again, across layouts with and without an IFB
         # column: every solve matches a fresh `calc_pvt`.
         for (_, observations) in epochs[[1, 9, 7, 8, 5, 10, 1]]
-            pvt = calc_pvt!(pvt, workspace, observations, PVTSolution(); kw...)
-            @test same_solution(pvt, calc_pvt(observations; kw...))
+            pvt = solved_pvt!(pvt, workspace, observations, PVTSolution(); kw...)
+            @test same_solution(pvt, solved_pvt(observations; kw...))
         end
     end
 
@@ -206,8 +215,8 @@ end
         for correction in corrections
             workspace = PVTWorkspace()
             cold = PVTSolution()
-            pvt = calc_pvt!(PVTSolution(), workspace, observations, cold; kw..., correction...)
-            pvt = calc_pvt!(pvt, workspace, observations, pvt; kw..., correction...)
+            pvt = solved_pvt!(PVTSolution(), workspace, observations, cold; kw..., correction...)
+            pvt = solved_pvt!(pvt, workspace, observations, pvt; kw..., correction...)
             @test allocated_solve(pvt, workspace, observations, cold; kw..., correction...) == 0
             @test allocated_solve(pvt, workspace, observations, pvt; kw..., correction...) == 0
             # The receiver loop itself, many epochs through one binding.
@@ -216,13 +225,20 @@ end
     end
 
     @testset "an unsolvable epoch allocates nothing either" begin
-        prev_pvt = calc_pvt(epochs[8][2]; kw...)
+        prev_pvt = solved_pvt(epochs[8][2]; kw...)
         workspace = PVTWorkspace()
-        solution = calc_pvt!(PVTSolution(), workspace, epochs[8][2], prev_pvt; kw...)
+        solution = solved_pvt!(PVTSolution(), workspace, epochs[8][2], prev_pvt; kw...)
         unsolvable = first_satellites(l1ca, 3)
-        calc_pvt!(solution, workspace, unsolvable, prev_pvt; kw...)
+        result = calc_pvt!(solution, workspace, unsolvable, prev_pvt; kw...)
+        @test result.status === PositionVelocityTime.insufficient_observations
+        @test result.solution === solution
         @test allocated_solve(solution, workspace, unsolvable, prev_pvt; kw...) == 0
         @test allocated_solve(prev_pvt, workspace, unsolvable, prev_pvt; kw...) == 0
+        degenerate = [with_prn(first(l1ca), prn) for prn = 1:4]
+        result = calc_pvt!(solution, workspace, degenerate, prev_pvt; kw...)
+        @test result.status === PositionVelocityTime.degenerate_geometry
+        @test result.solution === solution
+        @test allocated_solve(solution, workspace, degenerate, prev_pvt; kw...) == 0
     end
 
     @testset "every ionospheric model is predicted without allocating" begin
@@ -249,7 +265,7 @@ end
             @allocated predict!(delays, ξ, prepared, model, epoch, true)
         workspace = PVTWorkspace()
         solution = PVTSolution()
-        calc_pvt!(solution, workspace, (gps = l1ca, galileo = e1b), PVTSolution(); kw...)
+        solved_pvt!(solution, workspace, (gps = l1ca, galileo = e1b), PVTSolution(); kw...)
         cold = PVTSolution()
         time_offsets = time_offsets_of((gps = l1ca, galileo = e1b))
         solve!(model) = PositionVelocityTime._solve_pvt!(solution, workspace,
@@ -263,7 +279,7 @@ end
                 ξ, prepared, model, epoch, true)
             @test all(isfinite, delays)
             @test allocated_predict(delays, model) == 0
-            @test first(solve!(parameters))
+            @test solve!(parameters).status === PositionVelocityTime.solved
             @test allocated_solve!(parameters) == 0
         end
     end
@@ -295,7 +311,7 @@ end
     end
 
     @testset "a solution's containers are emptied in place" begin
-        solution = calc_pvt!(PVTSolution(), PVTWorkspace(),
+        solution = solved_pvt!(PVTSolution(), PVTWorkspace(),
             (l1 = l1ca, l5 = precompile_gps(GPSL5I(), _precompile_cnav),
                 galileo = e1b), PVTSolution(); kw...)
         @test !isempty(solution.observations)

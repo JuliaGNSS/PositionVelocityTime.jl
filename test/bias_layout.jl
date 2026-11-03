@@ -235,7 +235,7 @@
 
     @testset "single-band fix reports no inter-frequency bias" begin
         # The L1-only GPS+Galileo fixtures share one band ⇒ no IFB unknown.
-        pvt = calc_pvt(
+        pvt = solved_pvt(
             (collection_of(gps_l1_states(0.0Hz)), collection_of(galileo_e1b_states(0.0Hz)));
             kw...)
         @test isempty(pvt.inter_frequency_biases)
@@ -249,14 +249,14 @@
     # inter-frequency bias rather than corrupting the position.
     @testset "calc_pvt estimates the IFB across the L1 and L5 bands" begin
         e1b = galileo_e1b_states(0.0Hz)
-        ref = calc_pvt(collection_of(e1b); kw...)                          # L1-only Galileo fix
+        ref = solved_pvt(collection_of(e1b); kw...)                          # L1-only Galileo fix
         @test length(ref.observations) >= 4
 
         # Consistent L5 copies ⇒ band grouping triggers, IFB ≈ 0, fix unchanged. The
         # copies reproduce each E1B transmit time exactly, so the residuals are the
         # L1-only fixtures' own ~m-level noise (the baseline), not zero.
         base = maximum(abs, [info.residual for info in values(ref.observations)])
-        pvt0 = calc_pvt((collection_of(e1b), collection_of(map(as_e5a, e1b))); kw...)
+        pvt0 = solved_pvt((collection_of(e1b), collection_of(map(as_e5a, e1b))); kw...)
         @test pvt0.reference_system == GST()
         @test haskey(pvt0.inter_frequency_biases, :L5)
         @test pvt0.inter_frequency_biases[:L5].reference_band == :L1
@@ -271,7 +271,7 @@
         # baseline — without the IFB unknown the L5 satellites would carry ~12 m
         # residuals instead.
         δ = 12.0
-        pvtδ = calc_pvt(
+        pvtδ = solved_pvt(
             (collection_of(e1b), collection_of(map(s -> as_e5a(s; ifb_shift_s = -δ / C), e1b)));
             kw...)
         @test pvtδ.inter_frequency_biases[:L5].value ≈ δ * m atol = 0.05m
@@ -286,12 +286,12 @@
     # rather than corrupting the position. Exercises the new L2 band through calc_pvt.
     @testset "calc_pvt estimates the IFB across the GPS L1 and L2 bands" begin
         gps = gps_l1_states(0.0Hz)
-        ref = calc_pvt(collection_of(gps); kw...)                          # L1-only GPS fix
+        ref = solved_pvt(collection_of(gps); kw...)                          # L1-only GPS fix
         @test length(ref.observations) >= 4
         base = maximum(abs, [info.residual for info in values(ref.observations)])
 
         # Consistent L2C copies ⇒ band grouping triggers, IFB ≈ 0, fix unchanged.
-        pvt0 = calc_pvt((collection_of(gps), collection_of(map(as_l2c, gps))); kw...)
+        pvt0 = solved_pvt((collection_of(gps), collection_of(map(as_l2c, gps))); kw...)
         @test pvt0.reference_system == GPST()
         @test haskey(pvt0.inter_frequency_biases, :L2)
         @test pvt0.inter_frequency_biases[:L2].reference_band == :L1
@@ -304,7 +304,7 @@
         # A uniform 12 m receiver L2 delay is absorbed by the IFB, leaving the position
         # and residuals at the baseline.
         δ = 12.0
-        pvtδ = calc_pvt(
+        pvtδ = solved_pvt(
             (collection_of(gps), collection_of(map(s -> as_l2c(s; ifb_shift_s = -δ / C), gps)));
             kw...)
         @test pvtδ.inter_frequency_biases[:L2].value ≈ δ * m atol = 0.05m
@@ -319,7 +319,7 @@
     @testset "disjoint-band coverage is observable, not degenerate" begin
         gps_l1 = gps_l1_states(0.0Hz)                       # GPS on L1 only
         # Connected all-L1 reference fix, for the true position and inter-system offset.
-        connected = calc_pvt(
+        connected = solved_pvt(
             (collection_of(gps_l1), collection_of(galileo_e1b_states(0.0Hz))); kw...)
 
         # No GGTO to reconnect the split ⇒ fold: no IFB column. The L5 copies reproduce
@@ -330,7 +330,7 @@
         # solution the bug produced instead had a ~1e7 GDOP and a huge IFB that does not
         # match the reference at all.)
         gal_l5 = map(as_e5a, galileo_e1b_states(0.0Hz))     # Galileo on L5 only
-        pvt = calc_pvt((collection_of(gps_l1), collection_of(gal_l5)); kw...)
+        pvt = solved_pvt((collection_of(gps_l1), collection_of(gal_l5)); kw...)
         @test isempty(pvt.inter_frequency_biases)            # L5 IFB folded into the Galileo clock
         @test length(pvt.observations) == length(gps_l1) + length(gal_l5)
         @test pvt.inter_system_biases[GST()] ≈ connected.inter_system_biases[GST()] rtol = 1e-6
@@ -344,7 +344,7 @@
         true_isb = connected.inter_system_biases[GST()]
         gal_l5_ggto =
             map(s -> as_e5a(s; ggto = -ustrip(m, true_isb) / C), galileo_e1b_states(0.0Hz))
-        pvt_ggto = calc_pvt((collection_of(gps_l1), collection_of(gal_l5_ggto)); kw...)
+        pvt_ggto = solved_pvt((collection_of(gps_l1), collection_of(gal_l5_ggto)); kw...)
         @test pvt_ggto.reference_system == connected.reference_system
         @test haskey(pvt_ggto.inter_frequency_biases, :L5)   # reconnected ⇒ IFB observable
         @test pvt_ggto.inter_frequency_biases[:L5].reference_band == :L1
@@ -357,7 +357,7 @@
     # Regression, end to end through calc_pvt: two real satellites tracked on three bands
     # clear the observation count (6 ≥ 3 + 1 clock + 2 IFB) with two lines of sight, so
     # the design matrix is rank deficient and the epoch is unsolvable. calc_pvt must skip
-    # it (return `prev_pvt`) rather than throw — while the layout gate still counted
+    # it with an insufficient-observations result rather than throw — while the layout gate still counted
     # observations only, the epoch reached the solve and its cold-start step, which is
     # undamped and factorises HᵀH directly, threw SingularException out of LsqFit.
     @testset "unsolvable triple-band geometry is skipped, not thrown" begin
@@ -375,11 +375,15 @@
         @test length(prepared) >= 3 + 1 + 2
         @test PositionVelocityTime.decide_bias_layout(prepared, time_offsets) === nothing
 
-        ref = calc_pvt(collection_of(gps); kw...)               # L1-only GPS fix, as previous PVT
-        @test calc_pvt(observations, ref; kw...) === ref             # warm start: previous fix kept
-        cold = calc_pvt(observations; kw...)                         # cold start: nothing to fall back on
-        @test isempty(cold.observations)
-        @test iszero(cold.position)
+        ref = solved_pvt(collection_of(gps); kw...)               # L1-only GPS fix, as previous PVT
+        warm= calc_pvt(observations, ref; kw...)
+        cold = calc_pvt(observations; kw...)
+        @test warm.status === PositionVelocityTime.insufficient_observations
+        @test cold.status === PositionVelocityTime.insufficient_observations
+        @test iszero(warm.solution.position)
+        @test isempty(warm.solution.observations)
+        @test iszero(cold.solution.position)
+        @test isempty(cold.solution.observations)
     end
 
     @testset "both directions of a GGTO are kept, Galileo's is used" begin
@@ -438,26 +442,28 @@ end
 
     # The full independent solution provides the reference position and the
     # inter-system time offset that the GGTO must encode.
-    reference = calc_pvt((collection_of(gps), collection_of(gal)); approximate_year = 2021,
+    reference = solved_pvt((collection_of(gps), collection_of(gal)); approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    gps_only = calc_pvt(collection_of(gps); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    gps_only = solved_pvt(collection_of(gps); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     # reference_system is GPS (most satellites), so the Galileo inter-system bias
     # is Galileo − GPS = −c·(GST − GPST). The physical broadcast GGTO that would
     # reproduce it is its negation, in seconds.
     Δ = -ustrip(m, reference.inter_system_biases[GST()]) / C
 
     # 3 GPS + 1 Galileo: the independent solve needs 3 + 2 = 5 satellites, so
-    # without GGTO the constellation is under-determined and calc_pvt returns the
-    # (origin) previous solution.
+    # without GGTO the constellation is under-determined.
     subset = (collection_of(gps[1:3]), collection_of(gal[1:1]))
-    @test calc_pvt(subset; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false).position == ECEF(0, 0, 0)
+    insufficient= calc_pvt(subset; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    @test insufficient.status === PositionVelocityTime.insufficient_observations
+    @test iszero(insufficient.solution.position)
+    @test isempty(insufficient. solution. observations)
 
     # With the GGTO available the Galileo clock bias is tied to GPS, so a
     # 4-satellite fix becomes possible and reproduces the full-constellation
     # position. A wrong offset sign would corrupt the single Galileo observation
     # (here c·Δ ≈ 2.4e6 m), so reproducing the reference also pins the sign.
     subset_ggto = (collection_of(gps[1:3]), collection_of([with_ggto(gal[1]; A_0G = Δ)]))
-    pvt = calc_pvt(subset_ggto; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    pvt = solved_pvt(subset_ggto; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test pvt.position != ECEF(0, 0, 0)
     @test norm(pvt.position - reference.position) < 10
     @test norm(pvt.position - gps_only.position) < 10
@@ -469,7 +475,7 @@ end
     # is still the fourth distinct satellite the constrained layout needs, so relabelling
     # it leaves the fix untouched (PRN-only identity would count three and bail).
     collided = with_prn(with_ggto(gal[1]; A_0G = Δ), gps[1].decoder.prn)
-    pvt_collided = calc_pvt((collection_of(gps[1:3]), collection_of([collided])); approximate_year = 2021,
+    pvt_collided = solved_pvt((collection_of(gps[1:3]), collection_of([collided])); approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test pvt_collided.position == pvt.position
 
@@ -477,7 +483,7 @@ end
     # Galileo clock to GPS: here only the first of two Galileo satellites has it.
     @test !has_offset(gal[2].decoder, GPST())
     mixed = (collection_of(gps[1:2]), collection_of([with_ggto(gal[1]; A_0G = Δ), gal[2]]))
-    pvt_mixed = calc_pvt(mixed; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    pvt_mixed = solved_pvt(mixed; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test pvt_mixed.position != ECEF(0, 0, 0)
     @test norm(pvt_mixed.position - reference.position) < 50
 
@@ -486,7 +492,7 @@ end
     # Galileo clock reads GST − GPST ahead of the GPS one. The constraint pins the one
     # direction four satellites leave unobservable, so the fit meets it exactly.
     A_big = 1.0e-6
-    big = calc_pvt((collection_of(gps[1:3]), collection_of([with_ggto(gal[1]; A_0G = A_big)]));
+    big = solved_pvt((collection_of(gps[1:3]), collection_of([with_ggto(gal[1]; A_0G = A_big)]));
         approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
     @test big.inter_system_biases[GST()] ≈ -C * A_big * m rtol = 1e-6
@@ -496,7 +502,7 @@ end
     # one with that plus its previous −c·A_0G ≈ −300 m inter-system bias.
     big_groups = (collection_of(gps[1:3]), collection_of([with_ggto(gal[1]; A_0G = A_big)]))
     workspace = PVTWorkspace()
-    calc_pvt!(PVTSolution(), workspace, big_groups, big; approximate_year = 2021,
+    solved_pvt!(PVTSolution(), workspace, big_groups, big; approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test big.dop.PDOP < PositionVelocityTime.MAX_TRUSTED_WARM_START_PDOP
     reference_satellite = workspace.prepared[1]
@@ -505,7 +511,7 @@ end
     @test workspace.prev_ξ[5] - workspace.prev_ξ[4] ≈
           ustrip(m, big.inter_system_biases[GST()]) rtol = 1e-12
     # The seed only sets the starting point: warm and cold starts reach the same fix.
-    warm = calc_pvt(big_groups, big; approximate_year = 2021,
+    warm = solved_pvt(big_groups, big; approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test norm(warm.position - big.position) < 1e-3
     @test warm.time ≈ big.time
@@ -638,8 +644,8 @@ end
     gps = gps_l1_states(0.0Hz)
     gal = galileo_e1b_states(0.0Hz)
     observations = (collection_of(gps[1:2]), collection_of(gal))
-    pvt = calc_pvt(observations; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    gal_only = calc_pvt(collection_of(gal); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    pvt = solved_pvt(observations; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    gal_only = solved_pvt(collection_of(gal); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
 
     @test pvt.reference_system == GST()
     @test Set(keys(pvt.inter_system_biases)) == Set([GPST()])

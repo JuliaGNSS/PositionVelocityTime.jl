@@ -250,7 +250,7 @@ end
 @testset "the velocity solve fits calc_pseudorange_rate's model" begin
     c = PositionVelocityTime.SPEED_OF_LIGHT
     observations = collection_of(gps_l1_states(0.0Hz))
-    pvt = calc_pvt(observations; approximate_year = 2021, enable_ionospheric_correction = false,
+    pvt = solved_pvt(observations; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
     user_pos = SVector{3,Float64}(pvt.position)
     user_vel = SVector{3,Float64}(pvt.velocity)
@@ -282,7 +282,7 @@ with_pseudorange_rate(observation, rate) = PositionVelocityTime.PreparedObservat
     ("Galileo E1B", galileo_e1b_states(0.0Hz)),
 )
     observations = collection_of(states)
-    pvt = calc_pvt(observations; approximate_year = 2021)
+    pvt = solved_pvt(observations; approximate_year = 2021)
     user_pos = SVector{3,Float64}(pvt.position)
     prepared = prepared_of(observations)
     for (user_vel, clock_drift) in ((SVector(150.0, -200.0, 50.0), 3000.0),

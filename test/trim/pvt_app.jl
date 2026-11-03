@@ -24,7 +24,9 @@ beidou(signal) = [SignalObservation(;
 
 # One `print` per value: a long `print(io, xs...)` is not specialised on its
 # arguments' types, which leaves the call dynamic.
-function report(io, name, pvt)
+function report(io, name, result)
+    result.status === PositionVelocityTime.solved || error("positioning failed")
+    pvt = result.solution
     print(io, name, ":")
     for x in (pvt.position..., pvt.velocity..., pvt.time.second, pvt.time.fraction,
         pvt.dop.GDOP, length(pvt.observations))
@@ -39,13 +41,13 @@ end
 function solve(io, name, observations)
     cold = calc_pvt(observations; approximate_year = 2021)
     report(io, name * " cold", cold)
-    report(io, name * " warm", calc_pvt(observations, cold; approximate_year = 2021))
+    report(io, name * " warm", calc_pvt(observations, cold.solution; approximate_year = 2021))
     report(io, name * " uncorrected", calc_pvt(observations; approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false))
     # The in-place solve, warm-started from (and reusing) its own solution.
     workspace = PVTWorkspace()
-    in_place = calc_pvt!(PVTSolution(), workspace, observations, cold; approximate_year = 2021)
-    report(io, name * " in place", calc_pvt!(in_place, workspace, observations, in_place;
+    in_place = calc_pvt!(PVTSolution(), workspace, observations, cold.solution; approximate_year = 2021)
+    report(io, name * " in place", calc_pvt!(in_place.solution, workspace, observations, in_place.solution;
         approximate_year = 2021))
 end
 

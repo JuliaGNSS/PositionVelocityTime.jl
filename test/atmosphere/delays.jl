@@ -422,12 +422,12 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         #
         # The bound is a metre rather than the decimetres the synthetic geometry might
         # suggest: the fix lands 0.84 m out, this fixture's own consistency floor.
-        pvt = calc_pvt(collection_of(states); approximate_year = 2020)
+        pvt = solved_pvt(collection_of(states); approximate_year = 2020)
         @test norm(pvt.position - IONO_TROPO_GROUND_TRUTH) < 1.0
 
         # Disabling the corrections moves the fix several metres off truth, so
         # the corrections demonstrably improve the solution.
-        uncorrected = calc_pvt(
+        uncorrected = solved_pvt(
             collection_of(states);
             approximate_year = 2020,
             enable_ionospheric_correction = false,
@@ -801,10 +801,10 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         # tropospheric mapping baked in, so a solve using the Niell mapping (#62)
         # reproduces the fixture's truth only up to the mapping difference at these
         # elevations (~0.5 m here) — a fixture-consistency floor, not solver error.
-        pvt = calc_pvt(collection_of(states); approximate_year = 2020)
+        pvt = solved_pvt(collection_of(states); approximate_year = 2020)
         @test norm(pvt.position - IONO_TROPO_GROUND_TRUTH) < 0.7
 
-        uncorrected = calc_pvt(
+        uncorrected = solved_pvt(
             collection_of(states);
             approximate_year = 2020,
             enable_ionospheric_correction = false,
