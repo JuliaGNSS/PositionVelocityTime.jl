@@ -174,8 +174,8 @@ function estimate_position!(
         curve_fit!(
             workspace, model!, jacobian!, sat_positions, pseudoranges, prev_ξ;
             inplace = true,
-            avv! = (curvature, par, v) ->
-                calc_pseudorange_curvature!(curvature, sat_positions, par, v),
+            avv! = (curvature, ξ, Δξ) ->
+                calc_pseudorange_curvature!(curvature, sat_positions, ξ, Δξ),
             lambda = 1e-8,
             min_step_quality = 0.0,
             x_tol = 1e-13,
@@ -256,7 +256,7 @@ static one and allocates nothing.
 """
 function estimate_velocity!(rate_residuals, design, prepared,
     user_pos, prev_vel_and_drift = zero(SVector{4,Float64}))
-    user_position = SVector{3,Float64}(user_pos[1], user_pos[2], user_pos[3])
+    user_pos = SVector{3,Float64}(user_pos[1], user_pos[2], user_pos[3])
     prev_vel = SVector{3,Float64}(
         prev_vel_and_drift[1], prev_vel_and_drift[2], prev_vel_and_drift[3])
     rate_residuals = resize!(rate_residuals, length(prepared))
@@ -284,7 +284,7 @@ function estimate_velocity!(rate_residuals, design, prepared,
     Atr = zero(SVector{4,Float64})
     for j in eachindex(prepared)
         observation = prepared[j]
-        modelled, a = pseudorange_rate_and_gradient(user_position, prev_vel,
+        modelled, a = pseudorange_rate_and_gradient(user_pos, prev_vel,
             prev_vel_and_drift[4],
             observation.position, observation.velocity, observation.clock_drift)
         rⱼ = measured_pseudorange_rate(observation) - modelled
@@ -295,7 +295,7 @@ function estimate_velocity!(rate_residuals, design, prepared,
     end
     # The design row is H's row times `T` — `T` keeps H's three position columns, sums its
     # clock columns into the drift column and drops the IFB columns — plus a perturbation:
-    # `k·q − s·(q − e)/c` in the position entries and `−s/c` in the drift entry, with
+    # `k·q − s·(q − a)/c` in the position entries and `−s/c` in the drift entry, with
     # `|q| ≲ 2e-6` and `|s|/c ≲ 3e-6` for a satellite's range rate of up to ~900 m/s, so a
     # few 1e-6 relative. `T` has orthogonal columns of norms 1, 1, 1, √M, so a full-rank `H`
     # gives a full-rank `H·T`, with `σ_min(H·T)/σ_max(H·T) ≥ σ_min(H)/(√M·σ_max(H))`. The

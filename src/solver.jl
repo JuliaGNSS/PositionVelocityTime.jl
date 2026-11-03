@@ -477,11 +477,11 @@ function _solve_pvt!(
     # solution whenever the position solve trusts that as its seed, and from rest
     # otherwise: on a cold start (the default `prev_pvt` is at rest anyway), after a
     # distrusted solution, or should the previous one carry a non-finite value.
-    previous_velocity_and_drift = SVector(prev_pvt.velocity[1], prev_pvt.velocity[2],
+    prev_vel_and_drift = SVector(prev_pvt.velocity[1], prev_pvt.velocity[2],
         prev_pvt.velocity[3], prev_pvt.relative_clock_drift * SPEED_OF_LIGHT)
     velocity_start =
-        !distrusted && all(isfinite, previous_velocity_and_drift) ?
-        previous_velocity_and_drift : zero(SVector{4,Float64})
+        !distrusted && all(isfinite, prev_vel_and_drift) ?
+        prev_vel_and_drift : zero(SVector{4,Float64})
     user_velocity_and_clock_drift, rate_residuals =
         estimate_velocity!(workspace.rate_residuals,
             workspace.velocity_design, prepared, position, velocity_start)

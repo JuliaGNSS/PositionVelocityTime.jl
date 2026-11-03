@@ -33,13 +33,13 @@ function predict_pseudoranges!(
     ξ,
     bias_columns::BiasColumns,
 )
-    rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
+    user_pos = SVector{3}(ξ[1], ξ[2], ξ[3])
     for j in 1:observation_count(sat_positions)
         sat_pos = get_satellite_position(sat_positions, j)
         ifb_column = bias_columns.ifb_columns[j]
         ifb = ifb_column == 0 ? 0.0 : ξ[3+bias_columns.num_clock_biases+ifb_column]
         pseudoranges[j] =
-            norm(satellite_position_at_reception(rₙ, sat_pos) - rₙ) +
+            norm(satellite_position_at_reception(user_pos, sat_pos) - user_pos) +
             ξ[3+bias_columns.clock_columns[j]] + ifb
     end
     return pseudoranges
@@ -94,14 +94,14 @@ end
 end
 
 # The user-velocity partial of the travel-time rate's share of the range rate: the
-# Earth-rotation-rate term `ω_e·τ̇·(e · J·s')` (with `J·s' = (s'_y, −s'_x, 0)`) takes
-# `−ω_e·(e · J·s')·û/c` from the `−û·v_user/c` in `τ̇ = û·(v_sat − v_user)/c`. It is ~2e-6
+# Earth-rotation-rate term `ω_e·τ̇·(a · J·s')` (with `J·s' = (s'_y, −s'_x, 0)`) takes
+# `−ω_e·(a · J·s')·û/c` from the `−û·v_user/c` in `τ̇ = û·(v_sat − v_user)/c`. It is ~2e-6
 # relative to the line of sight, so it is evaluated on the unrotated geometry: with
-# `e ≈ û` and `s' ≈ s`, and `s·J·s = 0`, `e · J·s' ≈ −u·J·s/d`. The neglected rotation is
+# `a ≈ û` and `s' ≈ s`, and `s·J·s = 0`, `a · J·s' ≈ −u·J·s/d`. The neglected rotation is
 # ~5e-6 relative of this term, ~1e-11 of the partial.
 @inline function travel_time_velocity_partial(user_pos, sat_pos)
     to_sat = sat_pos - user_pos
-    # `−u·J·s`; the `1/d` of `e · J·s'` and of `û` combine with `to_sat` into `1/d²`.
+    # `−u·J·s`; the `1/d` of `a · J·s'` and of `û` combine with `to_sat` into `1/d²`.
     sagnac = user_pos[2] * sat_pos[1] - user_pos[1] * sat_pos[2]
     scale = -EARTH_ROTATION_RATE * sagnac / (SPEED_OF_LIGHT * dot(to_sat, to_sat))
     return scale * to_sat
@@ -147,13 +147,13 @@ Allocation-free and `@inline`.
 # `calc_pseudorange_rate` and its gradient in `[v; ċ]`, the velocity solve's design row.
 # With the receiver velocity `v` and clock drift `ċ` (m/s) the pseudorange rate is
 #
-#     ρ̇ = k·s + r,   s = rate + q · v,   r = ċ − e · v,   k = 1 − (s + r)/c,
+#     ρ̇ = k·s + r,   s = rate + q · v,   r = ċ − a · v,   k = 1 − (s + r)/c,
 #
 # where
-# - `e` is the unit receiver→satellite vector to the Earth-rotation-corrected satellite,
+# - `a` is the unit receiver→satellite vector to the Earth-rotation-corrected satellite,
 #   as `calc_line_of_sight` gives it;
 # - `rate` is the satellite's share of the range rate for a resting receiver (m/s),
-#   `e · d(s')/dt − c·ḃ_sat` — its rotated velocity, the rate of the rotation itself, and
+#   `a · d(s')/dt − c·ḃ_sat` — its rotated velocity, the rate of the rotation itself, and
 #   its clock drift;
 # - `q` is how that share changes with the receiver velocity, through the travel-time
 #   rate the rotation rate is scaled by (~2e-6 against the line of sight);
@@ -161,18 +161,18 @@ Allocation-free and `@inline`.
 #
 # `s` and `r` are affine in `[v; ċ]`, so `ρ̇` is quadratic, with the gradient
 #
-#     ∂ρ̇/∂v = k·q − e − s·(q − e)/c,   ∂ρ̇/∂ċ = 1 − s/c.
+#     ∂ρ̇/∂v = k·q − a − s·(q − a)/c,   ∂ρ̇/∂ċ = 1 − s/c.
 @inline function pseudorange_rate_and_gradient(user_pos, user_vel, user_clock_drift,
     sat_pos, sat_vel, sat_clock_drift)
     rotated_sat_pos, rotated_sat_vel =
         satellite_state_at_reception(user_pos, sat_pos, sat_vel)
     to_rotated_sat = rotated_sat_pos - user_pos
-    e = to_rotated_sat / norm(to_rotated_sat)
+    a = to_rotated_sat / norm(to_rotated_sat)
     q = travel_time_velocity_partial(user_pos, sat_pos)
-    s = dot(e, rotated_sat_vel) - sat_clock_drift * SPEED_OF_LIGHT + dot(q, user_vel)
-    r = user_clock_drift - dot(e, user_vel)
+    s = dot(a, rotated_sat_vel) - sat_clock_drift * SPEED_OF_LIGHT + dot(q, user_vel)
+    r = user_clock_drift - dot(a, user_vel)
     k = 1 - (s + r) / SPEED_OF_LIGHT
-    ∂v = k * q - e - (s / SPEED_OF_LIGHT) * (q - e)
+    ∂v = k * q - a - (s / SPEED_OF_LIGHT) * (q - a)
     return k * s + r, SVector(∂v[1], ∂v[2], ∂v[3], 1 - s / SPEED_OF_LIGHT)
 end
 
@@ -181,8 +181,8 @@ end
 # *negative*, which is what the design-matrix rows of `calc_design_matrix!` carry. `ξ` holds the user
 # position in its first three entries.
 function calc_line_of_sight(sat_pos, ξ)
-    rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
-    to_sat = satellite_position_at_reception(rₙ, sat_pos) - rₙ
+    user_pos = SVector{3}(ξ[1], ξ[2], ξ[3])
+    to_sat = satellite_position_at_reception(user_pos, sat_pos) - user_pos
     return to_sat / norm(to_sat)
 end
 
@@ -199,10 +199,10 @@ function calc_design_matrix!(H, sat_positions, ξ, bias_columns::BiasColumns)
     fill!(H, 0.0)
     for j in 1:observation_count(sat_positions)
         sat_pos = get_satellite_position(sat_positions, j)
-        e = calc_line_of_sight(sat_pos, ξ)
-        H[j, 1] = -e[1]
-        H[j, 2] = -e[2]
-        H[j, 3] = -e[3]
+        a = calc_line_of_sight(sat_pos, ξ)
+        H[j, 1] = -a[1]
+        H[j, 2] = -a[2]
+        H[j, 3] = -a[3]
         H[j, 3+bias_columns.clock_columns[j]] = 1.0
         ifb_column = bias_columns.ifb_columns[j]
         if ifb_column != 0
@@ -225,22 +225,22 @@ calc_design_matrix(sat_positions, ξ, bias_columns::BiasColumns) = calc_design_m
 """
 $SIGNATURES
 
-The second directional derivative of `predict_pseudoranges!` along the step `v`, for the
-Levenberg–Marquardt geodesic acceleration: `(‖v_r‖² − (û · v_r)²) / d_j` per
-satellite, with `v_r` the step's position block, `û` the line of sight and `d_j` the
-range, treating the rotated satellite as fixed (its dependence on `ξ` is scaled by
-`ω_e/c ≈ 2e-13`).
+The second directional derivative of `predict_pseudoranges!` along the step `Δξ`, for the
+Levenberg–Marquardt geodesic acceleration: `(‖Δuser_pos‖² − (a · Δuser_pos)²) / d_j`
+per satellite, with `Δuser_pos` the step's position block, `a` the line of sight and
+`d_j` the range, treating the rotated satellite as fixed (its dependence on `ξ` is scaled
+by `ω_e/c ≈ 2e-13`).
 """
-function calc_pseudorange_curvature!(curvature, sat_positions, ξ, v)
-    rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
-    v_r = SVector{3}(v[1], v[2], v[3])
-    v_r_sq = dot(v_r, v_r)
+function calc_pseudorange_curvature!(curvature, sat_positions, ξ, Δξ)
+    user_pos = SVector{3}(ξ[1], ξ[2], ξ[3])
+    Δuser_pos = SVector{3}(Δξ[1], Δξ[2], Δξ[3])
+    Δuser_pos_sq = dot(Δuser_pos, Δuser_pos)
     for j in 1:observation_count(sat_positions)
         sat_pos = get_satellite_position(sat_positions, j)
-        u = satellite_position_at_reception(rₙ, sat_pos) - rₙ
-        d = norm(u)
-        û = u / d
-        curvature[j] = (v_r_sq - dot(û, v_r)^2) / d
+        to_sat = satellite_position_at_reception(user_pos, sat_pos) - user_pos
+        d = norm(to_sat)
+        a = to_sat / d
+        curvature[j] = (Δuser_pos_sq - dot(a, Δuser_pos)^2) / d
     end
     return curvature
 end
