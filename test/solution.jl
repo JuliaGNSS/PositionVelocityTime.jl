@@ -10,15 +10,15 @@
     gal_h_idx = findfirst(healthy, gal)
     shared_prn = gps_h.decoder.prn
     collided = with_prn(gal[gal_h_idx], shared_prn)
-    groups = (
-        signal_group(gps),
-        signal_group([collided]),
-        signal_group(gal[setdiff(1:length(gal), gal_h_idx)]),
+    observations = (
+        collection_of(gps),
+        collection_of([collided]),
+        collection_of(gal[setdiff(1:length(gal), gal_h_idx)]),
     )
 
-    baseline = calc_pvt((signal_group(gps), signal_group(gal)); approximate_year = 2021,
+    baseline = calc_pvt((collection_of(gps), collection_of(gal)); approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    pvt = calc_pvt(groups; approximate_year = 2021,
+    pvt = calc_pvt(observations; approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
 
     # Both the GPS and the Galileo satellite with the shared PRN survive as

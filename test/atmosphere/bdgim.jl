@@ -375,7 +375,7 @@
             BeiDouB1I(),
         )
         # A second legacy satellite, needed below to place one *after* the BDS-3 one.
-        # Its own PRN: a signal group is keyed by PRN, so the same satellite twice on
+        # Its own PRN: a collection is keyed by PRN, so the same satellite twice on
         # one signal is rejected structurally rather than silently counted twice.
         bds2_second = mk(
             GNSSDecoder.GNSSDecoderState(
@@ -390,7 +390,7 @@
         # Each of these satellites is on a signal of its own, so each is its own group;
         # the tuple's order is the order the scan sees them in, which is what the
         # preference rungs below are asserted against.
-        one(state) = signal_group([state])
+        one(state) = collection_of([state])
         # BDGIM alone corrects a BDS-3-only epoch, which used to get nothing at all.
         @test select(one(bds3)) isa GNSSDecoder.BDGIMParameters
         # It beats both Klobuchar sources, and loses to NTCM-G.
@@ -408,11 +408,11 @@
         @test select(one(bds2)) isa GNSSDecoder.BeiDouKlobucharParameters
         # The BeiDou branch asks both accessors: a legacy satellite alongside a BDS-3
         # one contributes its Klobuchar set without shadowing the BDGIM one. The two
-        # legacy satellites are deliberately in separate groups, which is what puts one
+        # legacy satellites are deliberately in separate collections, which is what puts one
         # of them *after* the BDS-3 satellite in scan order.
         @test select((one(bds2), one(bds3), one(bds2_second))) isa
               GNSSDecoder.BDGIMParameters
-        # An epoch with no groups at all — the receiver tracking nothing yet.
+        # An epoch with no observations at all — the receiver tracking nothing yet.
         @test select(()) === nothing
     end
 end

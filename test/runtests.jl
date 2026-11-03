@@ -1,52 +1,33 @@
 
 using Test, PositionVelocityTime, GNSSDecoder, AstroTime, GNSSSignals, Geodesy, Dates, LinearAlgebra
 using Unitful: Hz, m, s, °, ustrip
-# `Dictionaries.Dictionary` is how GNSSDecoder keys its paged records (BeiDou B1C's
-# per-GNSS BGTO sets, the almanacs); the BeiDou tests build one directly, and it also
-# backs the satellites of a `PositionVelocityTime.SignalGroup`.
+# Dictionaries preserve the decoder PRNs and the concrete observation type.
 using Dictionaries: Dictionaries, Dictionary
 using PositionVelocityTime: SVector
-# The fixtures build one flat vector of `SignalObservation`s per ranging signal. This is
-# how the suite turns one of them into the `SignalGroup` that `calc_pvt` takes; an epoch
-# spanning several signals is written as several groups — a NamedTuple where the names
-# carry meaning, a bare tuple (numbered `group1`, `group2`, …) where they do not.
-#
-# `SignalGroup` stays fully qualified here and everywhere below, as it must wherever
-# `Tracking`, which exports a type of the same name, is loaded too (as in
-# `test/integration`).
-function signal_group(signal, states)
-    ids = unique(get_signal_id(state.signal) for state in states)
-    all(id -> id === get_signal_id(signal), ids) || error(
-        "signal_group takes the satellites of one ranging signal, got $ids — " *
-        "put each signal in its own group",
-    )
-    PositionVelocityTime.SignalGroup(
-        signal,
-        Dictionary([state.decoder.prn for state in states], states),
-    )
+
+function collection_of(signal, states)
+    all(state -> get_signal_id(state.signal) === get_signal_id(signal), states) || error("put each ranging signal in its own observation collection")
+    Dictionary([state.decoder.prn for state in states], states)
 end
-# The signal read off the satellites, for the usual case of a non-empty group. A group
-# that may be empty has to be given its signal explicitly — which is exactly why a
-# `SignalGroup` carries one rather than deriving it from its satellites.
-signal_group(states) = signal_group(first(states).signal, states)
+collection_of(states) = collection_of(first(states).signal, states)
 
 # Two more shorthands, for the tests that exercise the measurement-model surface
 # directly rather than through `calc_pvt`. They live here rather than in `fixtures.jl`,
 # which stays strictly the data shared with the benchmark script.
 #
-# `prepared_of` gives the `PreparedObservation`s behind one epoch's groups —
+# `prepared_of` gives the `PreparedObservation`s behind one epoch's observations —
 # what the collection pass hands the solver. `approximate_year` is pinned for the same
 # reason every `calc_pvt` call here pins it: the fixtures were recorded in 2021 and
 # GPS L1 C/A's week number is 10 bits.
-prepared_of(groups; approximate_year = 2021) =
-    first(PositionVelocityTime.collect_measurements(groups; approximate_year))
+prepared_of(observations; approximate_year = 2021) =
+    first(PositionVelocityTime.collect_measurements(observations; approximate_year))
 # `inter_system_time_offsets_of` gives the `BroadcastInterSystemTimeOffsets` the same pass
 # gathers, and `layout_of` the bias layout `decide_bias_layout` decides from the two.
-inter_system_time_offsets_of(groups; approximate_year = 2021) =
-    last(PositionVelocityTime.collect_measurements(groups; approximate_year))
-function layout_of(groups; approximate_year = 2021)
+inter_system_time_offsets_of(observations; approximate_year = 2021) =
+    last(PositionVelocityTime.collect_measurements(observations; approximate_year))
+function layout_of(observations; approximate_year = 2021)
     prepared, _, inter_system_time_offsets =
-        PositionVelocityTime.collect_measurements(groups; approximate_year)
+        PositionVelocityTime.collect_measurements(observations; approximate_year)
     PositionVelocityTime.decide_bias_layout(prepared, inter_system_time_offsets)
 end
 # `has_offset` is whether GNSSDecoder reports a broadcast time offset toward `target`
@@ -84,7 +65,6 @@ function with_prn(state, prn)
         signal = state.signal,
         code_phase = state.code_phase,
         carrier_doppler = state.carrier_doppler,
-        carrier_phase = state.carrier_phase,
     )
 end
 

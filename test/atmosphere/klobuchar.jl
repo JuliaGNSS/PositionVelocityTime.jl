@@ -104,7 +104,7 @@ end
     )
 
     @testset "constellation-wide model selection" begin
-        # Distinct PRNs within a constellation: a signal group is keyed by PRN, so the
+        # Distinct PRNs within a constellation: a collection is keyed by PRN, so the
         # bare and the coefficient-carrying satellite of one signal have to be two
         # satellites rather than the same one twice.
         gps_bare = mkstate(GNSSDecoderState(GPSL1CA(), 2), GPSL1CA())
@@ -114,16 +114,16 @@ end
 
         select = PositionVelocityTime.select_ionospheric_correction
         # Nothing decoded → no correction
-        @test select((signal_group([gps_bare]), signal_group([gal_bare]))) === nothing
+        @test select((collection_of([gps_bare]), collection_of([gal_bare]))) === nothing
         # Only Klobuchar → Klobuchar. Both satellites are on one signal, so they are
         # one group.
-        @test select(signal_group([gps_klob, gps_bare])) isa
+        @test select(collection_of([gps_klob, gps_bare])) isa
               GNSSDecoder.KlobucharParameters
         # Only Galileo → NTCM-G
-        @test select(signal_group([gal_ntcm, gal_bare])) isa
+        @test select(collection_of([gal_ntcm, gal_bare])) isa
               GNSSDecoder.NeQuickGParameters
         # Both available → NTCM-G wins (more accurate)
-        @test select((signal_group([gps_klob]), signal_group([gal_ntcm]))) isa
+        @test select((collection_of([gps_klob]), collection_of([gal_ntcm]))) isa
               GNSSDecoder.NeQuickGParameters
     end
 

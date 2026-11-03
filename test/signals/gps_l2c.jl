@@ -10,7 +10,7 @@
     l5 = GNSSDecoder.GPSL5IDecoderState(1)
     swap(state, d) = GNSSDecoder.GNSSDecoderState(state; data = d, raw_data = d)
     state_of(d) = SignalObservation(; decoder = swap(l2c, d), signal = GNSSSignals.GPSL2CM(),
-        code_phase = 0.0, carrier_doppler = 0.0Hz, carrier_phase = 0.0)
+        code_phase = 0.0, carrier_doppler = 0.0Hz)
 
     @testset "classification: GPS time system, L2 band, GPSL2CM signal id" begin
         @test GNSSSignals.get_time_system(GNSSSignals.GPSL2CM()) == GNSSSignals.GPST()

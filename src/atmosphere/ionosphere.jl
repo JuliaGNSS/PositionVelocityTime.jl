@@ -78,7 +78,7 @@ struct IonosphericModel
 end
 
 """
-    select_ionospheric_correction(groups)
+    select_ionospheric_correction(observations)
         -> Union{KlobucharParameters,BeiDouKlobucharParameters,NeQuickGParameters,
                  BDGIMParameters,Nothing}
 
@@ -100,15 +100,15 @@ choice does not depend on the order the satellites arrive in. Each set is global
 constellation, so the first decoder carrying it is used, in the order of the prepared
 observations (see [`calc_pvt`](@ref)).
 
-This standalone form scans every satellite of `groups`, healthy or not;
+This standalone form scans every satellite of `observations`, healthy or not;
 [`collect_measurements`](@ref) folds the same scan into the collection pass, where only
 satellites that clear the health gate are seen.
 """
-function select_ionospheric_correction(groups)
+function select_ionospheric_correction(observations)
     # Over the groups' `Tuple`, not the `NamedTuple`, as in `collect_measurements`.
-    candidates = map(values(_normalize_signal_groups(groups))) do group
+    candidates = map(observation_collections(observations)) do group
         group_candidates = NO_IONOSPHERIC_CANDIDATES
-        for state in group.satellites
+        for state in group
             group_candidates =
                 update_ionospheric_candidates(group_candidates, state.decoder)
         end

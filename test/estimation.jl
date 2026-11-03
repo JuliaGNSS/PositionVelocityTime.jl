@@ -120,7 +120,7 @@ end
     @testset "a degenerate line-of-sight set is degenerate for the velocity design" begin
         states = gps_l1_states(0.0Hz)[1:4]
         prepared, _ = PositionVelocityTime.collect_measurements(
-            signal_group(states); approximate_year = 2021)
+            collection_of(states); approximate_year = 2021)
         # The solve takes its lines of sight from the satellite positions, so the rows'
         # satellites are moved onto synthetic directions from a nearby user position.
         user = SVector(3.9074e6, 3.0684e5, 5.0150e6)
@@ -230,11 +230,10 @@ end
         decoder = state.decoder,
         signal = state.signal,
         code_phase = state.code_phase,
-        carrier_phase = state.carrier_phase,
         carrier_doppler = doppler,
     )
 
-    prepared(v) = prepared_of(signal_group(v))
+    prepared(v) = prepared_of(collection_of(v))
     _, base = PositionVelocityTime.estimate_velocity(prepared(states), user)
     Δdoppler = 50.0Hz
     faster = copy(states)
@@ -250,12 +249,12 @@ end
 # observables, so the residuals are not zero.
 @testset "the velocity solve fits calc_pseudorange_rate's model" begin
     c = PositionVelocityTime.SPEED_OF_LIGHT
-    groups = signal_group(gps_l1_states(0.0Hz))
-    pvt = calc_pvt(groups; approximate_year = 2021, enable_ionospheric_correction = false,
+    observations = collection_of(gps_l1_states(0.0Hz))
+    pvt = calc_pvt(observations; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
     user_pos = SVector{3,Float64}(pvt.position)
     user_vel = SVector{3,Float64}(pvt.velocity)
-    for observation in prepared_of(groups)
+    for observation in prepared_of(observations)
         modelled = PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel,
             ustrip(m / s, pvt.clock_drift), observation.position, observation.velocity,
             observation.satellite_clock_drift)
@@ -282,10 +281,10 @@ with_pseudorange_rate(observation, rate) = PositionVelocityTime.PreparedObservat
     ("GPS L1 C/A", gps_l1_states(0.0Hz)),
     ("Galileo E1B", galileo_e1b_states(0.0Hz)),
 )
-    groups = signal_group(states)
-    pvt = calc_pvt(groups; approximate_year = 2021)
+    observations = collection_of(states)
+    pvt = calc_pvt(observations; approximate_year = 2021)
     user_pos = SVector{3,Float64}(pvt.position)
-    prepared = prepared_of(groups)
+    prepared = prepared_of(observations)
     for (user_vel, clock_drift) in ((SVector(150.0, -200.0, 50.0), 3000.0),
         (SVector(-600.0, 400.0, -300.0), -30000.0))
         truth = SVector(user_vel..., clock_drift)

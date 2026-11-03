@@ -39,22 +39,21 @@
 end
 
 # The decoder's time is relative to the broadcast week, even when its counter crosses
-# into the following week. Add only the residual code and carrier phase to that time.
-@testset "Decoded transmit time keeps week carry and residual phases" begin
+# into the following week. Add only the residual code phase to that time.
+@testset "Decoded transmit time keeps week carry and the residual code phase" begin
     signal = GPSL1CA()
     decoder = GNSSDecoderState(GNSSDecoderState(signal, 1);
         data = GNSSDecoder.GPSLNAVData(; TOW = 604794),
         num_bits_since_time_reference = 400)
     chips = ustrip(Hz, get_chip_rate(signal))
     rate = ustrip(Hz, get_bit_rate(decoder))
-    carrier_phase = 0.25
     residual = 0.001
     state = SignalObservation(; decoder, signal,
         code_phase = chips / rate + residual * chips,
-        carrier_doppler = 0.0Hz, carrier_phase)
+        carrier_doppler = 0.0Hz)
     @test get_decoded_time_of_week(decoder) == 604802.0
     @test PositionVelocityTime.calc_uncorrected_transmit_time(state) ≈
-          604802.0 + residual + carrier_phase / 2π / ustrip(Hz, get_center_frequency(signal)) rtol = 0 atol = eps(604802.0)
+          604802.0 + residual rtol = 0 atol = eps(604802.0)
 end
 
 # The clock polynomial's argument is a time *difference*, so it must be folded modulo the
@@ -90,35 +89,6 @@ end
     @test !isapprox(drift, a_f1 + 2 * a_f2 * (t - t_0c), rtol = 1e-3)
 end
 
-# The carrier-phase term refines the transmit time by a fraction of a carrier cycle.
-# `SignalObservation.carrier_phase` is in radians (`Tracking.get_carrier_phase`), so it must
-# be converted to cycles before being divided by the centre frequency.
-@testset "Carrier-phase transmit-time term treats carrier_phase as radians" begin
-    signal = GPSL1CA()
-    decoder = GNSSDecoder.GNSSDecoderState(
-        GNSSDecoderState(signal, 1);
-        num_bits_since_time_reference = 0,
-        data = GNSSDecoder.GPSLNAVData(; TOW = 0),
-        raw_data = GNSSDecoder.GPSLNAVData(; TOW = 0),
-    )
-    time_of(carrier_phase) = PositionVelocityTime.calc_uncorrected_transmit_time(
-        SignalObservation(; decoder, signal, code_phase = 0.0, carrier_doppler = 0.0Hz,
-            carrier_phase),
-    )
-
-    for cycles in (0.25, 0.5, -0.5)
-        @test time_of(cycles * 2π) ≈ cycles / ustrip(Hz, get_center_frequency(signal))
-    end
-    # The wrapped carrier phase spans one cycle, so the term is bounded by half a carrier
-    # wavelength of range — ~9.5 cm on L1, not the ~60 cm a radians-as-cycles reading gives.
-    half_wavelength =
-        0.5 * PositionVelocityTime.SPEED_OF_LIGHT / ustrip(Hz, get_center_frequency(signal))
-    @test half_wavelength ≈ 0.0952 atol = 1e-4
-    @test maximum(
-        abs(time_of(φ) * PositionVelocityTime.SPEED_OF_LIGHT) for
-        φ in range(-Float64(π), Float64(π); length = 21)
-    ) ≈ half_wavelength
-end
 # The pseudorange differencing must survive the week wrap: seconds-of-week counts
 # do not all wrap at once — within one constellation the wrap sweeps through the
 # transmit-time spread, and in a mixed solve the +14 s BDT scale alignment keeps

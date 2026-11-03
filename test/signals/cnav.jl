@@ -63,7 +63,7 @@
         dec = GNSSDecoder.GNSSDecoderState(l1cd; data = d, raw_data = d,
             num_bits_since_time_reference = 50)
         common = (; decoder = dec, code_phase = 123.0,
-            carrier_doppler = 0.0Hz, carrier_phase = 0.0)
+            carrier_doppler = 0.0Hz)
         t_data =
             PositionVelocityTime.calc_uncorrected_transmit_time(SignalObservation(; signal = GNSSSignals.GPSL1C_D(), common...))
         for signal in (GPSL1C_P(), GPSL1C_P(TMBOC))

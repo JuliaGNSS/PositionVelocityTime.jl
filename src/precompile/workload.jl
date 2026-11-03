@@ -6,7 +6,7 @@
 # prepared observations is compiled once (see collection.jl). So the workload is one solve
 # per data type (GPS LNAV, CNAV on L5I and L2CM, CNAV-2, Galileo I/NAV and F/NAV), plus
 # once each the paths a data type does not vary: warm start, corrections disabled, a
-# `Vector`-backed group and a mixed constellation.
+# `Vector`-backed collection and a mixed constellation.
 #
 # The satellites are the test fixtures (`test/fixtures.jl`, Aachen, 2021-05-31), recorded
 # on GPS L1 C/A and Galileo E1B only; the other data types are expressed from them (see
@@ -139,8 +139,6 @@ function _precompile_states(signal, table, make_data, source_signal)
             signal,
             code_phase = (offset - num_bits / rate) * chips,
             carrier_doppler = s.carrier_doppler,
-            carrier_phase = s.carrier_phase * ustrip(Hz, get_center_frequency(signal)) /
-                            ustrip(Hz, get_center_frequency(source_signal)),
         )
     end
 end
@@ -152,33 +150,32 @@ end
         _precompile_states(signal, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B())
     l1ca = gps(GPSL1CA())
     e1b = galileo(GalileoE1B())
-    # A `Dictionary`-backed group keyed by PRN — the shape a receiver carrying its
+    # A `Dictionary`-backed collection keyed by PRN — the shape a receiver carrying its
     # satellites per signal hands over, and what Tracking.jl builds.
-    group(signal, states) =
-        SignalGroup(signal, Dictionary([s.decoder.prn for s in states], states))
+    collection(signal, states) = Dictionary([s.decoder.prn for s in states], states)
     @compile_workload begin
-        for signal_group in (
-            group(GPSL1CA(), l1ca),
-            group(GPSL5I(), gps(GPSL5I(), _precompile_cnav)),
-            group(GPSL2CM(), gps(GPSL2CM(), _precompile_cnav)),
-            group(GPSL1C_D(), gps(GPSL1C_D(), _precompile_cnav2)),
-            group(GalileoE1B(), e1b),
-            group(GalileoE5aI(), galileo(GalileoE5aI(), _precompile_fnav)),
+        for observations in (
+            collection(GPSL1CA(), l1ca),
+            collection(GPSL5I(), gps(GPSL5I(), _precompile_cnav)),
+            collection(GPSL2CM(), gps(GPSL2CM(), _precompile_cnav)),
+            collection(GPSL1C_D(), gps(GPSL1C_D(), _precompile_cnav2)),
+            collection(GalileoE1B(), e1b),
+            collection(GalileoE5aI(), galileo(GalileoE5aI(), _precompile_fnav)),
         )
-            calc_pvt(signal_group; approximate_year = 2021)
+            calc_pvt(observations; approximate_year = 2021)
         end
         # The paths that do not vary with the data type, compiled once on GPS L1 C/A.
-        l1ca_group = group(GPSL1CA(), l1ca)
-        pvt = calc_pvt(l1ca_group; approximate_year = 2021)
-        calc_pvt(l1ca_group, pvt; approximate_year = 2021)
+        l1ca_collection = collection(GPSL1CA(), l1ca)
+        pvt = calc_pvt(l1ca_collection; approximate_year = 2021)
+        calc_pvt(l1ca_collection, pvt; approximate_year = 2021)
         calc_pvt(
-            l1ca_group;
+            l1ca_collection;
             approximate_year = 2021,
             enable_ionospheric_correction = false,
             enable_tropospheric_correction = false,
         )
-        calc_pvt(SignalGroup(GPSL1CA(), l1ca); approximate_year = 2021)
-        mixed = (gps = l1ca_group, galileo = group(GalileoE1B(), e1b))
+        calc_pvt(l1ca; approximate_year = 2021)
+        mixed = (gps = l1ca_collection, galileo = collection(GalileoE1B(), e1b))
         mixed_pvt = calc_pvt(mixed; approximate_year = 2021)
         calc_pvt(mixed, mixed_pvt; approximate_year = 2021)
         # The in-place entry point; only its wrapper and the unsolvable-epoch copy are new.
@@ -186,7 +183,7 @@ end
         in_place = calc_pvt!(PVTSolution(), workspace, mixed, mixed_pvt;
             approximate_year = 2021)
         in_place = calc_pvt!(in_place, workspace, mixed, in_place; approximate_year = 2021)
-        calc_pvt!(PVTSolution(), workspace, SignalGroup(GPSL1CA(), l1ca[1:3]), in_place;
+        calc_pvt!(PVTSolution(), workspace, l1ca[1:3], in_place;
             approximate_year = 2021)
     end
 end

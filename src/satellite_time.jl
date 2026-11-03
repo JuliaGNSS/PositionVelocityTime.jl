@@ -2,7 +2,7 @@
     calc_uncorrected_transmit_time(observation::SignalObservation) -> Float64
 
 The satellite's *raw* transmit time, a seconds-of-week count on its own system's scale:
-the decoder's time of week plus the bit, code-phase and carrier-phase fractions, before
+the decoder's time of week plus the bit and code-phase fractions, before
 the clock polynomial, relativistic and group-delay corrections that
 [`calc_transmit_time`](@ref) applies. It is the time a RINEX pseudorange is measured
 against, as a RINEX reader applies the broadcast clock correction itself.
@@ -19,10 +19,8 @@ function calc_uncorrected_transmit_time(observation::SignalObservation)
     chips_per_bit =
         ustrip(Hz, get_chip_rate(signal)) / ustrip(Hz, get_bit_rate(observation.decoder))
     t_code_phase = mod(observation.code_phase, chips_per_bit) / get_chip_rate(signal) * Hz
-    # `carrier_phase` is in radians, as `Tracking.get_carrier_phase` reports it.
-    t_carrier_phase = observation.carrier_phase / 2π / get_center_frequency(signal) * Hz
 
-    t_decoded + t_code_phase + t_carrier_phase
+    t_decoded + t_code_phase
 end
 
 # The relativistic clock term `F · e · √A · sin E` at `t`.
@@ -63,7 +61,7 @@ calc_satellite_clock_drift(ephemeris::BroadcastEphemeris, t) =
     calc_transmit_time(observation::SignalObservation) -> Float64
 
 The satellite's transmit time as a seconds-of-week count on its own system's scale: the
-decoder's time of week plus the bit, code-phase and carrier-phase fractions, corrected
+decoder's time of week plus the bit and code-phase fractions, corrected
 by the clock polynomial, the relativistic term and the ranging signal's group delay
 (GNSSDecoder's `get_broadcast_ephemeris` and `get_group_delay`; a group delay not yet
 decoded in full counts as zero, a metre or so on one signal). Every ephemeris and clock
