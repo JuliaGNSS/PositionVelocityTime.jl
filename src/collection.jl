@@ -76,15 +76,6 @@ struct SignalGroup{S<:AbstractGNSSSignal,C}
     satellites::C
 end
 
-"""
-    PositionVelocityTime.SignalGroups{N}
-
-Type alias for the storage shape [`calc_pvt`](@ref) takes: a `NamedTuple` of `N`
-[`SignalGroup`](@ref)s. Mirrors `Tracking.SignalGroups`, so a receiver can carry one
-set of group keys through tracking, decoding and the fix.
-"""
-const SignalGroups{N} = NamedTuple{<:Any,<:NTuple{N,SignalGroup}}
-
 # Normalization, mirroring `Tracking._normalize_signal_groups`: a NamedTuple passes
 # through, a single group becomes the `:default` group (so a one-constellation solve
 # stays a one-liner), and a bare tuple is numbered by position — `group1`, `group2`, …
@@ -100,9 +91,10 @@ end
 """
     PositionVelocityTime.signal_groups(track_state, decoders) -> NamedTuple of SignalGroup
 
-Build one epoch's [`SignalGroups`](@ref) from a receiver's own per-signal state. The
-method that does this is defined by Tracking.jl (from Tracking 9.1 on) and takes a
-`Tracking.TrackState` together with that receiver's decoders; see it for the details.
+Build one epoch's signal groups, a `NamedTuple` of [`SignalGroup`](@ref)s, from a
+receiver's own per-signal state. The method that does this is defined by Tracking.jl
+(from Tracking 9.1 on) and takes a `Tracking.TrackState` together with that receiver's
+decoders; see it for the details.
 
 There is deliberately **no** method taking a flat `Vector{SignalObservation}`. Groups are
 not a wrapper around the old input — they are the shape a receiver already has, and
@@ -252,8 +244,8 @@ end
     collect_measurements(groups; approximate_year = year(now(UTC)))
         -> (Vector{PreparedObservation}, ionospheric_parameters, time_offsets)
 
-Flatten the [`SignalGroups`](@ref) of one epoch into the solver's input: the
-per-satellite [`PreparedObservation`](@ref)s, the single constellation-wide
+Flatten the signal groups of one epoch (see [`calc_pvt`](@ref)) into the solver's input:
+the per-satellite [`PreparedObservation`](@ref)s, the single constellation-wide
 ionospheric model [`select_ionospheric_correction`](@ref) would pick for them, and the
 [`BroadcastTimeOffsets`](@ref) between their time systems (folded into the same pass —
 all need exactly the satellites that survive the health gate).
