@@ -6,7 +6,7 @@
     # this test stays valid as the wall clock drifts past 2030 (when the
     # default `now()` anchor would start picking the wrong rollover cycle
     # for these archived fixtures).
-    pvt = calc_pvt(
+    pvt = solved_pvt(
         collection_of(states);
         approximate_year = 2021,
         enable_ionospheric_correction = false,
@@ -23,7 +23,7 @@
     relative_clock_drift = ustrip(m / s, pvt.clock_drift) / PositionVelocityTime.SPEED_OF_LIGHT
     @test relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.64Hz + freq_offset) atol = 0.01Hz
 
-    warm_pvt = calc_pvt(
+    warm_pvt = solved_pvt(
         collection_of(states),
         pvt;
         approximate_year = 2021,
@@ -44,7 +44,7 @@ end
 
     # Fixture data was recorded on 2021-05-31. See the note on the
     # Galileo testset above for why we pin `approximate_year`.
-    pvt = calc_pvt(
+    pvt = solved_pvt(
         collection_of(states);
         approximate_year = 2021,
         enable_ionospheric_correction = false,
@@ -61,7 +61,7 @@ end
     relative_clock_drift = ustrip(m / s, pvt.clock_drift) / PositionVelocityTime.SPEED_OF_LIGHT
     @test relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.61Hz + freq_offset) atol = 0.01Hz
 
-    warm_pvt = calc_pvt(
+    warm_pvt = solved_pvt(
         collection_of(states),
         pvt;
         approximate_year = 2021,
@@ -97,7 +97,7 @@ end
 
     # Independent inter-system-bias solve: 8 GPS + 5 Galileo satellites, with one
     # clock bias per system (3 + 2 unknowns).
-    pvt = calc_pvt(observations; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    pvt = solved_pvt(observations; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     expected_pos = ECEF(4.0186793226897363e6, 427033.09443239716, 4.918251247796992e6)
     @test pvt.position ≈ expected_pos rtol = 1e-8
     # Pinned since the range rate is modelled as the derivative of the
@@ -115,8 +115,8 @@ end
 
     # The combined fix agrees with each single-system fix and with the
     # GPS-anchored time scale.
-    gps_only = calc_pvt(collection_of(gps_l1_states(freq_offset)); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    gal_only = calc_pvt(collection_of(galileo_e1b_states(freq_offset)); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    gps_only = solved_pvt(collection_of(gps_l1_states(freq_offset)); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    gal_only = solved_pvt(collection_of(galileo_e1b_states(freq_offset)); approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test norm(pvt.position - gps_only.position) < 5
     @test norm(pvt.position - gal_only.position) < 5
     @test pvt.time ≈ gps_only.time
@@ -151,41 +151,63 @@ end
     @test all(isfinite, rate_resids)
     @test maximum(abs, rate_resids) < 10.0m/s
 
-    warm_pvt = calc_pvt(observations, pvt; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
+    warm_pvt = solved_pvt(observations, pvt; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test get_lla(warm_pvt) ≈ get_lla(pvt) atol = 1e-5  # see the first testset
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
 
-# Every unsolvable epoch takes the same exit — `prev_pvt`, never a throw — whether the
-# shortfall is in the raw satellite count, in how many of them are usable, or in the layout
-# the constellation demands.
-@testset "an unsolvable epoch returns prev_pvt instead of throwing" begin
+@testset "solve outcomes distinguish a new fix from insufficient observations" begin
     kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
     gps = gps_l1_states(0.0Hz)
-    reference = calc_pvt(collection_of(gps); kwargs...)
+    success = calc_pvt(gps; kwargs...)
+    @test success isa NamedTuple{(:status, :solution),Tuple{PVTStatus,PVTSolution}}
+    @test success.status === PositionVelocityTime.solved
+    @test success.solution isa PVTSolution
+    reference = success.solution
     @test reference.position != ECEF(0, 0, 0)
 
-    # Too few states to hold 3 position + 1 clock unknown, down to none at all: with no
-    # previous solution the default (origin) one comes back unchanged. The signal is
-    # passed explicitly because `n = 0` leaves no satellite to read it off — a group
-    # carries its ranging signal precisely so that an empty one is still well formed.
     for n in 0:3
-        scarce = collection_of(gps[1].signal, gps[1:n])
-        pvt = calc_pvt(scarce; kwargs...)
-        @test pvt.position == ECEF(0, 0, 0)
-        @test isnothing(pvt.time)
-        @test isempty(pvt.observations)
-        # Given a previous fix, that fix is what is carried forward.
-        @test calc_pvt(scarce, reference; kwargs...) === reference
+        scarce = gps[1:n]
+        cold = calc_pvt(scarce; kwargs...)
+        warm = calc_pvt(scarce, reference; kwargs...)
+        @test cold.status === PositionVelocityTime.insufficient_observations
+        @test warm.status === PositionVelocityTime.insufficient_observations
+        @test iszero(cold.solution.position)
+        @test isempty(cold.solution.observations)
+        @test iszero(warm.solution.position)
+        @test isempty(warm.solution.observations)
     end
 
-    # An unhealthy satellite is dropped before the count is taken, so 4 states carrying
-    # only 3 usable ones exit exactly as 3 states do.
+    # Dropping an unhealthy observation leaves only three usable satellites.
     unhealthy = [gps[1:3]; [with_health_bad(gps[4])]]
-    @test length(unhealthy) == 4
-    @test calc_pvt(collection_of(unhealthy), reference; kwargs...) === reference
+    result= calc_pvt(unhealthy, reference; kwargs...)
+    @test result.status === PositionVelocityTime.insufficient_observations
+    @test iszero(result.solution.position)
+    @test isempty(result.solution.observations)
+end
+
+@testset "rank-deficient geometry has an explicit failure outcome" begin
+    kwargs = (;
+        approximate_year = 2021,
+        enable_ionospheric_correction = false,
+        enable_tropospheric_correction = false,
+    )
+    gps = gps_l1_states(0.0Hz)
+    reference = solved_pvt(gps; kwargs...)
+    # Four distinct PRNs satisfy the layout counts, but identical ephemerides leave
+    # one line of sight and a singular position/velocity geometry.
+    degenerate = [with_prn(first(gps), prn) for prn = 1:4]
+    @test !isnothing(layout_of(degenerate))
+    cold = calc_pvt(degenerate; kwargs...)
+    warm = calc_pvt(degenerate, reference; kwargs...)
+    @test cold.status === PositionVelocityTime.degenerate_geometry
+    @test warm.status === PositionVelocityTime.degenerate_geometry
+    @test iszero(cold.solution.position)
+    @test isempty(cold.solution.observations)
+    @test iszero(warm.solution.position)
+    @test isempty(warm.solution.observations)
 end
 
 # Regression: the position solve must run to its optimum, not stop at the first step
@@ -200,7 +222,7 @@ end
     kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
     states = gps_l1_states(0.0Hz)
-    cold = calc_pvt(collection_of(states); kwargs...)
+    cold = solved_pvt(collection_of(states); kwargs...)
 
     # Previous solutions displaced by 1 m, 30 m and 100 km. With no position-dependent
     # correction active the observations define one optimum, so every start must reach
@@ -210,7 +232,7 @@ end
             position = ECEF((Vector(cold.position) .+ offset)...),
             reference_system = cold.reference_system,
         )
-        warm = calc_pvt(collection_of(states), stale; kwargs...)
+        warm = solved_pvt(collection_of(states), stale; kwargs...)
         @test norm(warm.position - cold.position) < 1e-4
         @test warm.time ≈ cold.time
         # The residuals are those of the converged fit, not of the stale position.
@@ -228,13 +250,12 @@ end
 # the fix's own DOP explodes while its residuals stay small — so `calc_pvt` refuses to
 # seed from a previous solution whose DOP is implausible and solves the epoch from cold.
 # Before the gate existed the poisoned position came straight back out of every epoch.
-# Distrust affects the seed only: an unsolvable epoch still returns `prev_pvt` as
-# passed, like every other unsolvable epoch does.
+# Distrust affects only the warm-start seed; failures still carry no new solution.
 @testset "a distrusted previous fix is discarded rather than re-seeded" begin
     kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
     states = gps_l1_states(0.0Hz)
-    good = calc_pvt(collection_of(states); kwargs...)
+    good = solved_pvt(collection_of(states); kwargs...)
 
     # A previous solution 2.7e8 m out, carrying the DOP such a fix earns (the observed
     # incident read PDOP 587) — exactly what feeding a locked-in epoch's output back in
@@ -244,7 +265,7 @@ end
         reference_system = good.reference_system,
         dop = PositionVelocityTime.DOP(613.0, 587.0, 430.0, 400.0, 176.6),
     )
-    recovered = calc_pvt(collection_of(states), poisoned; kwargs...)
+    recovered = solved_pvt(collection_of(states), poisoned; kwargs...)
 
     # The seed is discarded whole, so the epoch is indistinguishable from one solved
     # without any previous solution at all — not merely closer to it.
@@ -263,13 +284,14 @@ end
     rank_deficient = PVTSolution(; position = poisoned.position,
         reference_system = good.reference_system,
         dop = PositionVelocityTime.DOP(NaN, NaN, NaN, NaN, NaN))
-    @test norm(calc_pvt(collection_of(states), rank_deficient; kwargs...).position -
+    @test norm(solved_pvt(collection_of(states), rank_deficient; kwargs...).position -
                good.position) < 1e-3
 
-    # An unsolvable epoch (too few satellites) returns the previous solution exactly
-    # as passed, distrusted or not — the gate withholds it from the solve, not from
-    # the caller.
-    @test calc_pvt(collection_of(states[1:3]), poisoned; kwargs...) === poisoned
+    # A distrusted seed is never presented as a new solution on failure.
+    result = calc_pvt(states[1:3], poisoned; kwargs...)
+    @test result.status === PositionVelocityTime.insufficient_observations
+    @test iszero(result.solution.position)
+    @test isempty(result.solution.observations)
 end
 
 # `state` re-timed so that its corrected transmit time is `transmit_time`, carrying
@@ -305,7 +327,7 @@ end
         enable_tropospheric_correction = false)
     # The fixture's own fix sets a realistic geometry, and its latest transmit time plus
     # a typical travel time the receiver clock reading at reception.
-    fixture = calc_pvt(collection_of(states); kwargs...)
+    fixture = solved_pvt(collection_of(states); kwargs...)
     user_pos = SVector{3,Float64}(fixture.position)
     # An aircraft's speed: the travel-time rate's user-velocity share of the Earth-rotation
     # term is ~2e-6·|v| per satellite, and leaving it out of the design costs ~0.1 mm/s of
@@ -336,7 +358,7 @@ end
         retimed_state(state, transmit_time, doppler)
     end
 
-    pvt = calc_pvt(collection_of(exact_states); kwargs...)
+    pvt = solved_pvt(collection_of(exact_states); kwargs...)
     # The transmit times are seconds-of-week counts, resolved in Float64 to ~6e-11 s —
     # ~2 cm of range — so the position is exact only to a centimetre or two.
     @test norm(pvt.position - user_pos) < 2e-2
@@ -352,8 +374,8 @@ end
     kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
     observations = collection_of(gps_l1_states(0.0Hz))
-    cold = calc_pvt(observations; kwargs...)
-    warm = calc_pvt(observations, cold; kwargs...)
+    cold = solved_pvt(observations; kwargs...)
+    warm = solved_pvt(observations, cold; kwargs...)
     rate_residuals(pvt) = [ustrip(m / s, info.rate_residual) for info in pvt.observations]
     @test norm(warm.velocity - cold.velocity) < 1e-9
     @test warm.clock_drift ≈ cold.clock_drift atol = 1e-9m / s
@@ -362,5 +384,5 @@ end
     # A previous solution with a non-finite velocity is the cold start.
     broken = PVTSolution(; position = cold.position, dop = cold.dop,
         velocity = ECEF(NaN, NaN, NaN), clock_drift = NaN * m / s)
-    @test calc_pvt(observations, broken; kwargs...).velocity ≈ cold.velocity atol = 1e-9
+    @test solved_pvt(observations, broken; kwargs...).velocity ≈ cold.velocity atol = 1e-9
 end

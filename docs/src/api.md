@@ -5,6 +5,7 @@
 ```@docs
 SignalObservation
 PVTSolution
+PVTStatus
 ObservationResiduals
 InterFrequencyBias
 BroadcastInterSystemBias
@@ -42,6 +43,9 @@ PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
 ```
 
 ## PVT Computation
+
+Both solve entry points return `(; status, solution)`; `solution` is a new fix only when
+`status === PositionVelocityTime.solved`.
 
 ```@docs
 calc_pvt

@@ -11,6 +11,19 @@ function collection_of(signal, states)
 end
 collection_of(states) = collection_of(first(states).signal, states)
 
+# Successful fixtures expose their solution after checking the explicit outcome.
+# Failure tests call the public functions directly and inspect both result fields.
+function solved_pvt(args...; kwargs...)
+    result = calc_pvt(args...; kwargs...)
+    @test result.status === PositionVelocityTime.solved
+    result.solution
+end
+function solved_pvt!(args...; kwargs...)
+    result = calc_pvt!(args...; kwargs...)
+    @test result.status === PositionVelocityTime.solved
+    result.solution
+end
+
 # Two more shorthands, for the tests that exercise the measurement-model surface
 # directly rather than through `calc_pvt`. They live here rather than in `fixtures.jl`,
 # which stays strictly the data shared with the benchmark script.
