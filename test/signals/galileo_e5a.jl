@@ -1,7 +1,7 @@
 # Galileo E5a F/NAV (GNSSDecoder.GalileoE5aData) support.
 #
 # E5a is a separate frequency band from E1, so a satellite tracked on both yields
-# two independent measurements. E5a F/NAV shares the Galileo Keplerian ephemeris,
+# two independent observations. E5a F/NAV shares the Galileo Keplerian ephemeris,
 # clock, NTCM-G ionosphere and GGTO layout with the E1B I/NAV message — only its
 # broadcast group delay (E1–E5a) and carrier band (1176.45 MHz) differ.
 @testset "Galileo E5a (F/NAV) support" begin

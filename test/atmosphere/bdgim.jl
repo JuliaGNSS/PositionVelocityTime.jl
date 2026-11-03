@@ -361,9 +361,9 @@
     end
 
     @testset "selection order: NTCM-G > BDGIM > GPS Klobuchar > BeiDou Klobuchar" begin
-        mk(dec, sys) = SatelliteState(;
+        mk(dec, sys) = SignalObservation(;
             decoder = dec,
-            system = sys,
+            signal = sys,
             code_phase = 0.0,
             carrier_doppler = 0.0Hz,
         )

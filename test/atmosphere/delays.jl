@@ -7,7 +7,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
     @testset "GPS L1 C/A — Klobuchar" begin
         gpsl1 = GPSL1CA()
         states = [
-            SatelliteState(;
+            SignalObservation(;
                 decoder = GNSSDecoderState(
                     9,
                     GNSSDecoder.GPSL1CAData(
@@ -117,12 +117,12 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     173,
                     false,
                 ),
-                system = gpsl1,
+                signal = gpsl1,
                 code_phase = 7457.6350011159975,
                 carrier_doppler = 945.8683607586818Hz,
                 carrier_phase = -0.22095823550737081,
             ),
-            SatelliteState(;
+            SignalObservation(;
                 decoder = GNSSDecoderState(
                     11,
                     GNSSDecoder.GPSL1CAData(
@@ -232,12 +232,12 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     173,
                     true,
                 ),
-                system = gpsl1,
+                signal = gpsl1,
                 code_phase = 6078.218551898637,
                 carrier_doppler = -3276.264988960822Hz,
                 carrier_phase = 0.7638002718956874,
             ),
-            SatelliteState(;
+            SignalObservation(;
                 decoder = GNSSDecoderState(
                     17,
                     GNSSDecoder.GPSL1CAData(
@@ -347,12 +347,12 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     173,
                     false,
                 ),
-                system = gpsl1,
+                signal = gpsl1,
                 code_phase = 17299.53480240955,
                 carrier_doppler = -189.2252575679783Hz,
                 carrier_phase = 2.7456602492891107,
             ),
-            SatelliteState(;
+            SignalObservation(;
                 decoder = GNSSDecoderState(
                     27,
                     GNSSDecoder.GPSL1CAData(
@@ -462,7 +462,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     173,
                     false,
                 ),
-                system = gpsl1,
+                signal = gpsl1,
                 code_phase = 4175.34652009604,
                 carrier_doppler = -3554.3272562888696Hz,
                 carrier_phase = 1.7547749028909547,
@@ -501,7 +501,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
     @testset "Galileo E1B — NTCM-G (decoded coefficients)" begin
         galileo_e1b = GalileoE1B()
         states = [
-            SatelliteState(;
+            SignalObservation(;
                 decoder = GNSSDecoderState(
                     5,
                     GNSSDecoder.GalileoINAVData(
@@ -596,12 +596,12 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     1391,
                     false,
                 ),
-                system = galileo_e1b,
+                signal = galileo_e1b,
                 code_phase = 1134.9227691611316,
                 carrier_doppler = -1048.4103530464388Hz,
                 carrier_phase = -1.1559529083133402,
             ),
-            SatelliteState(;
+            SignalObservation(;
                 decoder = GNSSDecoderState(
                     6,
                     GNSSDecoder.GalileoINAVData(
@@ -696,12 +696,12 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     1388,
                     false,
                 ),
-                system = galileo_e1b,
+                signal = galileo_e1b,
                 code_phase = 552.8323205662532,
                 carrier_doppler = -2401.7199003375345Hz,
                 carrier_phase = -0.5865229251135221,
             ),
-            SatelliteState(;
+            SignalObservation(;
                 decoder = GNSSDecoderState(
                     20,
                     GNSSDecoder.GalileoINAVData(
@@ -796,12 +796,12 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     1388,
                     true,
                 ),
-                system = galileo_e1b,
+                signal = galileo_e1b,
                 code_phase = 1998.2750592825137,
                 carrier_doppler = 1342.86940202154Hz,
                 carrier_phase = -1.9500644306669892,
             ),
-            SatelliteState(;
+            SignalObservation(;
                 decoder = GNSSDecoderState(
                     22,
                     GNSSDecoder.GalileoINAVData(
@@ -896,7 +896,7 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                     1388,
                     true,
                 ),
-                system = galileo_e1b,
+                signal = galileo_e1b,
                 code_phase = 2721.0058329387184,
                 carrier_doppler = -3042.4604297211754Hz,
                 carrier_phase = -0.5604621503191517,

@@ -96,9 +96,9 @@ end
             data = GNSSDecoder.GalileoINAVData(dec.data; a_i0, a_i1, a_i2, WN),
         )
     end
-    mkstate(dec, sys) = SatelliteState(;
+    mkstate(dec, sys) = SignalObservation(;
         decoder = dec,
-        system = sys,
+        signal = sys,
         code_phase = 0.0,
         carrier_doppler = 0.0Hz,
     )
@@ -157,7 +157,7 @@ end
         sat = ECEF(user[1] + 1.0e7, user[2] + 1.0e7, user[3] + 2.0e7)
         klob = PositionVelocityTime.KlobucharParams(α..., β...)
         # Line-of-sight geometry (same user/sat for every call below)
-        el, az = PositionVelocityTime._elevation_azimuth(ENUfromECEF(user, wgs84), sat)
+        el, az = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
         lla = LLAfromECEF(wgs84)(user)
 
         # No correction → exactly zero for any system

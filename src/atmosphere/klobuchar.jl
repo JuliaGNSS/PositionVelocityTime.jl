@@ -2,27 +2,27 @@
 # (BDS-SIS-ICD-B1I).
 
 """
-    klobuchar_group_delay(φ_u, λ_u, E, A, gps_time, α, β)
+    klobuchar_group_delay(φ_u, λ_u, elevation, azimuth, time_of_week, α, β)
 
 Klobuchar single-frequency ionospheric group delay for GPS L1 (IS-GPS-200N,
 Fig. 20-4), returned in **seconds**. All angles are in **semicircles**:
-`φ_u`/`λ_u` are the user geodetic latitude/longitude, `E`/`A` the satellite
-elevation/azimuth. `gps_time` is GPS system time in seconds. `α`/`β` are the
-4-element Klobuchar coefficient tuples (SI units).
+`φ_u`/`λ_u` are the user geodetic latitude/longitude, `elevation`/`azimuth` (the ICD's
+`E`/`A`) the satellite's. `time_of_week` is the GPS time of week in seconds (the ICD's
+`t`). `α`/`β` are the 4-element Klobuchar coefficient tuples (SI units).
 """
-function klobuchar_group_delay(φ_u, λ_u, E, A, gps_time, α, β)
+function klobuchar_group_delay(φ_u, λ_u, elevation, azimuth, time_of_week, α, β)
     # Earth-centred angle between user and ionospheric pierce point (semicircles)
-    ψ = 0.0137 / (E + 0.11) - 0.022
+    ψ = 0.0137 / (elevation + 0.11) - 0.022
     # Geodetic latitude of the ionospheric pierce point (IPP), clamped per ICD
-    φ_i = clamp(φ_u + ψ * cos(A * π), -0.416, 0.416)
+    φ_i = clamp(φ_u + ψ * cos(azimuth * π), -0.416, 0.416)
     # Geodetic longitude of the IPP
-    λ_i = λ_u + ψ * sin(A * π) / cos(φ_i * π)
+    λ_i = λ_u + ψ * sin(azimuth * π) / cos(φ_i * π)
     # Geomagnetic latitude of the IPP
     φ_m = φ_i + 0.064 * cos((λ_i - 1.617) * π)
     # Local time at the IPP (seconds), wrapped to [0, 86400)
-    t = mod(4.32e4 * λ_i + gps_time, 86400.0)
+    t = mod(4.32e4 * λ_i + time_of_week, 86400.0)
     # Obliquity / slant factor
-    F = 1.0 + 16.0 * (0.53 - E)^3
+    F = 1.0 + 16.0 * (0.53 - elevation)^3
     # Amplitude (s) and period (s) of the cosine model, with ICD floors
     AMP = max(α[1] + φ_m * (α[2] + φ_m * (α[3] + φ_m * α[4])), 0.0)
     PER = max(β[1] + φ_m * (β[2] + φ_m * (β[3] + φ_m * β[4])), 72000.0)
@@ -31,15 +31,15 @@ function klobuchar_group_delay(φ_u, λ_u, E, A, gps_time, α, β)
 end
 
 """
-    beidou_klobuchar_group_delay(φ_u, λ_u, E, A, t_E, α, β)
+    beidou_klobuchar_group_delay(φ_u, λ_u, elevation, azimuth, time_of_week, α, β)
 
 BeiDou's Klobuchar-variant ionospheric group delay along the B1I propagation
 path (BDS-SIS-ICD-B1I-3.0 §5.2.4.7), returned in **seconds**. All angles are in
 **radians**, the ICD's working unit: `φ_u`/`λ_u` are the user geodetic
-latitude/longitude, `E`/`A` the satellite elevation/azimuth. `t_E` is the BDT
-second of week. `α`/`β` are the 4-element coefficient tuples (SI units; their
-`s·π⁻ⁿ` scale factors make the polynomial argument `φ_M/π` — semicircles,
-exactly like the GPS set).
+latitude/longitude, `elevation`/`azimuth` (the ICD's `E`/`A`) the satellite's.
+`time_of_week` is the BDT second of week (the ICD's `t_E`). `α`/`β` are the 4-element
+coefficient tuples (SI units; their `s·π⁻ⁿ` scale factors make the polynomial argument
+`φ_M/π` — semicircles, exactly like the GPS set).
 
 The same eight-coefficient half-cosine idea as [`klobuchar_group_delay`](@ref),
 but not the same algorithm — the ICD replaces IS-GPS-200's fitted
@@ -60,18 +60,18 @@ approximations with exact spherical geometry and drops the geomagnetic frame:
 The 5·10⁻⁹ s night floor and the |t − 50400| < A₄/4 day-time window are those
 of the GPS model.
 """
-function beidou_klobuchar_group_delay(φ_u, λ_u, E, A, t_E, α, β)
+function beidou_klobuchar_group_delay(φ_u, λ_u, elevation, azimuth, time_of_week, α, β)
     # Sine of the pierce point's geocentric zenith angle: R/(R+h)·cosE, with the
     # ICD's constants R = 6378 km (mean Earth radius) and h = 375 km (ionosphere
     # height). Both the pierce-point geometry and the obliquity flow from it.
-    sinz = 6378.0 / (6378.0 + 375.0) * cos(E)
+    sinz = 6378.0 / (6378.0 + 375.0) * cos(elevation)
     # Earth-central angle between user and pierce point (radians), exact
-    ψ = π / 2 - E - asin(sinz)
+    ψ = π / 2 - elevation - asin(sinz)
     # Geographic — not geomagnetic — latitude and longitude of the pierce point
-    φ_M = asin(sin(φ_u) * cos(ψ) + cos(φ_u) * sin(ψ) * cos(A))
-    λ_M = λ_u + asin(sin(ψ) * sin(A) / cos(φ_M))
+    φ_M = asin(sin(φ_u) * cos(ψ) + cos(φ_u) * sin(ψ) * cos(azimuth))
+    λ_M = λ_u + asin(sin(ψ) * sin(azimuth) / cos(φ_M))
     # Local time at the pierce point (seconds), wrapped to [0, 86400)
-    t = mod(t_E + λ_M * 43200.0 / π, 86400.0)
+    t = mod(time_of_week + λ_M * 43200.0 / π, 86400.0)
     # Amplitude (s) and period (s) of the cosine model, with the ICD's clamps —
     # the period is bounded on both sides, unlike the GPS model's floor
     φ = φ_M / π

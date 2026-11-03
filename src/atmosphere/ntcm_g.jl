@@ -7,7 +7,7 @@
 # ===========================================================================
 
 # NTCM-G model coefficients k1..k12 (Table 3)
-const _NTCM_K = (
+const _NTCM_G_K = (
     0.92519,
     0.16951,
     0.00443,
@@ -21,21 +21,21 @@ const _NTCM_K = (
     1.41808,
     0.13985,
 )
-const _NTCM_RE = 6371.0                 # Earth mean radius [km] (Table 2)
-const _NTCM_HI = 450.0                  # ionospheric pierce point height [km]
-const _NTCM_GNP_LAT = deg2rad(79.74)    # geomagnetic North pole latitude
-const _NTCM_GNP_LON = deg2rad(-71.78)   # geomagnetic North pole longitude
+const _NTCM_G_RE = 6371.0                 # Earth mean radius [km] (Table 2)
+const _NTCM_G_HI = 450.0                  # ionospheric pierce point height [km]
+const _NTCM_G_GNP_LAT = deg2rad(79.74)    # geomagnetic North pole latitude
+const _NTCM_G_GNP_LON = deg2rad(-71.78)   # geomagnetic North pole longitude
 
 # Effective Ionisation Level Azpar [sfu] from the broadcast coefficients (Eq. 2).
-function _azpar(a_i0, a_i1, a_i2)
+function _ntcm_g_azpar(a_i0, a_i1, a_i2)
     radicand = a_i0^2 + 1633.33 * a_i1^2 + 4802000.0 * a_i2^2 + 3266.67 * a_i0 * a_i2
     return sqrt(max(radicand, 0.0))
 end
 
 # Ionospheric pierce point geographic latitude/longitude [rad] (Eq. 24-26),
 # given user geodetic lat/lon and satellite elevation/azimuth [rad].
-function _pierce_point(φ_u, λ_u, elevation, azimuth)
-    ψ = π / 2 - elevation - asin(_NTCM_RE / (_NTCM_RE + _NTCM_HI) * cos(elevation))
+function _ntcm_g_pierce_point(φ_u, λ_u, elevation, azimuth)
+    ψ = π / 2 - elevation - asin(_NTCM_G_RE / (_NTCM_G_RE + _NTCM_G_HI) * cos(elevation))
     # Clamp to asin's domain: the φ_pp argument is a unit dot-product that can
     # overshoot ±1 by a rounding ulp, and the λ_pp argument genuinely diverges as
     # the pierce point approaches a pole (cos(φ_pp) → 0).
@@ -45,26 +45,26 @@ function _pierce_point(φ_u, λ_u, elevation, azimuth)
 end
 
 # Sun's declination [rad] for the day of year (Eq. 28).
-_sun_declination(doy) = deg2rad(23.44) * sin(deg2rad(0.9856 * (doy - 80.7)))
+_ntcm_g_sun_declination(doy) = deg2rad(23.44) * sin(deg2rad(0.9856 * (doy - 80.7)))
 
 # Modified Single Layer Model mapping function (Eq. 32-33).
-function _mslm_mapping_function(elevation)
-    sinz = _NTCM_RE / (_NTCM_RE + _NTCM_HI) * sin(0.9782 * (π / 2 - elevation))
+function _ntcm_g_mapping_function(elevation)
+    sinz = _NTCM_G_RE / (_NTCM_G_RE + _NTCM_G_HI) * sin(0.9782 * (π / 2 - elevation))
     return 1.0 / sqrt(1.0 - sinz^2)
 end
 
 """
-    ntcm_g_vtec(φ_pp, λ_pp, doy, ut, azpar) -> Float64
+    ntcm_g_vtec(φ_pp, λ_pp, day_of_year, universal_time, azpar) -> Float64
 
 Vertical TEC in TECU at the ionospheric pierce point (geographic latitude/longitude
-`φ_pp`/`λ_pp` in radians) for day of year `doy`, universal time `ut` in hours, and
+`φ_pp`/`λ_pp` in radians) on `day_of_year`, at `universal_time` in hours, and
 Effective Ionisation Level `azpar` in solar flux units. Implements the NTCM-G model
 `VTEC = F1·F2·F3·F4·F5` (Eq. 3-15).
 """
-function ntcm_g_vtec(φ_pp, λ_pp, doy, ut, azpar)
-    k = _NTCM_K
-    lt = ut + rad2deg(λ_pp) / 15                      # local time [h] (Eq. 27)
-    δ = _sun_declination(doy)
+function ntcm_g_vtec(φ_pp, λ_pp, day_of_year, universal_time, azpar)
+    k = _NTCM_G_K
+    lt = universal_time + rad2deg(λ_pp) / 15          # local time [h] (Eq. 27)
+    δ = _ntcm_g_sun_declination(day_of_year)
 
     # Solar zenith angle dependence (Eq. 29-30)
     cosχ3 = cos(φ_pp - δ) + 0.4                        # cosχ*** (PF1 = 0.4)
@@ -85,14 +85,14 @@ function ntcm_g_vtec(φ_pp, λ_pp, doy, ut, azpar)
         )
 
     # F2 — seasonal dependency (Eq. 8-10)
-    V_A = 2π * (doy - 18) / 365.25
-    V_SA = 4π * (doy - 6) / 365.25
+    V_A = 2π * (day_of_year - 18) / 365.25
+    V_SA = 4π * (day_of_year - 6) / 365.25
     F2 = 1 + k[6] * cos(V_A) + k[7] * cos(V_SA)
 
     # Geomagnetic latitude of the pierce point (Eq. 31)
     φ_m = asin(
-        sin(φ_pp) * sin(_NTCM_GNP_LAT) +
-        cos(φ_pp) * cos(_NTCM_GNP_LAT) * cos(λ_pp - _NTCM_GNP_LON),
+        sin(φ_pp) * sin(_NTCM_G_GNP_LAT) +
+        cos(φ_pp) * cos(_NTCM_G_GNP_LAT) * cos(λ_pp - _NTCM_G_GNP_LON),
     )
 
     # F3 — geomagnetic field dependency (Eq. 11), φ_m in radians
@@ -111,17 +111,21 @@ function ntcm_g_vtec(φ_pp, λ_pp, doy, ut, azpar)
 end
 
 """
-    ntcm_g_stec(elevation, azimuth, lla, doy, ut, a_i0, a_i1, a_i2) -> Float64
+    ntcm_g_stec(elevation, azimuth, lla, day_of_year, universal_time, a_i0, a_i1, a_i2)
+        -> Float64
 
 Slant TEC in TECU along the user→satellite line of sight using NTCM-G, for the
 satellite `elevation`/`azimuth` (radians) seen from the user geodetic position
-`lla` (a `Geodesy.LLA`), day of year `doy`, universal time `ut` (hours), and the
+`lla` (a `Geodesy.LLA`), on `day_of_year`, at `universal_time` (hours), and the
 broadcast Galileo Effective Ionisation Level coefficients `a_i0`/`a_i1`/`a_i2`.
 """
-function ntcm_g_stec(elevation, azimuth, lla, doy, ut, a_i0, a_i1, a_i2)
-    φ_pp, λ_pp = _pierce_point(deg2rad(lla.lat), deg2rad(lla.lon), elevation, azimuth)
-    vtec = ntcm_g_vtec(φ_pp, λ_pp, doy, ut, _azpar(a_i0, a_i1, a_i2))
-    return _mslm_mapping_function(elevation) * vtec
+function ntcm_g_stec(elevation, azimuth, lla, day_of_year, universal_time,
+    a_i0, a_i1, a_i2)
+    φ_pp, λ_pp =
+        _ntcm_g_pierce_point(deg2rad(lla.lat), deg2rad(lla.lon), elevation, azimuth)
+    azpar = _ntcm_g_azpar(a_i0, a_i1, a_i2)
+    vtec = ntcm_g_vtec(φ_pp, λ_pp, day_of_year, universal_time, azpar)
+    return _ntcm_g_mapping_function(elevation) * vtec
 end
 
 # Day of year and universal time (hours) from a Galileo System Time (GST) week

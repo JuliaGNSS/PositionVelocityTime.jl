@@ -80,7 +80,7 @@ end
                 el,
                 LLA(lat, 11.0, h),
                 doy;
-                humidity = humi,
+                relative_humidity = humi,
             )
             ref = slant_delay_reference(lat, h, el, humi, doy)
             @test got ≈ ref rtol = 1e-12
@@ -124,12 +124,12 @@ end
             π / 2,
             LLA(lat, 11.0, 0.0),
             100;
-            humidity = 1.0,
+            relative_humidity = 1.0,
         ) > PositionVelocityTime.tropospheric_delay(
             π / 2,
             LLA(lat, 11.0, 0.0),
             100;
-            humidity = 0.0,
+            relative_humidity = 0.0,
         )
     end
 
@@ -224,12 +224,12 @@ end
         lla = LLAfromECEF(wgs84)(user)
         # Satellite roughly overhead → near-zenith, small slant delay (~2 m)
         sat_up = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 2.0e7))
-        el_up, _ = PositionVelocityTime._elevation_azimuth(ENUfromECEF(user, wgs84), sat_up)
+        el_up, _ = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat_up)
         d_up = PositionVelocityTime.tropospheric_delay(el_up, lla, 100)
         @test 2.0 < d_up < 2.6
         # A low-elevation satellite has a larger slant delay than the near-zenith one
         sat_low = ECEF(user[1] + 2.0e7, user[2] + 2.0e6, user[3] + 2.0e6)
-        el_low, _ = PositionVelocityTime._elevation_azimuth(ENUfromECEF(user, wgs84), sat_low)
+        el_low, _ = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat_low)
         @test PositionVelocityTime.tropospheric_delay(el_low, lla, 100) > d_up
         # Frequency independence is implicit: tropospheric_delay takes no system/freq.
     end

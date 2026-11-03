@@ -266,7 +266,7 @@ end
     bdgim_vtec(φ_g, λ_g, mjd, α) -> Float64
 
 Vertical TEC in TECU at the ionospheric pierce point whose geographic
-latitude/longitude are `φ_g`/`λ_g` (radians), at Modified Julian Date `mjd`, from
+latitude/longitude are `φ_g`/`λ_g` (radians), at `mjd`, from
 the nine broadcast BDGIM coefficients `α` (a 9-tuple, TECu). Implements
 `VTEC = A_0 + Σ_{i=1}^{9} α_i·A_i` (Eq. 7-16) with the broadcast harmonics `A_i`
 of Eq. 7-11 and the predictive part `A_0` of Eq. 7-14/7-15.
@@ -313,7 +313,7 @@ bdgim_mapping_function(elevation) =
 
 Slant TEC in TECU along the user→satellite line of sight using BDGIM, for the
 satellite `elevation`/`azimuth` (radians) seen from the user geodetic position
-`lla` (a `Geodesy.LLA`), at Modified Julian Date `mjd`, with the nine broadcast
+`lla` (a `Geodesy.LLA`), at `mjd`, with the nine broadcast
 coefficients `α` (a 9-tuple, TECu). This is `M_F · VTEC` — steps (1) through (5)
 of BDS-SIS-ICD-B1C-1.0 §7.8.2; step (6), the metre conversion, is
 [`ionospheric_delay`](@ref).
