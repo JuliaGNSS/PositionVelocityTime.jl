@@ -7,6 +7,7 @@ SignalObservation
 PVTSolution
 ObservationResiduals
 InterFrequencyBias
+BroadcastInterSystemBias
 ```
 
 A solution's `time` is GNSSSignals' `TAITime`, a trim-safe TAI epoch; with AstroTime

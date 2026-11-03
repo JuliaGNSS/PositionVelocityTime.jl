@@ -75,6 +75,31 @@ struct InterFrequencyBias
 end
 
 """
+    BroadcastInterSystemBias
+
+A receiver-clock difference a [`PVTSolution`](@ref) constrained with a broadcast GNSS
+time offset (GGTO, BGTO), where the observations could not separate the two receiver
+clocks (see [`decide_bias_layout`](@ref)). This assumes any differential receiver delay
+between those clocks is captured by the shared per-band delay model. Unmodelled receiver
+delays and errors in the broadcast offset therefore enter the constrained result.
+Each constraint fixes an unknown: a fix estimates `3 + (1 + length(inter_system_biases)) +
+length(inter_frequency_biases) − length(applied_broadcast_inter_system_biases)` parameters.
+
+# Fields
+- `system::SupportedTimeSystem`: the time system whose broadcast offset was used.
+- `target::SupportedTimeSystem`: the time system the offset is toward.
+- `value::typeof(1.0m)`: the bias of `system` against `target`, as
+  [`broadcast_inter_system_bias`](@ref) evaluates it. The solution meets it: the
+  inter-system bias of `system` minus that of `target`, the reference system's counting as
+  zero, equals it to rounding.
+"""
+struct BroadcastInterSystemBias
+    system::SupportedTimeSystem
+    target::SupportedTimeSystem
+    value::typeof(1.0m)
+end
+
+"""
     PVTSolution
 
 Complete Position, Velocity, and Time solution from GNSS measurements.
@@ -110,6 +135,10 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   Reference-independent
   (the difference of two entries is the offset between those two systems); empty for a
   single-system solution.
+- `applied_broadcast_inter_system_biases::Vector{BroadcastInterSystemBias}`: the
+  clock differences constrained by a broadcast time offset, one per
+  pair of clocks it tied (see [`BroadcastInterSystemBias`](@ref)). Empty whenever the
+  satellites separate every clock, the usual case.
 - `inter_frequency_biases::Dictionary{Symbol, InterFrequencyBias}`: For each frequency band
   other than the reference band, the receiver inter-frequency bias relative to it — the
   differential hardware delay of that band's RF chain, estimated as an extra unknown
@@ -149,6 +178,8 @@ it reads.
     reference_system::Union{SupportedTimeSystem,Nothing} = nothing
     inter_system_biases::Dictionary{SupportedTimeSystem,typeof(1.0m)} =
         Dictionary{SupportedTimeSystem,typeof(1.0m)}()
+    applied_broadcast_inter_system_biases::Vector{BroadcastInterSystemBias} =
+        BroadcastInterSystemBias[]
     inter_frequency_biases::Dictionary{Symbol,InterFrequencyBias} =
         Dictionary{Symbol,InterFrequencyBias}()
     dop::Union{DOP,Nothing} = nothing
@@ -192,6 +223,7 @@ Base.copy(pvt::PVTSolution) = PVTSolution(
     pvt.clock_drift,
     pvt.reference_system,
     copy(pvt.inter_system_biases),
+    copy(pvt.applied_broadcast_inter_system_biases),
     copy(pvt.inter_frequency_biases),
     pvt.dop,
     copy(pvt.observations),
@@ -204,10 +236,14 @@ function copy_into(solution::PVTSolution, source::PVTSolution)
     solution.observations === source.observations &&
         solution.inter_system_biases === source.inter_system_biases &&
         solution.inter_frequency_biases === source.inter_frequency_biases &&
+        solution.applied_broadcast_inter_system_biases ===
+        source.applied_broadcast_inter_system_biases &&
         return source
     copy_container!(solution.observations, source.observations)
     copy_container!(solution.inter_system_biases, source.inter_system_biases)
     copy_container!(solution.inter_frequency_biases, source.inter_frequency_biases)
+    copy_container!(solution.applied_broadcast_inter_system_biases,
+        source.applied_broadcast_inter_system_biases)
     PVTSolution(
         source.position,
         source.velocity,
@@ -216,6 +252,7 @@ function copy_into(solution::PVTSolution, source::PVTSolution)
         source.clock_drift,
         source.reference_system,
         solution.inter_system_biases,
+        solution.applied_broadcast_inter_system_biases,
         solution.inter_frequency_biases,
         source.dop,
         solution.observations,
@@ -230,6 +267,8 @@ function copy_container!(destination::Dictionary, source::Dictionary)
     end
     destination
 end
+copy_container!(destination::Vector, source::Vector) =
+    destination === source ? destination : copy!(destination, source)
 
 """
     empty_keeping_capacity!(dict::Dictionary) -> dict
@@ -239,9 +278,11 @@ Empty a `Dictionary` without giving up its storage, so refilling it with as many
 as before allocates nothing. `empty!(::Dictionary)` hands the dictionary a fresh, minimal
 hash table instead, which a refill then reallocates and regrows.
 
-The [`PVTSolution`](@ref) form empties all three of a solution's containers that way —
-`satellites`, `inter_system_biases` and `inter_frequency_biases` — for a consumer that
-builds its own solutions into the containers of one it keeps, as [`calc_pvt!`](@ref) does.
+The [`PVTSolution`](@ref) form empties all four of a solution's containers that way —
+`satellites`, `inter_system_biases`, `inter_frequency_biases` and
+`applied_broadcast_inter_system_biases` (the `Vector` by `empty!`, which keeps its
+capacity) — for a consumer that builds its own solutions into the containers of one it
+keeps, as [`calc_pvt!`](@ref) does.
 """
 function empty_keeping_capacity! end
 
@@ -266,6 +307,7 @@ function empty_keeping_capacity!(solution::PVTSolution)
     empty_keeping_capacity!(solution.observations)
     empty_keeping_capacity!(solution.inter_system_biases)
     empty_keeping_capacity!(solution.inter_frequency_biases)
+    empty!(solution.applied_broadcast_inter_system_biases)
     solution
 end
 
