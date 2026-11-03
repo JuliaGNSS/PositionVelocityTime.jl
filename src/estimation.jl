@@ -41,8 +41,8 @@ reference system — see [`PVTSolution`](@ref) — while the other systems' cloc
 (inter-system-bias) and the inter-frequency-bias variances enter `GDOP` only.
 
 A rank-deficient geometry makes `HᵀH` singular (not positive definite, or only to
-within rounding); the factorisation detects this and the function returns the sentinel
-`DOP(-1, …)` instead of erroring.
+within rounding); the factorisation detects this and the function returns `NaN` for
+every DOP instead of erroring.
 
 `reference_clock_column` is the clock column (1…num_clock_biases) whose variance is
 reported as `TDOP`.
@@ -66,7 +66,7 @@ function calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_column = 1)
     # see `factorize_normal_matrix!`. The inverse of an SPD matrix is itself SPD, so
     # the DOP variances on the diagonal are then guaranteed non-negative.
     n = size(H, 2)
-    factorize_normal_matrix!(normal_matrix, H) || return DOP(-1, -1, -1, -1, -1)
+    factorize_normal_matrix!(normal_matrix, H) || return DOP(NaN, NaN, NaN, NaN, NaN)
     # The inverse, in the upper triangle only; `D(i, j)` reads it symmetrically.
     LAPACK.potri!('U', normal_matrix)
     D(i, j) = i <= j ? normal_matrix[i, j] : normal_matrix[j, i]
@@ -95,7 +95,7 @@ function calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_column = 1)
     TDOP = sqrt(D(3 + reference_clock_column, 3 + reference_clock_column))
     GDOP = sqrt(sum(i -> D(i, i), 1:n))      # geometrical dop (all parameters)
 
-    return DOP(GDOP, PDOP, VDOP, HDOP, TDOP)
+    return DOP(GDOP, PDOP, HDOP, VDOP, TDOP)
 end
 
 """
@@ -186,7 +186,9 @@ end
         -> (velocity_and_drift::SVector{4}, rate_residuals)
 
 The user velocity and a single receiver clock drift, returned together with
-the per-satellite post-fit range-rate residuals as `([vx, vy, vz, ċ], rate_residuals)`.
+the per-satellite post-fit range-rate residuals as
+`([vx, vy, vz, ċ], rate_residuals)`. `ċ` is the clock drift in m/s, the rate of the clock
+bias in metres, as [`PVTSolution`](@ref)'s `clock_drift` reports it.
 Unlike the position solve — which estimates one clock *bias*
 per GNSS time system (the inter-system bias / GGTO is metre-level and must be
 resolved) — a single clock *drift* is shared by all satellites regardless of
@@ -271,7 +273,7 @@ function estimate_velocity!(rate_residuals, design, prepared,
         observation = prepared[j]
         modelled, a = pseudorange_rate_and_gradient(user_pos, prev_vel,
             prev_vel_and_drift[4],
-            observation.position, observation.velocity, observation.clock_drift)
+            observation.position, observation.velocity, observation.satellite_clock_drift)
         rⱼ = measured_pseudorange_rate(observation) - modelled
         rate_residuals[j] = rⱼ
         design[j] = a

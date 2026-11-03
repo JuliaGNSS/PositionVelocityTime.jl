@@ -20,7 +20,8 @@
     # the Earth-rotation angle (see `estimate_velocity`), which moved this by ~3 mm/s
     # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
     # with the Doppler, so the frequency offsets now differ by a few mHz.
-    @test pvt.relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.64Hz + freq_offset) atol = 0.01Hz
+    relative_clock_drift = ustrip(m / s, pvt.clock_drift) / PositionVelocityTime.SPEED_OF_LIGHT
+    @test relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.64Hz + freq_offset) atol = 0.01Hz
 
     warm_pvt = calc_pvt(
         signal_group(states),
@@ -57,7 +58,8 @@ end
     # the Earth-rotation angle (see `estimate_velocity`), which moved this by ~3 mm/s
     # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
     # with the Doppler, so the frequency offsets now differ by a few mHz.
-    @test pvt.relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.61Hz + freq_offset) atol = 0.01Hz
+    relative_clock_drift = ustrip(m / s, pvt.clock_drift) / PositionVelocityTime.SPEED_OF_LIGHT
+    @test relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.61Hz + freq_offset) atol = 0.01Hz
 
     warm_pvt = calc_pvt(
         signal_group(states),
@@ -121,8 +123,8 @@ end
     # A single receiver clock drift is estimated for the whole constellation
     # (one oscillator), so the combined drift agrees with each single-system drift
     # — to well within the inter-system spread, not split per system.
-    @test pvt.relative_clock_drift ≈ gps_only.relative_clock_drift atol = 5e-8
-    @test pvt.relative_clock_drift ≈ gal_only.relative_clock_drift atol = 5e-8
+    @test pvt.clock_drift ≈ gps_only.clock_drift atol = 5e-8 * PositionVelocityTime.SPEED_OF_LIGHT * m / s
+    @test pvt.clock_drift ≈ gal_only.clock_drift atol = 5e-8 * PositionVelocityTime.SPEED_OF_LIGHT * m / s
 
     # Satellites are keyed by (signal, PRN), so both constellations are represented
     # and nothing is merged or dropped across systems: the combined count equals the
@@ -239,7 +241,7 @@ end
     poisoned = PVTSolution(;
         position = ECEF((Vector(good.position) .+ [2.7e8, 0.0, 0.0])...),
         reference_system = good.reference_system,
-        dop = PositionVelocityTime.DOP(613.0, 587.0, 400.0, 430.0, 176.6),
+        dop = PositionVelocityTime.DOP(613.0, 587.0, 430.0, 400.0, 176.6),
     )
     recovered = calc_pvt(signal_group(states), poisoned; kwargs...)
 
@@ -255,6 +257,13 @@ end
     # Nothing of the poisoned seed survives into the reported satellite set.
     @test maximum(abs, [info.residual for info in values(recovered.observations)]) ≈
           maximum(abs, [info.residual for info in values(good.observations)]) rtol = 1e-6
+
+    # A rank-deficient previous geometry, `NaN` DOPs, is not trusted either.
+    rank_deficient = PVTSolution(; position = poisoned.position,
+        reference_system = good.reference_system,
+        dop = PositionVelocityTime.DOP(NaN, NaN, NaN, NaN, NaN))
+    @test norm(calc_pvt(signal_group(states), rank_deficient; kwargs...).position -
+               good.position) < 1e-3
 
     # An unsolvable epoch (too few satellites) returns the previous solution exactly
     # as passed, distrusted or not — the gate withholds it from the solve, not from
@@ -333,7 +342,7 @@ end
     # ~2 cm of range — so the position is exact only to millimetres.
     @test norm(pvt.position - user_pos) < 1e-2
     @test norm(pvt.velocity - user_vel) < 1e-5
-    @test pvt.relative_clock_drift * c ≈ clock_drift atol = 1e-5
+    @test ustrip(m / s, pvt.clock_drift) ≈ clock_drift atol = 1e-5
     @test maximum(info -> abs(ustrip(m / s, info.rate_residual)), pvt.observations) < 1e-5
 end
 
@@ -348,11 +357,11 @@ end
     warm = calc_pvt(groups, cold; kwargs...)
     rate_residuals(pvt) = [ustrip(m / s, info.rate_residual) for info in pvt.observations]
     @test norm(warm.velocity - cold.velocity) < 1e-9
-    @test warm.relative_clock_drift ≈ cold.relative_clock_drift atol = 1e-9 / 3e8
+    @test warm.clock_drift ≈ cold.clock_drift atol = 1e-9m / s
     @test maximum(abs, rate_residuals(warm) - rate_residuals(cold)) < 1e-9
 
     # A previous solution with a non-finite velocity is the cold start.
     broken = PVTSolution(; position = cold.position, dop = cold.dop,
-        velocity = ECEF(NaN, NaN, NaN), relative_clock_drift = NaN)
+        velocity = ECEF(NaN, NaN, NaN), clock_drift = NaN * m / s)
     @test calc_pvt(groups, broken; kwargs...).velocity ≈ cold.velocity atol = 1e-9
 end
