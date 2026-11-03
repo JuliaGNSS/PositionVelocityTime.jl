@@ -29,19 +29,31 @@ end
 # which stays strictly the data shared with the benchmark script.
 #
 # `prepared_of` gives the `PreparedObservation`s behind one epoch's observations —
-# what the collection pass hands the solver. `approximate_year` is pinned for the same
+# what the preparation pass hands the solver. `approximate_year` is pinned for the same
 # reason every `calc_pvt` call here pins it: the fixtures were recorded in 2021 and
 # GPS L1 C/A's week number is 10 bits.
 prepared_of(observations; approximate_year = 2021) =
-    first(PositionVelocityTime.collect_measurements(observations; approximate_year))
+    PositionVelocityTime.prepare_observations(observations; approximate_year).prepared
 # `time_offsets_of` gives the `BroadcastTimeOffsets` the same pass gathers, and `layout_of`
 # the bias layout `decide_bias_layout` decides from the two.
 time_offsets_of(observations; approximate_year = 2021) =
-    last(PositionVelocityTime.collect_measurements(observations; approximate_year))
+    PositionVelocityTime.prepare_observations(observations; approximate_year).time_offsets
 function layout_of(observations; approximate_year = 2021)
-    prepared, _, time_offsets =
-        PositionVelocityTime.collect_measurements(observations; approximate_year)
+    (; prepared, time_offsets) =
+        PositionVelocityTime.prepare_observations(observations; approximate_year)
     PositionVelocityTime.decide_bias_layout(prepared, time_offsets)
+end
+# `ionospheric_parameters` is the coefficient set preparation selects from the decoders of
+# `observations`, without its readiness and health gate: the selection rule alone, for decoders
+# built with nothing but the coefficients. `prepare_observations(observations).ionospheric_model`
+# is the same rule over the observations kept.
+function ionospheric_parameters(observations)
+    PVT = PositionVelocityTime
+    candidates = map(PVT.observation_collections(observations)) do group
+        foldl((candidates, state) -> PVT.update_ionospheric_candidates(candidates,
+                state.decoder), group; init = PVT.NO_IONOSPHERIC_CANDIDATES)
+    end
+    PVT.select_from_ionospheric_candidates(PVT.merge_all_ionospheric_candidates(candidates))
 end
 # `has_offset` is whether GNSSDecoder reports a broadcast time offset toward `target`
 # (at any time of week: whether there is one does not depend on it); `steering` evaluates
@@ -129,3 +141,4 @@ include("signals/galileo_e5a.jl")
 include("signals/galileo_e5b_e6b.jl")
 include("signals/beidou.jl")
 include("allocation_free.jl")
+include("prepared_observations.jl")

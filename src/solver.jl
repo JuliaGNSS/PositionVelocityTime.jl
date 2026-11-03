@@ -1,4 +1,4 @@
-# `calc_pvt` and `calc_pvt!`: the collection pass, then the solve behind it.
+# `calc_pvt` and `calc_pvt!`: the preparation pass, then the solve behind it.
 
 # PDOP above which a previous solution is not trusted as a warm-start seed. A PDOP of 20 is
 # already an unusable fix, while the spurious far-away roots this catches show hundreds
@@ -63,7 +63,7 @@ separate two clocks, a broadcast time offset ties them (see
 time are found by least squares, velocity and clock drift from carrier Doppler.
 
 The ionospheric delay is corrected from the navigation messages' own coefficients, with one
-model for the whole solve (see [`select_ionospheric_correction`](@ref)), and the
+model for the whole solve (see [`IonosphericModel`](@ref)), and the
 tropospheric delay with a blind model (see [`tropospheric_delay`](@ref)).
 
 # Arguments
@@ -80,8 +80,9 @@ tropospheric delay with a blind model (see [`tropospheric_delay`](@ref)).
   solver uses each observation's signal and decoder PRN. Empty collections retain
   their concrete element type (for example `gps_observations[1:0]`).
 
-  Each `(signal, PRN)` pair must appear at most once, or it enters the fit twice; two
-  collections sharing a ranging signal are not checked for collisions.
+  Each `(signal, PRN)` pair must appear at most once. Replica variants share a broadcast
+  signal ID: select one observation per component. Duplicate keys are
+  refused by the preparation, including in epochs with too few observations.
 
   **Order is significant**: the observations are prepared in collection order ×
   within-collection order, which breaks the ties of the reference system ("most
@@ -164,7 +165,7 @@ function calc_pvt!(
     )
 end
 
-# The collection pass and the solve, specialized on the observation collection shape.
+# The preparation pass and the solve, specialized on the observation collection shape.
 function _calc_pvt!(
     solution,
     workspace,
@@ -178,7 +179,7 @@ function _calc_pvt!(
     # solver behind.
     collections = observation_collections(observations)
     (; ionospheric_model, time_offsets) =
-        _collect_measurements!(workspace.prepared, collections, approximate_year)
+        _prepare_observations!(workspace.prepared, collections, approximate_year)
     _solve_pvt!(
         solution,
         workspace,
@@ -220,25 +221,17 @@ function _solve_pvt!(
 
     # The pseudoranges: how far each transmit time trails the reference observation's, on
     # the reference system's count (GNSSSignals' `get_time_system_offset`; raw, a BeiDou
-    # observation would carry 4.2e9 m) and folded across a week crossover. A crossover can
-    # fall between the times: within the transmit-time spread, or, in a mixed solve,
-    # between BeiDou times on the GPS count (`SOW + 14`, past 604800 for the first 14 s of
-    # a GPS week) and GPS times already wrapped. The common reference cancels into the
-    # receiver clock biases, which then date `reference_time`, the reference observation's
-    # own transmit time, in its own week. Only the differenced times move: the satellite is
-    # propagated on its own system's scale, where the 14 s would put 55 km of along-track
-    # error into the ephemeris.
+    # observation would carry 4.2e9 m) and folded across a week crossover
+    # (`calc_pseudorange`). The common reference cancels into the receiver clock biases,
+    # which then date `reference_time`, the reference observation's own transmit time, in
+    # its own week.
     reference_time = prepared[reference_index].transmit_time
-    pseudoranges = resize!(workspace.pseudoranges, num_observations)
+    pseudoranges = resize!(workspace.pseudoranges, num_observations + length(constraints))
     for (j, observation) in enumerate(prepared)
-        correction =
-            ustrip(s, get_time_system_offset(observation.time_system, reference_system))
-        pseudoranges[j] =
-            fold_week_crossover(reference_time - (correction + observation.transmit_time)) *
-            SPEED_OF_LIGHT
+        pseudoranges[j] = calc_pseudorange(reference_time, observation.transmit_time,
+            ustrip(s, get_time_system_offset(observation.time_system, reference_system)))
     end
     # The clock constraints' known values are observations too, after the satellites'.
-    resize!(pseudoranges, num_observations + length(constraints))
     for (i, constraint) in enumerate(constraints)
         pseudoranges[num_observations+i] = constraint.value
     end
@@ -362,15 +355,8 @@ function _solve_pvt!(
     clock_bias = ξ[3+reference_clock_column]
     corrected_reference_time = reference_time - clock_bias / SPEED_OF_LIGHT
 
-    # Everything is read from `prev_pvt` by now; `solution`'s containers are written from
-    # here on. A duplicate `(signal, PRN)` is refused before any is, so a throw leaves
-    # `solution` whole; not by `insert!`, whose message formats the key, a dynamic `show`
-    # a `juliac --trim` build rejects.
-    for j in 2:num_observations, k in 1:j-1
-        prepared[j].signal_id === prepared[k].signal_id &&
-            prepared[j].prn == prepared[k].prn && throw(IndexError(
-                "a (signal, PRN) pair appears twice in one epoch; each must appear once"))
-    end
+    # Both geometry checks passed, and everything has been read from `prev_pvt`.
+    # Commit the new observation results and biases to the output containers.
     observations = empty_keeping_capacity!(solution.observations)
     for (j, observation) in enumerate(prepared)
         key = (observation.signal_id, observation.prn)
@@ -393,12 +379,8 @@ function _solve_pvt!(
     end
 
     # The receiver-clock differences constrained by broadcast offsets, by time system.
-    applied_biases = empty!(solution.applied_broadcast_inter_system_biases)
-    for constraint in constraints
-        push!(applied_biases, BroadcastInterSystemBias(
-            clock_systems[constraint.column], clock_systems[constraint.target_column],
-            constraint.value * m))
-    end
+    applied_biases = applied_broadcast_inter_system_biases!(
+        solution.applied_broadcast_inter_system_biases, layout)
 
     fix = PVTSolution(
         position,

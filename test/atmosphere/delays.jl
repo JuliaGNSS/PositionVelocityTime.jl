@@ -415,7 +415,8 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         ]
         # Constellation-wide model selection picks Klobuchar: the GPS decoders
         # carry the broadcast α/β, no Galileo coefficients are present.
-        @test PositionVelocityTime.select_ionospheric_correction(collection_of(states)) isa
+        @test PositionVelocityTime.prepare_observations(collection_of(states);
+            approximate_year = 2021).ionospheric_model.parameters isa
               GNSSDecoder.KlobucharParameters
 
         # Corrections are on by default — the fix lands within a metre of the ground truth.
@@ -794,7 +795,8 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
         ]
         # NTCM-G is selected from the Effective Ionisation Level coefficients
         # decoded from the E1B navigation message.
-        @test PositionVelocityTime.select_ionospheric_correction(collection_of(states)) isa
+        @test PositionVelocityTime.prepare_observations(collection_of(states);
+            approximate_year = 2021).ionospheric_model.parameters isa
               GNSSDecoder.NeQuickGParameters
 
         # The fixture observables were generated with the flat-slab 1/sin(el)

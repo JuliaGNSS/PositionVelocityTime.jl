@@ -9,7 +9,7 @@ using CoordinateTransformations,
     Dates
 
 using Unitful: s, Hz, m, °, ustrip
-using Dictionaries: Dictionary, IndexError, set!
+using Dictionaries: Dictionary, set!
 
 # GNSSSignals' week arithmetic, documented but unexported there.
 using GNSSSignals: fold_week_crossover

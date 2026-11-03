@@ -189,13 +189,13 @@ end
         # Two collections sharing a ranging signal, as `Dictionary(keys, values)` refused it
         # before the solution was filled in place.
         twice = (a = l1ca, b = l1ca)
-        @test_throws Dictionaries.IndexError solved_pvt(twice; kw...)
-        @test_throws Dictionaries.IndexError solved_pvt!(
+        @test_throws ArgumentError solved_pvt(twice; kw...)
+        @test_throws ArgumentError solved_pvt!(
             PVTSolution(), PVTWorkspace(), twice, PVTSolution(); kw...)
         # As its own output, the refused epoch leaves `prev_pvt` as it was.
         prev_pvt = solved_pvt((gps = l1ca, galileo = e1b); kw...)
         before = snapshot(prev_pvt)
-        @test_throws Dictionaries.IndexError solved_pvt!(
+        @test_throws ArgumentError solved_pvt!(
             prev_pvt, PVTWorkspace(), twice, prev_pvt; kw...)
         @test same_solution(prev_pvt, before)
     end
@@ -310,34 +310,38 @@ end
         @test collect(keys(dict)) == [(:GPSL1CA, i) for i in 1:5]
     end
 
-    @testset "a solution's containers are emptied in place" begin
-        solution = solved_pvt!(PVTSolution(), PVTWorkspace(),
-            (l1 = l1ca, l5 = precompile_gps(GPSL5I(), _precompile_cnav),
-                galileo = e1b), PVTSolution(); kw...)
-        @test !isempty(solution.observations)
-        @test !isempty(solution.inter_system_biases)
-        @test !isempty(solution.inter_frequency_biases)
-        sats = solution.observations
-        @test PositionVelocityTime.empty_keeping_capacity!(solution) === solution
-        @test solution.observations === sats
-        @test isempty(solution.observations)
-        @test isempty(solution.inter_system_biases)
-        @test isempty(solution.inter_frequency_biases)
-        @test isempty(solution.applied_broadcast_inter_system_biases)
+    @testset "an estimator's solution is emptied and its constraints recorded in place" begin
+        observations = Dict(epochs)["constrained GPS + Galileo"]
+        pvt = solved_pvt(observations; kw...)
+        layout = layout_of(observations)
+        @test !isempty(pvt.applied_broadcast_inter_system_biases)
+        filled = copy(pvt)
+        applied = filled.applied_broadcast_inter_system_biases
+        @test PositionVelocityTime.empty_keeping_capacity!(filled) === filled
+        @test isempty(filled.observations) && isempty(filled.inter_system_biases) &&
+              isempty(filled.inter_frequency_biases) && isempty(applied)
+        @test PositionVelocityTime.applied_broadcast_inter_system_biases!(applied, layout) ===
+              applied
+        @test applied == pvt.applied_broadcast_inter_system_biases
+        refill!(filled, layout) = @allocated begin
+            PositionVelocityTime.empty_keeping_capacity!(filled)
+            PositionVelocityTime.applied_broadcast_inter_system_biases!(
+                filled.applied_broadcast_inter_system_biases, layout)
+        end
+        refill!(filled, layout)
+        @test refill!(filled, layout) == 0
     end
 
-    @testset "the observations are collected without allocating" begin
+    @testset "the observations are prepared without allocating" begin
         observations = (gps = l1ca, galileo = e1b)
         prepared = PositionVelocityTime.PreparedObservation[]
-        returned = PositionVelocityTime.collect_measurement_rows!(
+        returned = PositionVelocityTime.prepare_observations!(
             prepared, observations; approximate_year = 2021)
-        expected_measurements, expected_parameters, expected_time_offsets =
-            PositionVelocityTime.collect_measurements(observations; approximate_year = 2021)
-        @test prepared == expected_measurements
-        @test returned.ionospheric_model.parameters == expected_parameters
-        @test returned.time_offsets == expected_time_offsets
+        expected = PositionVelocityTime.prepare_observations(observations; approximate_year = 2021)
+        @test prepared == expected.prepared
+        @test returned == (; expected.ionospheric_model, expected.time_offsets)
         collect_into!(prepared, observations) = @allocated(
-            PositionVelocityTime.collect_measurement_rows!(prepared, observations;
+            PositionVelocityTime.prepare_observations!(prepared, observations;
                 approximate_year = 2021))
         collect_into!(prepared, observations)
         @test collect_into!(prepared, observations) == 0

@@ -72,6 +72,12 @@ statically dispatched; a pooled mixed vector with an abstract element type is re
 at the entry point. Preserve the element type for an empty collection, for example
 `gps_observations[1:0]`.
 
+Select one observation per satellite and broadcast component. Replica variants such as
+`GalileoE1B()` and `GalileoE1B(CBOC)` share the same canonical signal ID, so including
+both for one PRN is a duplicate. Preparation rejects duplicates, for `calc_pvt` and
+`prepare_observations` alike, even when an epoch has too few observations. Preparation skips incomplete or unhealthy navigation
+data and observations without a decoded time anchor.
+
 Besides `position`, `velocity` and `time`, the solution reports the receiver
 `clock_drift` (m/s), the `dop`, the per-observation residuals in `observations`, and,
 for a multi-GNSS or multi-band fix, the `inter_system_biases` relative to the
@@ -104,6 +110,25 @@ end
 ```
 The estimated time `pvt.time` is GNSSSignals' `TAITime` — whole TAI seconds since J2000
 plus a fraction. With AstroTime loaded, `TAIEpoch(pvt.time)` converts it exactly.
+
+### Preparing observations separately
+
+An estimator such as a vector tracking filter can reuse PVT's preparation and
+measurement-model functions:
+
+```julia
+using PositionVelocityTime: prepare_observations
+
+(; prepared, ionospheric_model, time_offsets) =
+    prepare_observations(epoch; approximate_year = 2021)
+```
+
+`prepared` holds the prepared observations: the satellite positions, clock corrections
+and other quantities the measurement model needs. `ionospheric_model` contains the
+selected ionospheric parameters, and `time_offsets` the broadcast offsets between the
+epoch's time systems.
+Use `prepare_observations!` to reuse a caller-owned vector; see the
+[API reference](docs/src/api.md) for the measurement-model functions.
 
 ### Trimmed executables
 The solver compiles into a standalone executable with

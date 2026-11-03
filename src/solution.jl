@@ -84,9 +84,10 @@ length(inter_frequency_biases) − length(applied_broadcast_inter_system_biases)
 - `system::SupportedTimeSystem`: the time system whose broadcast offset was used.
 - `target::SupportedTimeSystem`: the time system the offset is toward.
 - `value::typeof(1.0m)`: the bias of `system` against `target`, as
-  [`broadcast_inter_system_bias`](@ref) evaluates it. The solution meets it: the
-  inter-system bias of `system` minus that of `target`, the reference system's counting as
-  zero, equals it to rounding.
+  [`broadcast_inter_system_bias`](@ref) evaluates it. A [`calc_pvt`](@ref) solution meets
+  it: the inter-system bias of `system` minus that of `target`, the reference system's
+  counting as zero, equals it to rounding. An estimator that applies it as a weighted
+  pseudo-measurement meets it only to that weight.
 """
 struct BroadcastInterSystemBias
     system::SupportedTimeSystem
@@ -203,10 +204,9 @@ Base.copy(pvt::PVTSolution) = PVTSolution(
     empty_keeping_capacity!(solution::PVTSolution) -> solution
 
 Empty a `Dictionary` keeping its storage, so a refill of as many entries allocates
-nothing (`empty!` hands it a fresh, minimal hash table). The [`PVTSolution`](@ref) form
-empties all four of a solution's containers (the `Vector` by `empty!`, which keeps its
-capacity), for a consumer that builds its solutions
-into the containers of one it keeps, as [`calc_pvt!`](@ref) does.
+nothing (`empty!` hands it a fresh, minimal hash table). The `PVTSolution` form empties
+all four of a solution's containers, for an estimator that refills one solution's
+containers epoch after epoch.
 """
 function empty_keeping_capacity! end
 

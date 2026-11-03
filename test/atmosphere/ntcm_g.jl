@@ -74,7 +74,7 @@
             code_phase = 0.0,
             carrier_doppler = 0.0Hz,
         )
-        parameters = PositionVelocityTime.select_ionospheric_correction(collection_of([state]))
+        parameters = ionospheric_parameters(collection_of([state]))
         @test parameters isa GNSSDecoder.NeQuickGParameters
         el, az = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
         delay = PositionVelocityTime.ionospheric_delay(

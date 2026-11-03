@@ -1,10 +1,11 @@
-# The GNSS time systems: the broadcast offsets between them.
+# The GNSS time systems: broadcast offsets between them, and the whole seconds between
+# their counts.
 
 """
     BroadcastTimeOffsets
 
 The broadcast offsets between the GNSS time systems of one epoch, gathered by
-[`collect_measurements`](@ref) from all its observations and read with
+[`prepare_observations`](@ref) from all its observations and read with
 [`broadcast_time_offset`](@ref). Toward GPS Time that is Galileo's GGTO and BeiDou's BGTO;
 toward Galileo System Time, BeiDou's BGTO variant and the GGTO GPS broadcasts on
 CNAV/CNAV-2. An offset can tie two receiver clocks (see [`decide_bias_layout`](@ref)).
@@ -98,3 +99,29 @@ function merge_time_offsets(earlier::BroadcastTimeOffsets, later::BroadcastTimeO
     BroadcastTimeOffsets(map(ifelse, take, later.offsets, earlier.offsets),
         map(ifelse, take, later.epochs, earlier.epochs))
 end
+
+"""
+    calc_pseudorange(reference_time, transmit_time, correction = 0.0) -> Float64
+
+The pseudorange (m) of a satellite that sent `transmit_time` (s, a time of week on its own
+count) against `reference_time` (s, a time of week on the reference count): how far the
+transmit time, moved onto the reference count by `correction`, trails the reference time,
+folded across a week crossover (GNSSSignals' `fold_week_crossover`) and scaled by
+[`SPEED_OF_LIGHT`](@ref).
+
+`correction` is the seconds between the two counts, GNSSSignals'
+`get_time_system_offset(own_system, reference_system)` in seconds: `14.0` from BeiDou
+Time onto GPS Time, `0.0` between systems that count alike. It moves the pseudorange,
+not the transmit time: the satellite is propagated from its transmit time against the
+message's own `t_0e`, on the broadcasting system's scale, so shifting the transmit time
+would move the 14 s into the ephemeris, about 55 km of along-track error at BeiDou MEO
+velocities. A solve corrects toward its own reference system, whose count also dates its
+epoch (`calc_pvt` toward the one of [`select_reference_system`](@ref)).
+
+A crossover can fall between the two times: within the spread of transmit times, or, in a
+mixed solve, between BeiDou times on the GPS count (`SOW + 14`, past 604800 for the first
+14 s of a GPS week) and GPS times already wrapped. `reference_time` need not be a receive
+time: a common one cancels into the receiver clock biases.
+"""
+calc_pseudorange(reference_time, transmit_time, correction = 0.0) =
+    fold_week_crossover(reference_time - (correction + transmit_time)) * SPEED_OF_LIGHT

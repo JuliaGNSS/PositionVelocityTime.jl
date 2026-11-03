@@ -17,6 +17,24 @@ function factorize_normal_matrix!(normal_matrix, H)
 end
 
 """
+    calc_fit_covariance!(normal_matrix, H) -> Bool
+
+The cofactor matrix `(HᵀH)⁻¹` of the design matrix `H`, written into the **upper
+triangle** of `normal_matrix` (`n × n` for the `n` columns of `H`); read it through
+`Symmetric(normal_matrix, :U)`. Scaled by a pseudorange variance it is the covariance of
+the least-squares fit; scale `H`'s rows by their inverse standard deviations first to
+weight them. Allocates nothing.
+
+Returns `false`, leaving `normal_matrix` garbage, for a rank-deficient `H`, by the test
+[`calc_dop`](@ref) applies.
+"""
+function calc_fit_covariance!(normal_matrix, H)
+    factorize_normal_matrix!(normal_matrix, H) || return false
+    LAPACK.potri!('U', normal_matrix)
+    true
+end
+
+"""
     calc_dop(H, user_pos::ECEF, reference_clock_column = 1) -> DOP
 
 The dilution of precision of the design matrix `H` ([`calc_design_matrix`](@ref)) at the
@@ -40,9 +58,8 @@ overwritten). Allocates nothing.
 """
 function calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_column = 1)
     n = size(H, 2)
-    factorize_normal_matrix!(normal_matrix, H) || return DOP(NaN, NaN, NaN, NaN, NaN)
-    # The inverse, in the upper triangle only; `D(i, j)` reads it symmetrically.
-    LAPACK.potri!('U', normal_matrix)
+    calc_fit_covariance!(normal_matrix, H) || return DOP(NaN, NaN, NaN, NaN, NaN)
+    # The inverse is in the upper triangle only; `D(i, j)` reads it symmetrically.
     D(i, j) = i <= j ? normal_matrix[i, j] : normal_matrix[j, i]
 
     # The ECEF→ENU rotation at the user position, as Geodesy's `ENUfromECEF` builds it.

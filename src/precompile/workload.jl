@@ -2,7 +2,7 @@
 # compilation on a workstation and three to four times that on an embedded ARM host, paid
 # by a live receiver just as its first fix is due (GNSSReceiver.jl#107).
 #
-# Only the collection pass specialises on the navigation-data type; the solver behind the
+# Only the preparation pass specialises on the navigation-data type; the solver behind the
 # prepared observations is compiled once (see collection.jl). So the workload is one solve
 # per data type (GPS LNAV, CNAV on L5I and L2CM, CNAV-2, Galileo I/NAV and F/NAV), plus
 # once each the paths a data type does not vary: warm start, corrections disabled, a
@@ -178,6 +178,7 @@ end
         mixed = (gps = l1ca_collection, galileo = collection(GalileoE1B(), e1b))
         mixed_pvt = calc_pvt(mixed; approximate_year = 2021).solution
         calc_pvt(mixed, mixed_pvt; approximate_year = 2021)
+        prepare_observations(mixed; approximate_year = 2021)
         # The in-place entry point, including the insufficient-observations outcome.
         workspace = PVTWorkspace()
         in_place =

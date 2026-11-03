@@ -46,20 +46,19 @@
         @test occursin("SignalObservation", message)
         @test occursin("calc_pvt", message)
         end
-        @test_throws ArgumentError PositionVelocityTime.select_ionospheric_correction(
+        @test_throws ArgumentError PositionVelocityTime.prepare_observations(
             (gps = SignalObservation[],))
     end
 
     @testset "collection is inferable and the solver compiles once" begin
         observations = (gps = gps, galileo = gal)
-        prepared, _ =
-            PositionVelocityTime.collect_measurements(observations; approximate_year = 2021)
+        prepared = prepared_of(observations)
         @test prepared isa Vector{PositionVelocityTime.PreparedObservation}
         @test isconcretetype(eltype(prepared))
         @test length(prepared) == length(gps) + length(gal)
-        @test inferred_return_type(
-            PositionVelocityTime.collect_measurements, Tuple{typeof(observations)}
-        ).parameters[1] === Vector{PositionVelocityTime.PreparedObservation}
+        @test fieldtype(inferred_return_type(
+                PositionVelocityTime.prepare_observations, Tuple{typeof(observations)}),
+            :prepared) === Vector{PositionVelocityTime.PreparedObservation}
         @test inferred_return_type(calc_pvt, Tuple{typeof(observations)}) ===
               NamedTuple{(:status, :solution),Tuple{PVTStatus,PVTSolution}}
         for input in (
@@ -75,11 +74,14 @@
     @testset "empty collections retain their type" begin
         empty_gps = gps[1:0]
         for input in (empty_gps, (), (;), Dictionary(Int[], empty_gps))
-        prepared, parameters, time_offsets =
-            PositionVelocityTime.collect_measurements(input; approximate_year = 2021)
+        (; prepared, ionospheric_model, time_offsets) =
+            PositionVelocityTime.prepare_observations(input; approximate_year = 2021)
         @test isempty(prepared)
-        @test isnothing(parameters)
-            @test isnothing(PositionVelocityTime.decide_bias_layout(prepared, time_offsets))
+        @test ionospheric_model isa PositionVelocityTime.IonosphericModel
+        @test isnothing(ionospheric_model.parameters)
+        @test time_offsets == PositionVelocityTime.BroadcastTimeOffsets()
+            @test isnothing(PositionVelocityTime.decide_bias_layout(prepared,
+                time_offsets))
         previous = solved_pvt(gps; kw...)
         result= calc_pvt(input, previous; kw...)
             @test result.status === PositionVelocityTime.insufficient_observations

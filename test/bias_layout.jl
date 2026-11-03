@@ -365,8 +365,8 @@
         two = gps[1:2]
         observations = (collection_of(two), collection_of(map(as_l2c, two)),
             collection_of(map(as_l5i, two)))
-        prepared, _, time_offsets =
-            PositionVelocityTime.collect_measurements(observations; approximate_year = 2021)
+        (; prepared, time_offsets) =
+            PositionVelocityTime.prepare_observations(observations; approximate_year = 2021)
         # All six observations are usable and clear the observation count, and it is the
         # distinct-satellite condition — two satellites for 3 + 1 unknowns — that rejects
         # the constellation as unsolvable.
@@ -406,8 +406,8 @@
         e5a = as_e5a(gal[1]; ggto = 3.0e-9)
         observations = (collection_of(gps[1:3]), collection_of([cnav]), collection_of(gal[1:1]),
             collection_of([e5a]))
-        prepared, _, time_offsets =
-            PositionVelocityTime.collect_measurements(observations; approximate_year = 2021)
+        (; prepared, time_offsets) =
+            PositionVelocityTime.prepare_observations(observations; approximate_year = 2021)
         @test PositionVelocityTime.broadcast_time_offset(time_offsets, GPST(), GST()) ==
               -7.0e-9
         @test PositionVelocityTime.broadcast_time_offset(time_offsets, GST(), GPST()) ==

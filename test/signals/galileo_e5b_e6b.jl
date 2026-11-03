@@ -235,11 +235,14 @@ end
         (GalileoE1C(CBOC), :GalileoE1C))
         state = SignalObservation(; decoder = source.decoder, signal,
             code_phase = source.code_phase, carrier_doppler = source.carrier_doppler)
-        observation = PositionVelocityTime.satellite_measurement(state, 2021)
+        observation = PositionVelocityTime.prepare_observation(state, 2021)
         @test observation.signal_id == expected_id
         @test observation.band_id == :L1
         @test observation.transmit_time == PositionVelocityTime.calc_transmit_time(source)
     end
+    full_replica = SignalObservation(; decoder = source.decoder, signal = GalileoE1B(CBOC),
+        code_phase = source.code_phase, carrier_doppler = source.carrier_doppler)
+    @test_throws ArgumentError calc_pvt(([source], [full_replica]); approximate_year = 2021)
 end
 
 # ---------------------------------------------------------------------------

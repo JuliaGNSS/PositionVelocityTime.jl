@@ -89,6 +89,14 @@ collection needs no tuple around it: `calc_pvt(gps_observations, previous)`. Col
 names are ignored. For an empty collection, preserve its concrete element type with
 `gps_observations[1:0]` or supply that concrete type explicitly when constructing it.
 
+Select one observation per satellite and broadcast component. Replica variants may use
+different modulations while sharing a canonical `get_signal_id`: `GalileoE1B()` and
+`GalileoE1B(CBOC)` both identify `:GalileoE1B`. Including both for one PRN is a duplicate,
+which preparation rejects, for `calc_pvt` and `prepare_observations` alike, even if the
+epoch otherwise lacks enough observations.
+Preparation skips incomplete or unhealthy navigation data and observations whose decoder
+has no decoded time anchor.
+
 Satellites from different constellations may be combined this way. One receiver clock
 bias is estimated per time system, reported as effective `pvt.inter_system_biases` relative to
 `pvt.reference_system`, so a fix over `M` time systems needs `3 + M` satellites, unless a
@@ -127,3 +135,26 @@ This loop explicitly keeps its last fix on failure. A failed [`calc_pvt!`](@ref)
 the output's containers untouched and carries that output in its result; inspect the
 status before treating it as the current epoch's fix. On success the new solution takes
 over the output's containers, as documented by [`calc_pvt!`](@ref).
+
+### Preparing observations separately
+
+An estimator such as a vector tracking filter can prepare decoder-dependent quantities
+once and use PVT's measurement-model functions in its own estimation loop:
+
+```julia
+using PositionVelocityTime: prepare_observations
+
+observations = (gps = gps_observations, galileo = galileo_observations)
+(; prepared, ionospheric_model, time_offsets) =
+    prepare_observations(observations; approximate_year = 2021)
+```
+
+Each prepared observation carries its resolved week, satellite position and clock
+corrections. The returned [`PositionVelocityTime.IonosphericModel`](@ref) is passed to
+[`PositionVelocityTime.predict_atmospheric_delays!`](@ref) when predicting their delays,
+and the [`PositionVelocityTime.BroadcastTimeOffsets`](@ref) between the epoch's time
+systems to [`PositionVelocityTime.decide_bias_layout!`](@ref).
+[`PositionVelocityTime.prepare_observations!`](@ref) reuses a caller-owned vector.
+
+For custom broadcast coefficients, construct `PositionVelocityTime.IonosphericModel(coefficients)`.
+The optional raw metadata remains accessible as `ionospheric_model.parameters`.

@@ -386,7 +386,7 @@
             BeiDouB1I(),
         )
 
-        select = PositionVelocityTime.select_ionospheric_correction
+        select = ionospheric_parameters
         # Each of these satellites is on a signal of its own, so each is its own group;
         # the tuple's order is the order the scan sees them in, which is what the
         # preference rungs below are asserted against.
