@@ -352,8 +352,9 @@ end
         @test stuck.param == [0.5, 0.5]
 
         # The time-system and ENU helpers.
-        @test PositionVelocityTime.unique_time_systems((GPST(), GST(), GPST(), BDT())) ==
-              [GPST(), GST(), BDT()]
+        @test PositionVelocityTime.unique_time_systems!(
+            PositionVelocityTime.SupportedTimeSystem[GST()],
+            (GPST(), GST(), GPST(), BDT())) == [GPST(), GST(), BDT()]
         mixed_layout = layout_of((gps = l1ca, galileo = e1b))
         select_reference(layout) =
             @allocated PositionVelocityTime.select_reference_system(layout)

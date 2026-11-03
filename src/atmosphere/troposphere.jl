@@ -154,8 +154,8 @@ end
 
 Slant tropospheric group delay in metres for a satellite at `elevation` (radians)
 seen from the user geodetic position `lla` (a `Geodesy.LLA`): the Saastamoinen
-zenith delays (see [`saastamoinen_zenith_delays`](@ref)) mapped to the line of
-sight by the Niell mapping functions (see [`niell_mapping_functions`](@ref)),
+zenith delays (see `saastamoinen_zenith_delays`) mapped to the line of
+sight by the Niell mapping functions (see `niell_mapping_functions`),
 whose seasonal term is driven by `day_of_year`. The delay is
 non-dispersive (frequency independent). `relative_humidity` (0…1) is used for the
 wet component. The delay is finite and monotone in elevation all the
