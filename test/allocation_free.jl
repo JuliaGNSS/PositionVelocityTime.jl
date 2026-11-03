@@ -9,18 +9,15 @@ using PositionVelocityTime:
 
 # The precompile workload's fixture satellites, re-encoded onto every navigation-data
 # type the solver dispatches on — the same epochs the trimmed app solves.
-precompile_gps(system, make_data = identity) = PositionVelocityTime.SignalGroup(
-    system, _precompile_states(system, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA()))
-precompile_galileo(system, make_data = identity) = PositionVelocityTime.SignalGroup(
-    system,
-    _precompile_states(system, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B()))
-precompile_gps_pilot(signal) = PositionVelocityTime.SignalGroup(signal,
-    map(precompile_gps(GPSL1C_D(), _precompile_cnav2).satellites) do state
-        SignalObservation(; decoder = state.decoder, signal, code_phase = state.code_phase,
-            carrier_doppler = state.carrier_doppler, carrier_phase = state.carrier_phase)
-    end)
-first_satellites(group, n) =
-    PositionVelocityTime.SignalGroup(group.signal, group.satellites[1:n])
+precompile_gps(system, make_data = identity) =
+    _precompile_states(system, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA())
+precompile_galileo(system, make_data = identity) =
+    _precompile_states(system, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B())
+precompile_gps_pilot(signal) = map(precompile_gps(GPSL1C_D(), _precompile_cnav2)) do state
+    SignalObservation(; decoder = state.decoder, signal, code_phase = state.code_phase,
+        carrier_doppler = state.carrier_doppler)
+end
+first_satellites(group, n) = group[1:n]
 
 # Every field of two solutions, containers by content and in order.
 function same_solution(a::PVTSolution, b::PVTSolution)
@@ -50,11 +47,11 @@ snapshot(pvt::PVTSolution) = deepcopy(pvt)
 
 # Measured inside a function, where the keyword call is compiled like any other call —
 # `@allocated` at top level would count the boxing of its own global arguments.
-allocated_solve(solution, workspace, groups, prev_pvt; kw...) =
-    @allocated calc_pvt!(solution, workspace, groups, prev_pvt; kw...)
-function allocated_loop(pvt, workspace, groups; kw...)
+allocated_solve(solution, workspace, observations, prev_pvt; kw...) =
+    @allocated calc_pvt!(solution, workspace, observations, prev_pvt; kw...)
+function allocated_loop(pvt, workspace, observations; kw...)
     @allocated for _ in 1:10
-        pvt = calc_pvt!(pvt, workspace, groups, pvt; kw...)
+        pvt = calc_pvt!(pvt, workspace, observations, pvt; kw...)
     end
 end
 
@@ -86,24 +83,24 @@ end
                         t_0G = 0, WN_0G = 0)), 1)),
         # The test suite's own fixtures, Dictionary-backed.
         "fixture GPS + Galileo" =>
-            (gps = signal_group(gps_l1_states(0.0Hz)),
-                galileo = signal_group(galileo_e1b_states(0.0Hz))),
+            (gps = collection_of(gps_l1_states(0.0Hz)),
+                galileo = collection_of(galileo_e1b_states(0.0Hz))),
     ]
     corrections = [
         (enable_ionospheric_correction = true, enable_tropospheric_correction = true),
         (enable_ionospheric_correction = false, enable_tropospheric_correction = false),
     ]
 
-    @testset "the same solve as calc_pvt: $name" for (name, groups) in epochs
+    @testset "the same solve as calc_pvt: $name" for (name, observations) in epochs
         for correction in corrections
-            cold = calc_pvt(groups; kw..., correction...)
-            warm = calc_pvt(groups, cold; kw..., correction...)
+            cold = calc_pvt(observations; kw..., correction...)
+            warm = calc_pvt(observations, cold; kw..., correction...)
             workspace = PVTWorkspace()
-            pvt = calc_pvt!(PVTSolution(), workspace, groups, PVTSolution(); kw...,
+            pvt = calc_pvt!(PVTSolution(), workspace, observations, PVTSolution(); kw...,
                 correction...)
             @test same_solution(pvt, cold)
             # Warm, with the solution as its own seed — the receiver loop.
-            pvt = calc_pvt!(pvt, workspace, groups, pvt; kw..., correction...)
+            pvt = calc_pvt!(pvt, workspace, observations, pvt; kw..., correction...)
             @test same_solution(pvt, warm)
         end
     end
@@ -114,12 +111,12 @@ end
     end
 
     @testset "reuses the solution it is given, and only that" begin
-        groups = (gps = l1ca, galileo = e1b)
-        prev_pvt = calc_pvt(groups; kw...)
+        observations = (gps = l1ca, galileo = e1b)
+        prev_pvt = calc_pvt(observations; kw...)
         before = snapshot(prev_pvt)
         solution = calc_pvt(l1ca; kw...)          # something else, to be reused
-        returned = calc_pvt!(solution, PVTWorkspace(), groups, prev_pvt; kw...)
-        @test same_solution(returned, calc_pvt(groups, prev_pvt; kw...))
+        returned = calc_pvt!(solution, PVTWorkspace(), observations, prev_pvt; kw...)
+        @test same_solution(returned, calc_pvt(observations, prev_pvt; kw...))
         @test same_solution(prev_pvt, before)      # `prev_pvt` is only read
         # The returned solution took over `solution`'s containers, refilled.
         @test returned.observations === solution.observations
@@ -129,7 +126,7 @@ end
               solution.applied_broadcast_inter_system_biases
         again = calc_pvt!(returned, PVTWorkspace(), l1ca, prev_pvt; kw...)
         @test again.observations === solution.observations
-        @test length(again.observations) == length(l1ca.satellites)
+        @test length(again.observations) == length(l1ca)
         # `calc_pvt` still never touches its `prev_pvt`.
         calc_pvt(l1ca, prev_pvt; kw...)
         @test same_solution(prev_pvt, before)
@@ -180,7 +177,7 @@ end
     end
 
     @testset "a (signal, PRN) pair twice in one epoch is refused" begin
-        # Two groups sharing a ranging signal, as `Dictionary(keys, values)` refused it
+        # Two collections sharing a ranging signal, as `Dictionary(keys, values)` refused it
         # before the solution was filled in place.
         twice = (a = l1ca, b = l1ca)
         @test_throws Dictionaries.IndexError calc_pvt(twice; kw...)
@@ -199,22 +196,22 @@ end
         pvt = PVTSolution()
         # Growing, shrinking and growing again, across layouts with and without an IFB
         # column: every solve matches a fresh `calc_pvt`.
-        for (_, groups) in epochs[[1, 9, 7, 8, 5, 10, 1]]
-            pvt = calc_pvt!(pvt, workspace, groups, PVTSolution(); kw...)
-            @test same_solution(pvt, calc_pvt(groups; kw...))
+        for (_, observations) in epochs[[1, 9, 7, 8, 5, 10, 1]]
+            pvt = calc_pvt!(pvt, workspace, observations, PVTSolution(); kw...)
+            @test same_solution(pvt, calc_pvt(observations; kw...))
         end
     end
 
-    @testset "allocates nothing once warm: $name" for (name, groups) in epochs
+    @testset "allocates nothing once warm: $name" for (name, observations) in epochs
         for correction in corrections
             workspace = PVTWorkspace()
             cold = PVTSolution()
-            pvt = calc_pvt!(PVTSolution(), workspace, groups, cold; kw..., correction...)
-            pvt = calc_pvt!(pvt, workspace, groups, pvt; kw..., correction...)
-            @test allocated_solve(pvt, workspace, groups, cold; kw..., correction...) == 0
-            @test allocated_solve(pvt, workspace, groups, pvt; kw..., correction...) == 0
+            pvt = calc_pvt!(PVTSolution(), workspace, observations, cold; kw..., correction...)
+            pvt = calc_pvt!(pvt, workspace, observations, pvt; kw..., correction...)
+            @test allocated_solve(pvt, workspace, observations, cold; kw..., correction...) == 0
+            @test allocated_solve(pvt, workspace, observations, pvt; kw..., correction...) == 0
             # The receiver loop itself, many epochs through one binding.
-            @test allocated_loop(pvt, workspace, groups; kw..., correction...) == 0
+            @test allocated_loop(pvt, workspace, observations; kw..., correction...) == 0
         end
     end
 
@@ -314,20 +311,20 @@ end
     end
 
     @testset "the observations are collected without allocating" begin
-        groups = (gps = l1ca, galileo = e1b)
+        observations = (gps = l1ca, galileo = e1b)
         prepared = PositionVelocityTime.PreparedObservation[]
         returned = PositionVelocityTime.collect_measurement_rows!(
-            prepared, groups; approximate_year = 2021)
+            prepared, observations; approximate_year = 2021)
         expected_measurements, expected_parameters, expected_time_offsets =
-            PositionVelocityTime.collect_measurements(groups; approximate_year = 2021)
+            PositionVelocityTime.collect_measurements(observations; approximate_year = 2021)
         @test prepared == expected_measurements
         @test returned.ionospheric_model.parameters == expected_parameters
         @test returned.time_offsets == expected_time_offsets
-        collect_into!(prepared, groups) = @allocated(
-            PositionVelocityTime.collect_measurement_rows!(prepared, groups;
+        collect_into!(prepared, observations) = @allocated(
+            PositionVelocityTime.collect_measurement_rows!(prepared, observations;
                 approximate_year = 2021))
-        collect_into!(prepared, groups)
-        @test collect_into!(prepared, groups) == 0
+        collect_into!(prepared, observations)
+        @test collect_into!(prepared, observations) == 0
     end
 
     @testset "the allocating forms delegate to the in-place ones" begin

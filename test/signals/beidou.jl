@@ -531,7 +531,6 @@
             signal = system,
             code_phase = code_phase,
             carrier_doppler = 0.0Hz,
-            carrier_phase = 0.0,
         )
     end
 
@@ -549,7 +548,7 @@
             ranging_state(dnav_decoder(state; prn = 20 + i), BeiDouB1I(), user, t_rx)
             for (i, state) in enumerate(galileo)
         ]
-        pvt = calc_pvt(signal_group(b1i); kw...)
+        pvt = calc_pvt(collection_of(b1i); kw...)
         @test length(pvt.observations) == length(galileo)
         @test pvt.reference_system == BDT()
         @test norm(pvt.position - user) < 1e-2
@@ -582,7 +581,7 @@
                 t_rx + 14,
             ) for state in gps_l1_states(0.0Hz)
         ]
-        pvt_gps = calc_pvt(signal_group(gps_matched); kw...)
+        pvt_gps = calc_pvt(collection_of(gps_matched); kw...)
         @test GNSSDecoder.get_broadcast_week(gps_matched[1].decoder;
             approximate_year = 2021) == 2156
         @test norm(pvt_gps.position - user) < 1e-2
@@ -596,7 +595,7 @@
             ranging_state(dnav_decoder(state; prn = 20 + i), BeiDouB3I(), user, t_rx)
             for (i, state) in enumerate(galileo)
         ]
-        two_band = calc_pvt((signal_group(b1i), signal_group(b3i)); kw...)
+        two_band = calc_pvt((collection_of(b1i), collection_of(b3i)); kw...)
         @test norm(two_band.position - user) < 1e-2
         @test collect(keys(two_band.inter_frequency_biases)) == [:B3]
         @test abs(two_band.inter_frequency_biases[:B3].value) < 1e-2m
@@ -632,9 +631,9 @@
             ) for (i, state) in enumerate(galileo[1:4])
         ]
         expected = get_week_start_epoch(GPST(), 2157) + 5.0
-        gps_only = calc_pvt(signal_group(gps); kw...)
+        gps_only = calc_pvt(collection_of(gps); kw...)
         @test gps_only.time - expected ≈ 0.0 atol = 1e-3
-        mixed = calc_pvt((signal_group(gps), signal_group(bds)); kw...)
+        mixed = calc_pvt((collection_of(gps), collection_of(bds)); kw...)
         @test mixed.reference_system == GPST()
         @test norm(mixed.position - user) < 1e-2
         @test mixed.time - expected ≈ 0.0 atol = 1e-3
@@ -672,8 +671,8 @@
                 !isapprox(d.code_phase, p.code_phase) for (d, p) in zip(on_data, on_pilot)
             )
 
-            pvt_data = calc_pvt(signal_group(on_data); kw...)
-            pvt_pilot = calc_pvt(signal_group(on_pilot); kw...)
+            pvt_data = calc_pvt(collection_of(on_data); kw...)
+            pvt_pilot = calc_pvt(collection_of(on_pilot); kw...)
             @test length(pvt_pilot.observations) == length(galileo)
             @test norm(pvt_pilot.position - user) < 1e-2
             @test norm(pvt_pilot.position - pvt_data.position) < 1e-2
@@ -689,7 +688,7 @@
             ranging_state(b2a_decoder(state), BeiDouB2aI(), user, t_rx)
             for state in galileo
         ]
-        pvt = calc_pvt(signal_group(b2a_states); kw...)
+        pvt = calc_pvt(collection_of(b2a_states); kw...)
         @test length(pvt.observations) == length(galileo)
         @test norm(pvt.position - user) < 1e-2
     end
@@ -737,7 +736,7 @@
         # band gets an inter-frequency-bias column — each constellation's chain delay
         # folds into its own clock. The inter-system bias then reads out as −c·Δ.
         plenty_beidou = beidou([21, 22, 23, 24])
-        plenty = (signal_group(gps), signal_group(plenty_beidou))
+        plenty = (collection_of(gps), collection_of(plenty_beidou))
         pvt = calc_pvt(plenty; kw...)
         @test length(pvt.observations) == length(gps) + length(plenty_beidou)
         @test norm(pvt.position - user) < 1e-2
@@ -777,7 +776,7 @@
         # unknowns against 4 observations). With a broadcast BGTO the BeiDou clock is
         # tied to GPS and the epoch solves anyway — the BeiDou counterpart of the
         # Galileo GGTO constraint.
-        scarce = (signal_group(gps[1:3]), signal_group(beidou_l1([21]; bgto = Δ)))
+        scarce = (collection_of(gps[1:3]), collection_of(beidou_l1([21]; bgto = Δ)))
         # Pin the *shape*, not just the outcome: two time systems and four satellites,
         # so the independent layout is arithmetically impossible and the BGTO
         # constraint is the only route to a fix. That is what makes this the assertion
@@ -787,8 +786,8 @@
         # go and the position itself is wrong. Stated here because a suite whose every
         # case has enough satellites for the independent layout can miss a defect that
         # produces no fixes at all.
-        @test length(unique(get_time_system(group.signal) for group in scarce)) == 2
-        @test sum(length(group.satellites) for group in scarce) == 4
+        @test length(unique(get_time_system(first(group).signal) for group in scarce)) == 2
+        @test sum(length(group) for group in scarce) == 4
         scarce_layout = layout_of(scarce)
         @test scarce_layout.clock_systems == [GPST(), BDT()]
         @test length(scarce_layout.constraints) == 1
@@ -813,7 +812,7 @@
         # Without the BGTO the same four satellites are unsolvable — no constraint is
         # available and the independent layout cannot be paid for — and `calc_pvt`
         # says so by returning the previous solution rather than throwing.
-        @test calc_pvt((signal_group(gps[1:3]), signal_group(beidou_l1([21]))); kw...).position ==
+        @test calc_pvt((collection_of(gps[1:3]), collection_of(beidou_l1([21]))); kw...).position ==
               PVTSolution().position
 
         # A Galileo satellite carrying a GGTO and a BeiDou one carrying a BGTO, in the
@@ -830,16 +829,15 @@
             signal = galileo[5].signal,
             code_phase = galileo[5].code_phase,
             carrier_doppler = galileo[5].carrier_doppler,
-            carrier_phase = galileo[5].carrier_phase,
         )
         # Three GPS + one BeiDou + one Galileo, all on L1. Three independent clocks
         # would need six satellites, two clocks five — so one constraint is enough, and
         # a second would only let a broadcast offset override what the geometry
         # observes. BeiDou and Galileo tie on the satellite count; BeiDou appears first.
         mixed = (
-            signal_group(gps[1:3]),
-            signal_group(beidou_l1([21]; bgto = Δ)),
-            signal_group([galileo_ggto]),
+            collection_of(gps[1:3]),
+            collection_of(beidou_l1([21]; bgto = Δ)),
+            collection_of([galileo_ggto]),
         )
         mixed_measurements = prepared_of(mixed)
         mixed_offsets = time_offsets_of(mixed)
@@ -884,8 +882,8 @@
         @test both.num_clock_groups == 1
         # One offset short of that — no GGTO broadcast, only the BGTO — the epoch cannot
         # be solved.
-        plain_galileo_sat = only(prepared_of(signal_group([galileo[5]])))
-        bgto_offsets = time_offsets_of(signal_group(beidou_l1([21]; bgto = Δ)))
+        plain_galileo_sat = only(prepared_of(collection_of([galileo[5]])))
+        bgto_offsets = time_offsets_of(collection_of(beidou_l1([21]; bgto = Δ)))
         @test isnothing(PositionVelocityTime.decide_bias_layout(
             [gps_sats[1:2]; [beidou_sat, plain_galileo_sat]], bgto_offsets))
         # It still leaves the offsets it has, not those of the epoch before: BeiDou tied
@@ -938,7 +936,7 @@
         gal_states = [
             ranging_state(st.decoder, st.signal, user, t_rx) for st in galileo[1:3]
         ]
-        gps_free = (signal_group(gal_states), signal_group([beidou_gal_bgto]))
+        gps_free = (collection_of(gal_states), collection_of([beidou_gal_bgto]))
         gst_layout = layout_of(gps_free)
         # The BGTO is filed under the target its GNSS_ID names, so asked toward GPS Time
         # there is none.
@@ -966,9 +964,9 @@
             only(dnav_bgto).decoder, GPST()))
         bgto_toward_gps(observations) = PositionVelocityTime.broadcast_time_offset(
             time_offsets_of(observations), BDT(), GPST())
-        @test bgto_toward_gps((signal_group(dnav_bgto), signal_group(b1c_bgto))) == Δ
-        @test bgto_toward_gps((signal_group(b1c_bgto), signal_group(dnav_bgto))) == Δ
-        @test bgto_toward_gps(signal_group([dnav_bgto; beidou([23]; bgto = 3Δ)])) == 2Δ
-        @test bgto_toward_gps(signal_group([beidou([23]; bgto = 3Δ); dnav_bgto])) == 3Δ
+        @test bgto_toward_gps((collection_of(dnav_bgto), collection_of(b1c_bgto))) == Δ
+        @test bgto_toward_gps((collection_of(b1c_bgto), collection_of(dnav_bgto))) == Δ
+        @test bgto_toward_gps(collection_of([dnav_bgto; beidou([23]; bgto = 3Δ)])) == 2Δ
+        @test bgto_toward_gps(collection_of([beidou([23]; bgto = 3Δ); dnav_bgto])) == 3Δ
     end
 end

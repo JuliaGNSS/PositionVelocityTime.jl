@@ -93,7 +93,7 @@
             enable_tropospheric_correction = false,
         )
         e1b_states = galileo_e1b_states(0.0Hz)
-        reference = calc_pvt(signal_group(e1b_states); kw...)
+        reference = calc_pvt(collection_of(e1b_states); kw...)
         @test length(reference.observations) >= 4
 
         # Split a transmit time into the decoder's bit count plus a sub-bit code
@@ -133,12 +133,11 @@
                 signal = GalileoE5bI(),
                 code_phase = code_phase,
                 carrier_doppler = 0.0Hz,
-                carrier_phase = 0.0,
             )
         end
 
         both = calc_pvt(
-            (signal_group(e1b_states), signal_group(map(as_e5b_state, e1b_states))); kw...)
+            (collection_of(e1b_states), collection_of(map(as_e5b_state, e1b_states))); kw...)
         @test length(both.observations) == 2 * length(reference.observations)
         # One time system (both are Galileo) but two bands, so exactly one IFB column,
         # on E5b against the L1 reference.
@@ -172,7 +171,6 @@ end
         signal = GalileoE6B(),
         code_phase = 0.0,
         carrier_doppler = 0.0Hz,
-        carrier_phase = 0.0,
     )
 
     @testset "never positioning-complete, whatever the service status" begin
@@ -209,11 +207,11 @@ end
 
     @testset "calc_pvt ignores it without touching its missing fields" begin
         ranging = galileo_e1b_states(0.0Hz)
-        reference = calc_pvt(signal_group(ranging); kw...)
+        reference = calc_pvt(collection_of(ranging); kw...)
         # Appending the E6-B state must change nothing: the health filter drops it
         # before anything reads `t_0e`, `a_f0` or any other field it does not have.
         # (Were it not filtered, this call would throw a `FieldError`, not misfix.)
-        with_e6b = calc_pvt((signal_group(ranging), signal_group([e6b_state])); kw...)
+        with_e6b = calc_pvt((collection_of(ranging), collection_of([e6b_state])); kw...)
         @test with_e6b.position == reference.position
         @test with_e6b.velocity == reference.velocity
         @test with_e6b.time == reference.time
@@ -225,7 +223,7 @@ end
     @testset "an E6-B-only epoch is unsolvable rather than an error" begin
         # `calc_pvt` returns `prev_pvt` unchanged when an epoch cannot be solved, so an
         # epoch of nothing but E6-B satellites is the empty solution, not a throw.
-        unsolved = calc_pvt(signal_group([e6b_state]); kw...)
+        unsolved = calc_pvt(collection_of([e6b_state]); kw...)
         @test unsolved.position == PVTSolution().position
         @test isnothing(unsolved.time)
         @test isempty(unsolved.observations)
@@ -238,8 +236,7 @@ end
         (GalileoE1B(CBOC), :GalileoE1B), (GalileoE1C(), :GalileoE1C),
         (GalileoE1C(CBOC), :GalileoE1C))
         state = SignalObservation(; decoder = source.decoder, signal,
-            code_phase = source.code_phase, carrier_doppler = source.carrier_doppler,
-            carrier_phase = source.carrier_phase)
+            code_phase = source.code_phase, carrier_doppler = source.carrier_doppler)
         observation = PositionVelocityTime.satellite_measurement(state, 2021)
         @test observation.signal_id == expected_id
         @test observation.band_id == :L1

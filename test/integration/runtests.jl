@@ -63,7 +63,7 @@ using GNSSSignals: GPSL1CA
 using GNSSDecoder: GNSSDecoder, GPSL1CADecoderState, is_sat_healthy, decode!
 using Acquisition: acquire, is_detected
 using Tracking: TrackState, add_satellite!, track!, get_soft_bits, get_sat_state
-using Tracking: get_code_phase, get_carrier_doppler, get_carrier_phase
+using Tracking: get_code_phase, get_carrier_doppler
 using Geodesy: LLA, ECEF, ECEFfromLLA, wgs84, euclidean_distance
 
 const L125_URL =
@@ -244,13 +244,12 @@ end
             signal = GPSL1CA(),
             code_phase = get_code_phase(tracked),
             carrier_doppler = get_carrier_doppler(tracked),
-            carrier_phase = get_carrier_phase(tracked),
         )
     end
 
     # Solve PVT. `approximate_year` resolves the GPS 1024-week rollover; the
     # recording is from 2014, not "now".
-    pvt = calc_pvt(PositionVelocityTime.SignalGroup(GPSL1CA(), states);
+    pvt = calc_pvt(states;
         approximate_year = 2014)
     @test length(pvt.observations) >= 4
 

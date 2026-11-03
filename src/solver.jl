@@ -48,7 +48,7 @@ PVTWorkspace() = PVTWorkspace(
 )
 
 """
-    calc_pvt(groups, prev_pvt::PVTSolution = PVTSolution();
+    calc_pvt(observations, prev_pvt::PVTSolution = PVTSolution();
              approximate_year::Integer = year(now(UTC)),
              enable_ionospheric_correction::Bool = true,
              enable_tropospheric_correction::Bool = true) -> PVTSolution
@@ -67,27 +67,25 @@ model for the whole solve (see [`select_ionospheric_correction`](@ref)), and the
 tropospheric delay with a blind model (see [`tropospheric_delay`](@ref)).
 
 # Arguments
-- `groups`: this epoch's observations, as signal groups: a `NamedTuple` of
-  [`SignalGroup`](@ref)s, one per ranging signal. A bare `Tuple` of groups (numbered
-  `group1`, `group2`, …) or a single `SignalGroup` (the `:default` group) also does:
+- `observations`: a concrete-typed vector or `Dictionary` of [`SignalObservation`](@ref)s,
+  or a tuple / NamedTuple of those collections for several decoder or signal types:
 
   ```julia
-  using PositionVelocityTime: SignalGroup
-  calc_pvt(SignalGroup(GPSL1CA(), gps_states))
-  calc_pvt((gps = SignalGroup(GPSL1CA(), gps_states),
-            galileo = SignalGroup(GalileoE1B(), galileo_states)))
+  calc_pvt(gps_observations)
+  calc_pvt((gps = gps_observations, galileo = galileo_observations))
   ```
 
-  Grouping keeps the solve type-stable (see [`SignalGroup`](@ref)); a pooled
-  `Vector{SignalObservation}` is refused, and [`signal_groups`](@ref) builds the groups from a
-  Tracking.jl `TrackState`.
+  Collections keep the preparation pass statically dispatched. A pooled vector with
+  an abstract element type is refused. NamedTuple keys are only caller labels; the
+  solver uses each observation's signal and decoder PRN. Empty collections retain
+  their concrete element type (for example `gps_observations[1:0]`).
 
   Each `(signal, PRN)` pair must appear at most once, or it enters the fit twice; two
-  groups sharing a ranging signal are not checked for collisions.
+  collections sharing a ranging signal are not checked for collisions.
 
-  **Order is significant**: the observations are in group order × within-group order,
-  which breaks the ties of the reference system ("most satellites, first appearance") and
-  of [`ifb_layout`](@ref)'s reference bands, and orders
+  **Order is significant**: the observations are prepared in collection order ×
+  within-collection order, which breaks the ties of the reference system ("most
+  satellites, first appearance") and of [`ifb_layout`](@ref)'s reference bands, and orders
   `PVTSolution.observations`.
 - `prev_pvt`: the previous solution, the warm start (default: the origin). One whose DOP
   is implausible (`NaN`, or `PDOP` above `MAX_TRUSTED_WARM_START_PDOP` = 50) is not
@@ -107,20 +105,21 @@ geometry — returns `prev_pvt` as passed, without throwing, so a receiver can h
 whatever it tracks and carry the last fix forward.
 """
 function calc_pvt(
-    groups,
+    observations,
     prev_pvt::PVTSolution = PVTSolution();
     approximate_year::Integer = year(now(UTC)),
     enable_ionospheric_correction::Bool = true,
     enable_tropospheric_correction::Bool = true,
 )
     # A fresh solution lends the solve its containers.
-    _, solution = _calc_pvt!(PVTSolution(), PVTWorkspace(), groups, prev_pvt,
+    _, solution = _calc_pvt!(PVTSolution(), PVTWorkspace(), observations, prev_pvt,
         approximate_year, enable_ionospheric_correction, enable_tropospheric_correction)
     solution
 end
 
 """
-    calc_pvt!(solution::PVTSolution, workspace::PVTWorkspace, groups, prev_pvt::PVTSolution;
+    calc_pvt!(solution::PVTSolution, workspace::PVTWorkspace, observations,
+              prev_pvt::PVTSolution;
               approximate_year::Integer = year(now(UTC)),
               enable_ionospheric_correction::Bool = true,
               enable_tropospheric_correction::Bool = true) -> PVTSolution
@@ -132,8 +131,8 @@ fix is a new, immutable [`PVTSolution`](@ref); keep the return value:
 ```julia
 pvt = PVTSolution()
 workspace = PVTWorkspace()
-for groups in epochs
-    pvt = calc_pvt!(pvt, workspace, groups, pvt)
+for observations in epochs
+    pvt = calc_pvt!(pvt, workspace, observations, pvt)
 end
 ```
 
@@ -148,21 +147,21 @@ An epoch that cannot be solved returns `prev_pvt`: itself where it shares `solut
 containers, otherwise a copy of it in them.
 
 It allocates nothing once `workspace` and `solution` have held an epoch of as many
-satellites and biases; that covers everything but the `groups`, which the caller builds
-(and can reuse: a `SignalGroup`'s satellites may be any vector). The `workspace` carries no
+satellites and biases; that covers everything but the `observations`, which the caller
+builds (which can be reused vectors or dictionaries). The `workspace` carries no
 state between epochs, but serves one solve at a time; give each task its own.
 """
 function calc_pvt!(
     solution::PVTSolution,
     workspace::PVTWorkspace,
-    groups,
+    observations,
     prev_pvt::PVTSolution;
     approximate_year::Integer = year(now(UTC)),
     enable_ionospheric_correction::Bool = true,
     enable_tropospheric_correction::Bool = true,
 )
-    solved, result = _calc_pvt!(solution, workspace, groups, prev_pvt, approximate_year,
-        enable_ionospheric_correction, enable_tropospheric_correction)
+    solved, result = _calc_pvt!(solution, workspace, observations, prev_pvt,
+        approximate_year, enable_ionospheric_correction, enable_tropospheric_correction)
     solved ? result : copy_into(solution, prev_pvt)
 end
 
@@ -171,7 +170,7 @@ end
 function _calc_pvt!(
     solution,
     workspace,
-    groups,
+    observations,
     prev_pvt,
     approximate_year,
     enable_ionospheric_correction,
@@ -179,8 +178,9 @@ function _calc_pvt!(
 )
     # The function barrier (see collection.jl): the prepared observations in, one compiled
     # solver behind.
+    collections = observation_collections(observations)
     (; ionospheric_model, time_offsets) =
-        _collect_measurements!(workspace.prepared, groups, approximate_year)
+        _collect_measurements!(workspace.prepared, collections, approximate_year)
     _solve_pvt!(
         solution,
         workspace,

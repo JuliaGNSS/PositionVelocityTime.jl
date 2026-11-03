@@ -41,8 +41,9 @@ export calc_pvt,
 # or converts what its argument holds (`get_lla`), `calc_` computes, and
 # physical models and named quantities keep noun names (`ionospheric_delay`,
 # `tropospheric_delay`). `ξ` and `H` are the textbook least-squares state and design
-# matrix. A `SignalObservation` is an observation; a `PreparedObservation` is a prepared
-# observation, and a vector of them `prepared`.
+# matrix. A `SignalObservation` is an observation and the collections of them `calc_pvt`
+# takes are `observations`; a `PreparedObservation` is a prepared observation, and a
+# vector of them `prepared`.
 
 """
     SPEED_OF_LIGHT

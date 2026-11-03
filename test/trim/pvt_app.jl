@@ -3,25 +3,24 @@
 # trimmed executable's output can be compared against a regular Julia session.
 using PositionVelocityTime, GNSSSignals, GNSSDecoder
 using PositionVelocityTime:
-    SignalGroup, _precompile_states, _precompile_cnav, _precompile_cnav2, _precompile_fnav,
+    _precompile_states, _precompile_cnav, _precompile_cnav2, _precompile_fnav,
     _PRECOMPILE_GPS_L1CA_STATES, _PRECOMPILE_GALILEO_E1B_STATES
 using Unitful: Hz
 
-gps(signal, make_data = identity) = SignalGroup(
-    signal, _precompile_states(signal, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA()))
-galileo(signal, make_data = identity) = SignalGroup(
-    signal, _precompile_states(signal, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B()))
-gps_pilot(signal) = SignalGroup(signal,
-    map(gps(GPSL1C_D(), _precompile_cnav2).satellites) do state
-        SignalObservation(; decoder = state.decoder, signal, code_phase = state.code_phase,
-            carrier_doppler = state.carrier_doppler, carrier_phase = state.carrier_phase)
-    end)
+gps(signal, make_data = identity) =
+    _precompile_states(signal, _PRECOMPILE_GPS_L1CA_STATES, make_data, GPSL1CA())
+gps_pilot(signal) = map(gps(GPSL1C_D(), _precompile_cnav2)) do state
+    SignalObservation(; decoder = state.decoder, signal, code_phase = state.code_phase,
+        carrier_doppler = state.carrier_doppler)
+end
+galileo(signal, make_data = identity) =
+    _precompile_states(signal, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B())
 
 # The fixtures hold no BeiDou satellites, so this group's is undecoded and drops out as
-# unhealthy — the solution is that of the other groups — but the solve is compiled, and
+# unhealthy — the solution is that of the other collections — but the solve is compiled, and
 # so verified, for the BeiDou message family and its ionospheric model.
-beidou(signal) = SignalGroup(signal, [SignalObservation(;
-    decoder = GNSSDecoderState(signal, 1), signal, code_phase = 0.0, carrier_doppler = 0.0Hz)])
+beidou(signal) = [SignalObservation(;
+    decoder = GNSSDecoderState(signal, 1), signal, code_phase = 0.0, carrier_doppler = 0.0Hz)]
 
 # One `print` per value: a long `print(io, xs...)` is not specialised on its
 # arguments' types, which leaves the call dynamic.
@@ -37,16 +36,16 @@ function report(io, name, pvt)
     println(io)
 end
 
-function solve(io, name, groups)
-    cold = calc_pvt(groups; approximate_year = 2021)
+function solve(io, name, observations)
+    cold = calc_pvt(observations; approximate_year = 2021)
     report(io, name * " cold", cold)
-    report(io, name * " warm", calc_pvt(groups, cold; approximate_year = 2021))
-    report(io, name * " uncorrected", calc_pvt(groups; approximate_year = 2021,
+    report(io, name * " warm", calc_pvt(observations, cold; approximate_year = 2021))
+    report(io, name * " uncorrected", calc_pvt(observations; approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false))
     # The in-place solve, warm-started from (and reusing) its own solution.
     workspace = PVTWorkspace()
-    in_place = calc_pvt!(PVTSolution(), workspace, groups, cold; approximate_year = 2021)
-    report(io, name * " in place", calc_pvt!(in_place, workspace, groups, in_place;
+    in_place = calc_pvt!(PVTSolution(), workspace, observations, cold; approximate_year = 2021)
+    report(io, name * " in place", calc_pvt!(in_place, workspace, observations, in_place;
         approximate_year = 2021))
 end
 

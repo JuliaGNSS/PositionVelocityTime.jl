@@ -107,7 +107,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = gpsl1,
                 code_phase = 7457.6350011159975,
                 carrier_doppler = 945.8683607586818Hz,
-                carrier_phase = -0.22095823550737081,
             ),
             SignalObservation(;
                 decoder = GNSSDecoderState(
@@ -210,7 +209,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = gpsl1,
                 code_phase = 6078.218551898637,
                 carrier_doppler = -3276.264988960822Hz,
-                carrier_phase = 0.7638002718956874,
             ),
             SignalObservation(;
                 decoder = GNSSDecoderState(
@@ -312,7 +310,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = gpsl1,
                 code_phase = 17299.53480240955,
                 carrier_doppler = -189.2252575679783Hz,
-                carrier_phase = 2.7456602492891107,
             ),
             SignalObservation(;
                 decoder = GNSSDecoderState(
@@ -414,30 +411,24 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = gpsl1,
                 code_phase = 4175.34652009604,
                 carrier_doppler = -3554.3272562888696Hz,
-                carrier_phase = 1.7547749028909547,
             ),
         ]
         # Constellation-wide model selection picks Klobuchar: the GPS decoders
         # carry the broadcast α/β, no Galileo coefficients are present.
-        @test PositionVelocityTime.select_ionospheric_correction(signal_group(states)) isa
+        @test PositionVelocityTime.select_ionospheric_correction(collection_of(states)) isa
               GNSSDecoder.KlobucharParameters
 
         # Corrections are on by default — the fix lands within a metre of the ground truth.
         #
         # The bound is a metre rather than the decimetres the synthetic geometry might
-        # suggest: these observables carry real captured carrier phases, whose wrapped
-        # fractional cycle shifts each satellite's transmit time by up to half an L1
-        # wavelength. Zeroing them leaves the fix 0.87 m out, so ~1 m is this fixture's own
-        # consistency floor — the tighter 0.5 m held only while the carrier-phase term was
-        # being scaled 2π too large (it read radians as cycles), which happened to pull
-        # this particular constellation towards truth.
-        pvt = calc_pvt(signal_group(states); approximate_year = 2020)
+        # suggest: the fix lands 0.84 m out, this fixture's own consistency floor.
+        pvt = calc_pvt(collection_of(states); approximate_year = 2020)
         @test norm(pvt.position - IONO_TROPO_GROUND_TRUTH) < 1.0
 
         # Disabling the corrections moves the fix several metres off truth, so
         # the corrections demonstrably improve the solution.
         uncorrected = calc_pvt(
-            signal_group(states);
+            collection_of(states);
             approximate_year = 2020,
             enable_ionospheric_correction = false,
             enable_tropospheric_correction = false,
@@ -536,7 +527,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = galileo_e1b,
                 code_phase = 1134.9227691611316,
                 carrier_doppler = -1048.4103530464388Hz,
-                carrier_phase = -1.1559529083133402,
             ),
             SignalObservation(;
                 decoder = GNSSDecoderState(
@@ -624,7 +614,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = galileo_e1b,
                 code_phase = 552.8323205662532,
                 carrier_doppler = -2401.7199003375345Hz,
-                carrier_phase = -0.5865229251135221,
             ),
             SignalObservation(;
                 decoder = GNSSDecoderState(
@@ -713,7 +702,6 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = galileo_e1b,
                 code_phase = 1998.2750592825137,
                 carrier_doppler = 1342.86940202154Hz,
-                carrier_phase = -1.9500644306669892,
             ),
             SignalObservation(;
                 decoder = GNSSDecoderState(
@@ -802,23 +790,22 @@ const IONO_TROPO_GROUND_TRUTH = ECEFfromLLA(wgs84)(LLA(48.0, 11.0, 550.0))
                 signal = galileo_e1b,
                 code_phase = 2721.0058329387184,
                 carrier_doppler = -3042.4604297211754Hz,
-                carrier_phase = -0.5604621503191517,
             ),
         ]
         # NTCM-G is selected from the Effective Ionisation Level coefficients
         # decoded from the E1B navigation message.
-        @test PositionVelocityTime.select_ionospheric_correction(signal_group(states)) isa
+        @test PositionVelocityTime.select_ionospheric_correction(collection_of(states)) isa
               GNSSDecoder.NeQuickGParameters
 
         # The fixture observables were generated with the flat-slab 1/sin(el)
         # tropospheric mapping baked in, so a solve using the Niell mapping (#62)
         # reproduces the fixture's truth only up to the mapping difference at these
         # elevations (~0.5 m here) — a fixture-consistency floor, not solver error.
-        pvt = calc_pvt(signal_group(states); approximate_year = 2020)
+        pvt = calc_pvt(collection_of(states); approximate_year = 2020)
         @test norm(pvt.position - IONO_TROPO_GROUND_TRUTH) < 0.7
 
         uncorrected = calc_pvt(
-            signal_group(states);
+            collection_of(states);
             approximate_year = 2020,
             enable_ionospheric_correction = false,
             enable_tropospheric_correction = false,

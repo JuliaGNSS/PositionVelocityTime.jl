@@ -19,7 +19,7 @@ for (system_label, input, prev_pvt) in (
     ("GPSL1", GPS_INPUT, GPS_PREV),
 )
     SUITE["calc_pvt"][system_label] = BenchmarkGroup()
-    n_total = length(input.satellites)
+    n_total = length(input)
     sat_counts = n_total == 4 ? (4,) : (4, n_total)
     for n in sat_counts
         subset = take_satellites(input, n)
@@ -30,12 +30,12 @@ for (system_label, input, prev_pvt) in (
     end
 end
 
-# The mixed-constellation case, which is what signal groups exist for: pooled into one
+# The mixed-constellation case, which is why observation types are kept in separate collections: pooled into one
 # vector its element type is abstract, and every per-satellite call inside the solve is
 # a dynamic dispatch.
 const MIXED_INPUT = (gps = GPS_INPUT, galileo = GALILEO_INPUT)
 const MIXED_PREV = calc_pvt(MIXED_INPUT)
-const MIXED_SATS = length(GPS_INPUT.satellites) + length(GALILEO_INPUT.satellites)
+const MIXED_SATS = length(GPS_INPUT) + length(GALILEO_INPUT)
 
 SUITE["calc_pvt"]["GPSL1+GalileoE1B"] = BenchmarkGroup()
 mixed_group = BenchmarkGroup()
