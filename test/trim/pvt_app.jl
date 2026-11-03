@@ -31,7 +31,7 @@ function report(io, name, pvt)
         pvt.dop.GDOP, length(pvt.observations))
         print(io, " ", x)
     end
-    for (system, bias) in pvt.inter_system_biases
+    for (system, bias) in pairs(pvt.inter_system_biases)
         print(io, " ", get_time_system_id(system), "=", bias.val)
     end
     println(io)

@@ -43,11 +43,11 @@
     @test all(>(0), (dop.GDOP, dop.PDOP, dop.HDOP, dop.VDOP, dop.TDOP))
 
     # Rank-deficient geometry (identical rows) → singular HᵀH → sentinel
-    # DOP(-1, …) returned gracefully, not an exception.
+    # `NaN` DOPs returned gracefully, not an exception.
     H_singular = repeat([1.0 0.0 0.0 1.0], 4)
     dop_singular = PositionVelocityTime.calc_dop(H_singular, user)
-    @test dop_singular.GDOP == -1
-    @test dop_singular.PDOP == -1
+    @test all(isnan, (dop_singular.GDOP, dop_singular.PDOP, dop_singular.HDOP,
+        dop_singular.VDOP, dop_singular.TDOP))
 
     # Multi-GNSS: 3 position + 2 clock columns (3 satellites per system). GDOP/HDOP are
     # independent of which clock is the reference; TDOP reports the selected system's
@@ -153,7 +153,7 @@ end
         # pinned directly instead of only by magnitude.
         let user_vel = SVector(solution[1], solution[2], solution[3])
             A = reduce(vcat, [last(PositionVelocityTime.pseudorange_rate_and_gradient(user,
-                user_vel, solution[4], m.position, m.velocity, m.clock_drift))'
+                user_vel, solution[4], m.position, m.velocity, m.satellite_clock_drift))'
                               for m in rows])
             @test norm(A - design(spread)) < 1e-4
             @test norm(A' * rate_residuals) < 1e-6
@@ -258,7 +258,7 @@ end
     user_vel = SVector{3,Float64}(pvt.velocity)
     for row in prepared_of(groups)
         modelled = PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel,
-            pvt.relative_clock_drift * c, row.position, row.velocity, row.clock_drift)
+            ustrip(m / s, pvt.clock_drift), row.position, row.velocity, row.satellite_clock_drift)
         measured = -row.carrier_doppler * c / row.center_frequency
         residual = ustrip(m / s, pvt.observations[(row.signal_id, row.prn)].rate_residual)
         @test abs(residual) > 1e-3
@@ -290,7 +290,7 @@ with_pseudorange_rate(observation, rate) = PositionVelocityTime.PreparedObservat
         truth = SVector(user_vel..., clock_drift)
         exact = [with_pseudorange_rate(row,
             PositionVelocityTime.calc_pseudorange_rate(user_pos, user_vel, clock_drift,
-                row.position, row.velocity, row.clock_drift)) for row in rows]
+                row.position, row.velocity, row.satellite_clock_drift)) for row in rows]
         # From rest: hundreds of m/s and kilometres per second of drift in one step.
         solved, residuals =
             PositionVelocityTime.estimate_velocity(exact, user_pos)

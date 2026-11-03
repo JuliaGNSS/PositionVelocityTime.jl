@@ -10,15 +10,15 @@ constellation used for a PVT solution.
 # Fields
 - `GDOP::Float64`: Geometric DOP (overall quality)
 - `PDOP::Float64`: Position DOP (3D position quality)
-- `VDOP::Float64`: Vertical DOP
 - `HDOP::Float64`: Horizontal DOP
+- `VDOP::Float64`: Vertical DOP
 - `TDOP::Float64`: Time DOP
 """
 struct DOP
     GDOP::Float64
     PDOP::Float64
-    VDOP::Float64
     HDOP::Float64
+    VDOP::Float64
     TDOP::Float64
 end
 
@@ -30,7 +30,7 @@ satellite used in the fix).
 
 # Fields
 - `position::ECEF{Float64}`: Satellite ECEF position at transmit time (metres).
-- `transmit_time::Float64`: Satellite transmit time (system time of week, seconds).
+- `transmit_time::typeof(1.0s)`: Satellite transmit time (system time of week).
 - `residual::typeof(1.0m)`: Post-fit least-squares pseudorange residual (metres) — the
   (atmosphere-corrected) measured minus the modeled pseudorange. A per-satellite
   fit-quality / outlier indicator.
@@ -49,7 +49,7 @@ residual from its tracking loops' `λ · carrier_doppler` works in the opposite 
 """
 struct ObservationResiduals
     position::ECEF{Float64}
-    transmit_time::Float64
+    transmit_time::typeof(1.0s)
     residual::typeof(1.0m)
     rate_residual::typeof(1.0m/s)
 end
@@ -91,22 +91,14 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   velocity is zero (stationary or purely vertical), where course is undefined.
 - `time::Union{TAITime, Nothing}`: Estimated time as a TAI epoch (GNSSSignals' `TAITime`;
   with AstroTime loaded, `TAIEpoch(time)` converts it)
-- `relative_clock_drift::Float64`: Relative receiver clock drift (dimensionless)
-- `dop::Union{DOP, Nothing}`: Dilution of precision values
-- `observations::Dictionary{Tuple{Symbol, Int}, ObservationResiduals}`: Maps
-  `(signal, PRN)` to satellite info — position, transmit time, and the post-fit
-  pseudorange and range-rate
-  residuals (see [`ObservationResiduals`](@ref)). The signal tag (e.g. `:GPSL1CA`,
-  `:GalileoE1B`; see `get_signal_id`) keeps the
-  same PRN apart both across constellations (GPS PRN 5 vs Galileo E05) and across
-  signals of one constellation (a satellite tracked on GPS L1 C/A and L5 yields two
-  entries sharing a PRN). Receiver-clock grouping is by time system, not signal —
-  see `reference_system`.
+- `clock_drift::typeof(1.0m/s)`: Estimated receiver clock drift against
+  `reference_system` (metres per second); divided by the speed of light it is the
+  relative drift (s/s)
 - `reference_system::Union{SupportedTimeSystem, Nothing}`: GNSS time system (e.g.
   `GNSSSignals.GPST()`, `GST()`) that `time` is referenced to.
-- `inter_system_biases::Dict{SupportedTimeSystem, typeof(1.0m)}`: For each GNSS time system
-  other than `reference_system`, the offset of that system's time scale relative to the reference
-  system's (meters) — the inter-system bias. This is a **system / space-segment** effect,
+- `inter_system_biases::Dictionary{SupportedTimeSystem, typeof(1.0m)}`: For each GNSS time
+  system other than `reference_system`, the offset of that system's time scale relative to
+  the reference system's (metres) — the inter-system bias. This is a **system / space-segment** effect,
   not a receiver one (this receiver has no inter-system hardware bias): it is the GNSS
   system-time offset, so the Galileo entry equals `−c · Δt_systems`, `Δt_systems = GST −
   GPST` (the GGTO), and the BeiDou entry likewise carries the BDT steering residual (the
@@ -118,7 +110,7 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   Reference-independent
   (the difference of two entries is the offset between those two systems); empty for a
   single-system solution.
-- `inter_frequency_biases::Dict{Symbol, InterFrequencyBias}`: For each frequency band
+- `inter_frequency_biases::Dictionary{Symbol, InterFrequencyBias}`: For each frequency band
   other than the reference band, the receiver inter-frequency bias relative to it — the
   differential hardware delay of that band's RF chain, estimated as an extra unknown
   when satellites are processed on more than one band. The key is the band
@@ -130,6 +122,16 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   [`ifb_layout`](@ref)), so a disconnected constellation can in principle yield
   several references. Empty for a single-band solution. A solution then needs
   `n ≥ 3 + M + B` satellites for `M` time systems and `B` extra bands.
+- `dop::Union{DOP, Nothing}`: Dilution of precision values
+- `observations::Dictionary{Tuple{Symbol, Int}, ObservationResiduals}`: Maps
+  `(signal, PRN)` to satellite info — position, transmit time, and the post-fit
+  pseudorange and range-rate
+  residuals (see [`ObservationResiduals`](@ref)). The signal tag (e.g. `:GPSL1CA`,
+  `:GalileoE1B`; see `get_signal_id`) keeps the
+  same PRN apart both across constellations (GPS PRN 5 vs Galileo E05) and across
+  signals of one constellation (a satellite tracked on GPS L1 C/A and L5 yields two
+  entries sharing a PRN). Receiver-clock grouping is by time system, not signal —
+  see `reference_system`.
 
 Immutable: a solution's fields cannot be reassigned once it is built. The allocation-free
 [`calc_pvt!`](@ref) returns a new solution too; what it reuses are the `satellites`,
@@ -143,15 +145,15 @@ it reads.
     velocity::ECEF{Float64} = ECEF(0.0, 0.0, 0.0)
     course_over_ground::typeof(1.0°) = 0.0°
     time::Union{TAITime,Nothing} = nothing
-    relative_clock_drift::Float64 = 0
+    clock_drift::typeof(1.0m/s) = 0.0m/s
+    reference_system::Union{SupportedTimeSystem,Nothing} = nothing
+    inter_system_biases::Dictionary{SupportedTimeSystem,typeof(1.0m)} =
+        Dictionary{SupportedTimeSystem,typeof(1.0m)}()
+    inter_frequency_biases::Dictionary{Symbol,InterFrequencyBias} =
+        Dictionary{Symbol,InterFrequencyBias}()
     dop::Union{DOP,Nothing} = nothing
     observations::Dictionary{Tuple{Symbol,Int},ObservationResiduals} =
         Dictionary{Tuple{Symbol,Int},ObservationResiduals}()
-    reference_system::Union{SupportedTimeSystem,Nothing} = nothing
-    inter_system_biases::Dict{SupportedTimeSystem,typeof(1.0m)} =
-        Dict{SupportedTimeSystem,typeof(1.0m)}()
-    inter_frequency_biases::Dict{Symbol,InterFrequencyBias} =
-        Dict{Symbol,InterFrequencyBias}()
 end
 
 """
@@ -187,12 +189,12 @@ Base.copy(pvt::PVTSolution) = PVTSolution(
     pvt.velocity,
     pvt.course_over_ground,
     pvt.time,
-    pvt.relative_clock_drift,
-    pvt.dop,
-    copy(pvt.observations),
+    pvt.clock_drift,
     pvt.reference_system,
     copy(pvt.inter_system_biases),
     copy(pvt.inter_frequency_biases),
+    pvt.dop,
+    copy(pvt.observations),
 )
 
 # A copy of `source` in the containers of `solution`. `source` itself where the two
@@ -211,12 +213,12 @@ function copy_into(solution::PVTSolution, source::PVTSolution)
         source.velocity,
         source.course_over_ground,
         source.time,
-        source.relative_clock_drift,
-        source.dop,
-        solution.observations,
+        source.clock_drift,
         source.reference_system,
         solution.inter_system_biases,
         solution.inter_frequency_biases,
+        source.dop,
+        solution.observations,
     )
 end
 
@@ -225,15 +227,6 @@ function copy_container!(destination::Dictionary, source::Dictionary)
     empty_keeping_capacity!(destination)
     for (key, value) in pairs(source)
         set!(destination, key, value)
-    end
-    destination
-end
-
-function copy_container!(destination::Dict, source::Dict)
-    destination === source && return destination
-    empty!(destination)
-    for (key, value) in source
-        destination[key] = value
     end
     destination
 end
@@ -247,9 +240,8 @@ as before allocates nothing. `empty!(::Dictionary)` hands the dictionary a fresh
 hash table instead, which a refill then reallocates and regrows.
 
 The [`PVTSolution`](@ref) form empties all three of a solution's containers that way —
-`satellites`, `inter_system_biases` and `inter_frequency_biases` (the last two Base `Dict`s,
-whose own `empty!` already keeps their capacity) — for a consumer that builds its own
-solutions into the containers of one it keeps, as [`calc_pvt!`](@ref) does.
+`satellites`, `inter_system_biases` and `inter_frequency_biases` — for a consumer that
+builds its own solutions into the containers of one it keeps, as [`calc_pvt!`](@ref) does.
 """
 function empty_keeping_capacity! end
 
@@ -272,8 +264,8 @@ end
 
 function empty_keeping_capacity!(solution::PVTSolution)
     empty_keeping_capacity!(solution.observations)
-    empty!(solution.inter_system_biases)
-    empty!(solution.inter_frequency_biases)
+    empty_keeping_capacity!(solution.inter_system_biases)
+    empty_keeping_capacity!(solution.inter_frequency_biases)
     solution
 end
 
