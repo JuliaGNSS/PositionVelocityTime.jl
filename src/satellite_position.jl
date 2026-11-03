@@ -345,7 +345,7 @@ function calc_satellite_position(observation::SignalObservation)
     pos_and_vel.position
 end
 function calc_satellite_position_and_velocity(observation::SignalObservation)
-    t = calc_corrected_time(observation)
+    t = calc_transmit_time(observation)
     calc_satellite_position_and_velocity(observation.decoder, t)
 end
 

@@ -248,7 +248,7 @@ else
         pvt = calc_pvt(signal_group(states); approximate_year = 2014)
         @test length(pvt.observations) >= 4
 
-        lla = get_LLA(pvt)
+        lla = get_lla(pvt)
         @info "PVT fix" lat = lla.lat lon = lla.lon alt = lla.alt used =
             length(pvt.observations) gdop = pvt.dop.GDOP
         ref_ecef = ECEFfromLLA(wgs84)(L125_REF_LLA)

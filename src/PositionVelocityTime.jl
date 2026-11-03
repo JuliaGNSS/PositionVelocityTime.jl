@@ -26,7 +26,7 @@ export calc_pvt,
     ObservationResiduals,
     InterFrequencyBias,
     SignalObservation,
-    get_LLA,
+    get_lla,
     get_sat_info,
     calc_satellite_position,
     calc_satellite_position_and_velocity,
@@ -41,8 +41,17 @@ export calc_pvt,
 # are solver internals, not names every `using` should carry — but they are
 # documented as a surface (see "The Measurement-Model Surface" in the API
 # reference), and a consumer binds them explicitly with
-# `using PositionVelocityTime: calc_corrected_time, …`, which declares the
+# `using PositionVelocityTime: calc_transmit_time, …`, which declares the
 # dependency at a single site.
+
+# Naming conventions. Names a user writes — exports, documented functions, keyword
+# arguments, struct fields — are spelled out ("satellite", not "sat"), except the bias
+# layout's IFB names (`ifb_layout`, `ifb_columns`, `num_ifbs`); positional arguments and
+# internals (locals, private helpers, `PVTWorkspace`'s fields) may use short forms (`sat`,
+# `pos`, `vel`, `ifb`, `mjd`). `get_` reads
+# or converts what its argument holds (`get_lla`), `calc_` computes, and
+# physical models and named quantities keep noun names (`ionospheric_delay`,
+# `day_of_year`). `ξ` and `H` are the textbook least-squares state and design matrix.
 
 """
     SPEED_OF_LIGHT
@@ -65,7 +74,7 @@ const EARTH_ROTATION_RATE = 7.2921151467e-5
 include("collection.jl")
 include("time_systems.jl")
 include("solution.jl")
-# The trim-safe least-squares fit behind `user_position`.
+# The trim-safe least-squares fit behind `estimate_position`.
 include("levenberg_marquardt.jl")
 using .LevenbergMarquardt: curve_fit!, LMWorkspace, grown
 include("bias_layout.jl")

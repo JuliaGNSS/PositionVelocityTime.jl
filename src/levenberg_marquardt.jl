@@ -1,7 +1,7 @@
 """
     LevenbergMarquardt
 
-A trim-safe stand-in for the part of LsqFit.jl that `PositionVelocityTime.user_position` uses:
+A trim-safe stand-in for the part of LsqFit.jl that `PositionVelocityTime.estimate_position` uses:
 LsqFit's `curve_fit` with an in-place model and Jacobian, as [`curve_fit!`](@ref) on a
 reusable [`LMWorkspace`](@ref), with the same arguments after the workspace and the
 `param` / `resid` fields of its result.

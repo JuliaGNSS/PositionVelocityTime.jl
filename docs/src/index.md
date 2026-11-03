@@ -73,7 +73,7 @@ pvt = calc_pvt((
     gps = SignalGroup(GPSL1CA(), gps_sat_states),
     galileo = SignalGroup(GalileoE1B(), galileo_sat_states),
 ))
-lla = get_LLA(pvt)  # latitude, longitude, altitude
+lla = get_lla(pvt)  # latitude, longitude, altitude
 ```
 
 Each group holds the satellites tracked on one signal, as a `Dictionary` keyed by PRN or

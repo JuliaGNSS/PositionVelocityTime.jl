@@ -9,7 +9,7 @@
     # Decompose an uncorrected transmit time `target` (s) into a realistic observation on
     # `system` with time-of-week `tow`: whole data symbols go into the bit count and only
     # the residual (< one data symbol) into the code phase — matching
-    # `calc_uncorrected_time`, which reduces the shared code phase modulo one data symbol.
+    # `calc_uncorrected_transmit_time`, which reduces the shared code phase modulo one data symbol.
     # Packing the whole sub-TOW interval into `code_phase` (as a naive copy would) is
     # reduced away by that mod, so the copy must spread it across the bit count.
     function bits_and_code_phase(system, tow, target)
@@ -47,7 +47,7 @@
             ),
             E5a_SHS = GNSSDecoder.signal_ok,
             E5a_DVS = GNSSDecoder.navigation_data_valid, ggto_fields...)
-        target = PositionVelocityTime.calc_uncorrected_time(state) + ifb_shift_s
+        target = PositionVelocityTime.calc_uncorrected_transmit_time(state) + ifb_shift_s
         num_bits, code_phase = bits_and_code_phase(GalileoE5aI(), e5a_data.TOW, target)
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GalileoE5aDecoderState(state.decoder.prn);
             data = e5a_data, raw_data = e5a_data,
@@ -72,7 +72,7 @@
             C_rc = d.C_rc, C_rs = d.C_rs, C_ic = d.C_ic, C_is = d.C_is, t_0c = d.t_0c,
             a_f0 = d.a_f0, a_f1 = d.a_f1, a_f2 = d.a_f2, T_GD = d.T_GD, ISC_L2C = 0.0,
             l2_health = false)
-        target = PositionVelocityTime.calc_uncorrected_time(state) + ifb_shift_s
+        target = PositionVelocityTime.calc_uncorrected_transmit_time(state) + ifb_shift_s
         num_bits, code_phase = bits_and_code_phase(GPSL2CM(), l2c_data.TOW, target)
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GPSL2CMDecoderState(state.decoder.prn);
             data = l2c_data, raw_data = l2c_data,
@@ -90,7 +90,7 @@
         l5_data = GNSSDecoder.GPSCNAVData(;
             (f => getfield(d, f) for f in fieldnames(GNSSDecoder.GPSCNAVData))...,
             ISC_L2C = nothing, l2_health = nothing, ISC_L5I5 = 0.0, l5_health = false)
-        target = PositionVelocityTime.calc_uncorrected_time(state)
+        target = PositionVelocityTime.calc_uncorrected_transmit_time(state)
         num_bits, code_phase = bits_and_code_phase(GPSL5I(), l5_data.TOW, target)
         dec = GNSSDecoder.GNSSDecoderState(GNSSDecoder.GPSL5IDecoderState(state.decoder.prn);
             data = l5_data, raw_data = l5_data,
@@ -99,7 +99,7 @@
             carrier_doppler = 0.0Hz, carrier_phase = 0.0)
     end
 
-    @testset "user_position recovers per-band IFB and per-system clocks" begin
+    @testset "estimate_position recovers per-band IFB and per-system clocks" begin
         user = ECEFfromLLA(wgs84)(LLA(50.1, 8.7, 120.0))
         ecef_from_enu = ECEFfromENU(user, wgs84)
         # 8 satellites at ~GNSS altitude in varied geometry.
@@ -117,9 +117,9 @@
         # Truth: position + tc_GPS = 30 m, tc_Gal = 80 m, ifb_extra = 17 m.
         ξ_true = [user[1], user[2], user[3], 30.0, 80.0, 17.0]
         ρ = zeros(8)
-        PositionVelocityTime.calc_ρ_hat!(ρ, sat_positions, ξ_true, bias_columns)
+        PositionVelocityTime.predict_pseudoranges!(ρ, sat_positions, ξ_true, bias_columns)
 
-        ξ, resid = PositionVelocityTime.user_position(sat_positions, ρ, bias_columns)
+        ξ, resid = PositionVelocityTime.estimate_position(sat_positions, ρ, bias_columns)
         @test ξ[1:3] ≈ [user[1], user[2], user[3]] atol = 1e-3
         @test ξ[4] ≈ 30.0 atol = 1e-4      # GPS clock
         @test ξ[5] ≈ 80.0 atol = 1e-4      # Galileo clock
@@ -130,12 +130,12 @@
         # satellites carry an unmodeled 17 m offset.
         bias_columns_no_ifb =
             PositionVelocityTime.BiasColumns([1, 1, 1, 1, 2, 2, 2, 1], 2, zeros(Int, 8), 0)
-        _, resid_no_ifb = PositionVelocityTime.user_position(sat_positions, ρ, bias_columns_no_ifb)
+        _, resid_no_ifb = PositionVelocityTime.estimate_position(sat_positions, ρ, bias_columns_no_ifb)
         @test maximum(abs, resid_no_ifb) > 1.0
     end
 
     @testset "band layout follows coverage-graph connectivity" begin
-        bcl = PositionVelocityTime.band_ifb_layout
+        bcl = PositionVelocityTime.ifb_layout
         # Disjoint: GPS only on L5, Galileo only on L1 ⇒ two components, no IFB column
         # (each band is the sole band of its component, so its bias folds into a clock).
         ifb, extra, refs, ncomp = bcl([GPST(), GPST(), GST(), GST()], [:L5, :L5, :L1, :L1])
@@ -167,7 +167,7 @@
     end
 
     @testset "layout gate counts both observations and distinct satellites" begin
-        # GPS-only (no GGTO collapse possible): 3 position + 1 clock + num_ifb unknowns.
+        # GPS-only (no GGTO collapse possible): 3 position + 1 clock + num_ifbs unknowns.
         # Only the classification fields of an observation are read here — the
         # broadcast time offsets are touched on the collapse path only, never reached
         # for a GPS-only constellation — so stand-in rows carrying those suffice.
@@ -492,18 +492,18 @@ end
     # its own transmit time — so the two corrections differ (by the polynomial's drift
     # term) rather than being one shared scalar.
     @test offsets[3] != offsets[4]
-    # `inter_system_bias` is that correction for one row: the offset-carrying
+    # `broadcast_inter_system_bias` is that correction for one row: the offset-carrying
     # row's own, or applied at another row's transmit time; zero for the hub's own system.
-    @test PositionVelocityTime.inter_system_bias(offset_rows[3], GPST()) ==
+    @test PositionVelocityTime.broadcast_inter_system_bias(offset_rows[3], GPST()) ==
           offsets[3]
-    @test PositionVelocityTime.inter_system_bias(
+    @test PositionVelocityTime.broadcast_inter_system_bias(
         offset_rows[3], GPST(), offset_rows[4].transmit_time) == offsets[4]
-    @test PositionVelocityTime.inter_system_bias(offset_rows[1], GPST()) == 0.0
-    @test isnan(PositionVelocityTime.inter_system_bias(offset_rows[4], GPST()))
+    @test PositionVelocityTime.broadcast_inter_system_bias(offset_rows[1], GPST()) == 0.0
+    @test isnan(PositionVelocityTime.broadcast_inter_system_bias(offset_rows[4], GPST()))
 
     # The reference system: the hub whenever there is one, otherwise the system with the
     # most rows, a tie going to the one that appears first.
-    select = PositionVelocityTime.select_primary_system
+    select = PositionVelocityTime.select_reference_system
     @test select(offset_rows, nothing) == GPST()
     @test select(offset_rows[2:4], nothing) == GST()
     @test select(offset_rows[[3, 1, 2, 4]], nothing) == GST()
@@ -529,7 +529,7 @@ end
     # Independent clocks, one column per system in order of first appearance.
     layout = PositionVelocityTime.decide_bias_layout(prepared_of(groups))
     @test layout.clock_systems == [GPST(), GST()]
-    @test layout.bias_columns.clock_bias_indices ==
+    @test layout.bias_columns.clock_columns ==
           [fill(1, length(gps[1:2])); fill(2, length(gal))]
     @test pvt.time ≈ gal_only.time
     @test norm(pvt.position - gal_only.position) < 10

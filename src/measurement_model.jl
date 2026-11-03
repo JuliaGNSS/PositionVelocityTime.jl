@@ -6,11 +6,11 @@
 # `3 × N` matrix (one column per satellite), or a vector of `SVector{3,Float64}` — what
 # the solver itself keeps, since a satellite position is a fixed-size quantity and a
 # vector of them is resized in place where a matrix cannot be.
-satellite_count(sat_positions::AbstractMatrix) = size(sat_positions, 2)
-satellite_count(sat_positions::AbstractVector) = length(sat_positions)
-satellite_position(sat_positions::AbstractMatrix, j) = SVector{3}(
+observation_count(sat_positions::AbstractMatrix) = size(sat_positions, 2)
+observation_count(sat_positions::AbstractVector) = length(sat_positions)
+get_satellite_position(sat_positions::AbstractMatrix, j) = SVector{3}(
     sat_positions[1, j], sat_positions[2, j], sat_positions[3, j])
-satellite_position(sat_positions::AbstractVector, j) =
+get_satellite_position(sat_positions::AbstractVector, j) =
     SVector{3,Float64}(sat_positions[j])
 
 """
@@ -27,20 +27,20 @@ inter-frequency biases.
 Atmospheric delays and the broadcast offsets onto the hub are not modelled here;
 [`calc_pvt`](@ref) removes them from the measured pseudoranges.
 """
-function calc_ρ_hat!(
+function predict_pseudoranges!(
     pseudoranges,
     sat_positions,
     ξ,
     bias_columns::BiasColumns,
 )
     rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
-    for j in 1:satellite_count(sat_positions)
-        sat_pos = satellite_position(sat_positions, j)
-        ifb_column = bias_columns.ifb_indices[j]
+    for j in 1:observation_count(sat_positions)
+        sat_pos = get_satellite_position(sat_positions, j)
+        ifb_column = bias_columns.ifb_columns[j]
         ifb = ifb_column == 0 ? 0.0 : ξ[3+bias_columns.num_clock_biases+ifb_column]
         pseudoranges[j] =
             norm(satellite_position_at_reception(rₙ, sat_pos) - rₙ) +
-            ξ[3+bias_columns.clock_bias_indices[j]] + ifb
+            ξ[3+bias_columns.clock_columns[j]] + ifb
     end
     return pseudoranges
 end
@@ -59,8 +59,8 @@ end
 
 # The rotation that carries the satellite at `sat_pos`, in the ECEF frame of its
 # transmission, into the ECEF frame of reception at `user_pos`: the Earth's turn over the
-# signal's travel time `|s − u|/c`. The pseudorange model (`calc_ρ_hat!`), its position
-# partials (`calc_line_of_sight` for `calc_H!`, `calc_Avv!`) and its rate
+# signal's travel time `|s − u|/c`. The pseudorange model (`predict_pseudoranges!`), its position
+# partials (`calc_line_of_sight` for `calc_design_matrix!`, `calc_pseudorange_curvature!`) and its rate
 # (`pseudorange_rate_and_gradient`) all take the Earth-rotation correction from here, so
 # they describe one and the same satellite.
 @inline reception_frame_rotation(user_pos, sat_pos) =
@@ -70,11 +70,11 @@ end
 @inline satellite_position_at_reception(user_pos, sat_pos) =
     reception_frame_rotation(user_pos, sat_pos) * sat_pos
 
-# The range-rate model: the exact time derivative of the pseudorange `calc_ρ_hat!` models,
-# which the velocity solve fits (`calc_user_velocity_and_clock_drift`) and an estimator of
+# The range-rate model: the exact time derivative of the pseudorange `predict_pseudoranges!` models,
+# which the velocity solve fits (`estimate_velocity`) and an estimator of
 # its own predicts with (`calc_pseudorange_rate`).
 
-# The satellite's position and velocity in the ECEF frame of reception, as `calc_ρ_hat!`
+# The satellite's position and velocity in the ECEF frame of reception, as `predict_pseudoranges!`
 # models the position: `s' = R(τ)·s`, rotated by the Earth's turn over the travel time.
 # The rotation angle `ω_e·τ` changes with the travel time, so `s'` moves at
 # `R(τ)·ṡ + ω_e·τ̇·(s'_y, −s'_x, 0)` — the rotated velocity plus the rate of the rotation
@@ -84,7 +84,7 @@ end
 @inline function satellite_state_at_reception(user_pos, sat_pos, sat_vel)
     to_sat = sat_pos - user_pos
     travel_time_rate = dot(to_sat, sat_vel) / (norm(to_sat) * SPEED_OF_LIGHT)
-    # One rotation for both, the one `calc_ρ_hat!` turns the satellite by.
+    # One rotation for both, the one `predict_pseudoranges!` turns the satellite by.
     rotation = reception_frame_rotation(user_pos, sat_pos)
     position = rotation * sat_pos
     velocity =
@@ -112,10 +112,10 @@ end
         sat_clock_drift) -> Float64
 
 The modelled pseudorange rate (m/s) of one satellite: the exact time derivative, per
-second of receiver clock, of the pseudorange [`calc_ρ_hat!`](@ref) models — the satellite
+second of receiver clock, of the pseudorange [`predict_pseudoranges!`](@ref) models — the satellite
 rotated by the Earth's turn over the travel time into the ECEF frame of reception, plus
 the receiver clock bias, minus the satellite clock offset. It is the model the velocity
-solve ([`calc_user_velocity_and_clock_drift`](@ref)) fits, and its rate residuals are the
+solve ([`estimate_velocity`](@ref)) fits, and its rate residuals are the
 measured rate minus this at the solved state; an estimator that predicts the rate from
 its own state — a vector-tracking navigation filter, say — calls it to predict exactly
 what the solve fits.
@@ -178,7 +178,7 @@ end
 
 # The unit line of sight from the user to the Earth-rotation-corrected satellite — the
 # textbook receiver→satellite direction. The pseudorange's position partial is its
-# *negative*, which is what the design-matrix rows of `calc_H!` carry. `ξ` holds the user
+# *negative*, which is what the design-matrix rows of `calc_design_matrix!` carry. `ξ` holds the user
 # position in its first three entries.
 function calc_line_of_sight(sat_pos, ξ)
     rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
@@ -189,22 +189,22 @@ end
 """
 $SIGNATURES
 
-The Jacobian of [`calc_ρ_hat!`](@ref) at `ξ`, written into `H`, with
-[`num_lsq_params`](@ref)`(bias_columns)` columns: three for the position partials, one
+The Jacobian of [`predict_pseudoranges!`](@ref) at `ξ`, written into `H`, with
+[`num_parameters`](@ref)`(bias_columns)` columns: three for the position partials, one
 per GNSS time system, and one per frequency band beyond the reference band. Each row
 holds the negated line of sight and a `1.0` in its clock column and, off the reference
 band, in its inter-frequency-bias column.
 """
-function calc_H!(H, sat_positions, ξ, bias_columns::BiasColumns)
+function calc_design_matrix!(H, sat_positions, ξ, bias_columns::BiasColumns)
     fill!(H, 0.0)
-    for j in 1:satellite_count(sat_positions)
-        sat_pos = satellite_position(sat_positions, j)
+    for j in 1:observation_count(sat_positions)
+        sat_pos = get_satellite_position(sat_positions, j)
         e = calc_line_of_sight(sat_pos, ξ)
         H[j, 1] = -e[1]
         H[j, 2] = -e[2]
         H[j, 3] = -e[3]
-        H[j, 3+bias_columns.clock_bias_indices[j]] = 1.0
-        ifb_column = bias_columns.ifb_indices[j]
+        H[j, 3+bias_columns.clock_columns[j]] = 1.0
+        ifb_column = bias_columns.ifb_columns[j]
         if ifb_column != 0
             H[j, 3+bias_columns.num_clock_biases+ifb_column] = 1.0
         end
@@ -213,30 +213,30 @@ function calc_H!(H, sat_positions, ξ, bias_columns::BiasColumns)
 end
 
 """
-    calc_H(sat_positions, ξ, bias_columns::BiasColumns) -> Matrix{Float64}
+    calc_design_matrix(sat_positions, ξ, bias_columns::BiasColumns) -> Matrix{Float64}
 
-Allocating form of [`calc_H!`](@ref PositionVelocityTime.calc_H!).
+Allocating form of [`calc_design_matrix!`](@ref PositionVelocityTime.calc_design_matrix!).
 """
-calc_H(sat_positions, ξ, bias_columns::BiasColumns) = calc_H!(
-    Matrix{Float64}(undef, satellite_count(sat_positions),
-        num_lsq_params(bias_columns)),
+calc_design_matrix(sat_positions, ξ, bias_columns::BiasColumns) = calc_design_matrix!(
+    Matrix{Float64}(undef, observation_count(sat_positions),
+        num_parameters(bias_columns)),
     sat_positions, ξ, bias_columns)
 
 """
 $SIGNATURES
 
-The second directional derivative of `calc_ρ_hat!` along the step `v`, for the
+The second directional derivative of `predict_pseudoranges!` along the step `v`, for the
 Levenberg–Marquardt geodesic acceleration: `(‖v_r‖² − (û · v_r)²) / d_j` per
 satellite, with `v_r` the step's position block, `û` the line of sight and `d_j` the
 range, treating the rotated satellite as fixed (its dependence on `ξ` is scaled by
 `ω_e/c ≈ 2e-13`).
 """
-function calc_Avv!(curvature, sat_positions, ξ, v)
+function calc_pseudorange_curvature!(curvature, sat_positions, ξ, v)
     rₙ = SVector{3}(ξ[1], ξ[2], ξ[3])
     v_r = SVector{3}(v[1], v[2], v[3])
     v_r_sq = dot(v_r, v_r)
-    for j in 1:satellite_count(sat_positions)
-        sat_pos = satellite_position(sat_positions, j)
+    for j in 1:observation_count(sat_positions)
+        sat_pos = get_satellite_position(sat_positions, j)
         u = satellite_position_at_reception(rₙ, sat_pos) - rₙ
         d = norm(u)
         û = u / d

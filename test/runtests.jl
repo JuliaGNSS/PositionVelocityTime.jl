@@ -75,7 +75,7 @@ end
 
 const ONE_CLOCK_COLUMN = PositionVelocityTime.BiasColumns([1], 1, [0], 0)
 
-# The pseudorange at receiver time `t`, as `calc_ρ_hat!` models it: the satellite taken
+# The pseudorange at receiver time `t`, as `predict_pseudoranges!` models it: the satellite taken
 # at its transmit time `t_t = t − ρ/c` (found by fixed-point iteration), the receiver at
 # `user_at(t)` with clock bias `bias_at(t)` (m), and the satellite clock offset
 # `sat_clock_at(t_t)` (m) subtracted.
@@ -85,7 +85,7 @@ function modelled_pseudorange(sat_at, sat_clock_at, user_at, bias_at, t)
     t_t = t
     for _ in 1:10
         t_t = t - ρ / c
-        ρ = PositionVelocityTime.calc_ρ_hat!(
+        ρ = PositionVelocityTime.predict_pseudoranges!(
             zeros(1), [sat_at(t_t)], [user_at(t); bias_at(t)], ONE_CLOCK_COLUMN)[1] -
             sat_clock_at(t_t)
     end

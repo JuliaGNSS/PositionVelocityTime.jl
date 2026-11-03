@@ -37,8 +37,8 @@
 
     @testset "Azpar (Eq. 2)" begin
         # |√(a0² + 1633.33·a1² + 4802000·a2² + 3266.67·a0·a2)|, in sfu
-        @test PositionVelocityTime._azpar(HI...) ≈ 244.007 atol = 1e-2
-        @test PositionVelocityTime._azpar(0.0, 0.0, 0.0) == 0.0
+        @test PositionVelocityTime._ntcm_g_azpar(HI...) ≈ 244.007 atol = 1e-2
+        @test PositionVelocityTime._ntcm_g_azpar(0.0, 0.0, 0.0) == 0.0
     end
 
     @testset "GST week/TOW → day-of-year and UT" begin

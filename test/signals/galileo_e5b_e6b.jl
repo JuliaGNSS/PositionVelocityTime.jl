@@ -101,7 +101,7 @@
         @test length(reference.observations) >= 4
 
         # Split a transmit time into the decoder's bit count plus a sub-symbol code
-        # phase, the way `calc_uncorrected_time` reads them back (it reduces the code
+        # phase, the way `calc_uncorrected_transmit_time` reads them back (it reduces the code
         # phase modulo one data symbol, so the whole-symbol part must go in the count).
         function bits_and_code_phase(system, tow, target)
             datafreq = Float64(GNSSSignals.get_data_frequency(system) / Hz)
@@ -122,7 +122,7 @@
             # away. Without this the test would read that difference out as a spurious
             # inter-frequency bias instead of the ~0 it is checking for.
             target =
-                PositionVelocityTime.calc_uncorrected_time(state) +
+                PositionVelocityTime.calc_uncorrected_transmit_time(state) +
                 (1 - PositionVelocityTime.galileo_group_delay_scaling(GalileoE5bI())) *
                 decoder.data.BGD_E1_E5b
             num_bits, code_phase =

@@ -45,7 +45,7 @@ software reports observation residuals in — RTKLIB's `rescode` / `resdop`, and
 and PocketSDR through it. Note that `rate_residual` follows `resdop` in the geometric
 range-rate sense, positive while the satellite recedes; a receiver forming the same
 residual from its tracking loops' `λ · carrier_doppler` works in the opposite sign (see
-`calc_user_velocity_and_clock_drift` and `calc_pseudorange_rate`, which set that sign).
+`estimate_velocity` and `calc_pseudorange_rate`, which set that sign).
 """
 struct ObservationResiduals
     position::ECEF{Float64}
@@ -66,7 +66,7 @@ against.
   this band's receiver chain delay is than the reference band's.
 - `reference_band::Symbol`: The reference band (e.g. `:L1`; see `get_band_id`) whose delay is
   folded into the clock biases and against which `value` is measured. Chosen per
-  coverage component (see [`band_ifb_layout`](@ref)), so different biases in a
+  coverage component (see [`ifb_layout`](@ref)), so different biases in a
   disconnected solution can in principle carry different references.
 """
 struct InterFrequencyBias
@@ -129,7 +129,7 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   (in metres) and the reference band it is measured against — the anchor whose delay is
   folded into the clock biases — so each reported bias's anchor is explicit rather than
   implicit. The reference is chosen per coverage component (see
-  [`band_ifb_layout`](@ref)), so a disconnected constellation can in principle yield
+  [`ifb_layout`](@ref)), so a disconnected constellation can in principle yield
   several references. Empty for a single-band solution. A solution then needs
   `n ≥ 3 + M + B` satellites for `M` time systems and `B` extra bands.
 
@@ -298,11 +298,11 @@ function empty_keeping_capacity!(solution::PVTSolution)
 end
 
 """
-    get_LLA(pvt::PVTSolution) -> LLA
+    get_lla(pvt::PVTSolution) -> LLA
 
 Convert the ECEF position in the PVT solution to geodetic coordinates
 (latitude, longitude, altitude) using the WGS84 ellipsoid.
 """
-function get_LLA(pvt::PVTSolution)
+function get_lla(pvt::PVTSolution)
     LLAfromECEF(wgs84)(pvt.position)
 end

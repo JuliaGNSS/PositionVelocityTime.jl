@@ -135,7 +135,7 @@ See [`tropospheric_delay`](@ref).
 
   **Order is significant**, as vector order was before it: the flat observation order
   is group order × within-group order, and it fixes the reference system's tie-break
-  ("most satellites, ties by first appearance"), [`band_ifb_layout`](@ref)'s
+  ("most satellites, ties by first appearance"), [`ifb_layout`](@ref)'s
   reference-band tie-break, and the insertion order of `PVTSolution.observations`.
 - `prev_pvt`: Previous PVT solution used as initial guess (default: origin). A
   previous solution whose own DOP is implausible (`GDOP < 0`, or `PDOP` above
@@ -316,8 +316,8 @@ function _solve_pvt!(
     decide_bias_layout!(workspace.layout, prepared) || return (false, prev_pvt)
     (; bias_columns, clock_systems, extra_bands, reference_bands, hub_system, hub_rows) =
         bias_layout(workspace.layout)
-    (; clock_bias_indices, num_clock_biases) = bias_columns
-    num_params = num_lsq_params(bias_columns)
+    (; clock_columns, num_clock_biases) = bias_columns
+    num_params = num_parameters(bias_columns)
 
     # The propagated ephemerides, already evaluated per satellite by the collection pass.
     sat_positions = resize!(workspace.sat_positions, num_observations)
@@ -326,17 +326,17 @@ function _solve_pvt!(
     end
 
     # Reference system — its clock bias, reference time, week and start epoch
-    # define the reported time (see `select_primary_system`).
+    # define the reported time (see `select_reference_system`).
     unique_systems = unique_time_systems!(workspace.unique_systems,
         observation.time_system for observation in prepared)
-    reference_system = select_primary_system(prepared, hub_system)
+    reference_system = select_reference_system(prepared, hub_system)
     # `something`, not a bare `findfirst`: the reference system is either one of the
     # systems present or the hub, which `decide_bias_layout!` only picks when it is
     # present — so this never fails, and saying so keeps the index an `Int` rather than
     # a `Union{Int,Nothing}` that would widen the clock column and the DOP call below.
     reference_index = something(
         findfirst(observation -> observation.time_system === reference_system, prepared))
-    reference_clock_column = clock_bias_indices[reference_index]
+    reference_clock_column = clock_columns[reference_index]
 
     # The common reference cancels out of the reported time (the reference clock
     # bias absorbs it), so any latest-transmit-time reference works — but the times
@@ -434,10 +434,10 @@ function _solve_pvt!(
         # the geocenter, so first obtain an approximate fix from an uncorrected
         # solve, then re-solve once with the delay-corrected pseudoranges (only if
         # there is anything to correct, so the uncorrected case stays a single solve).
-        ξ_uncorrected, residuals_uncorrected = user_position!(least_squares,
+        ξ_uncorrected, residuals_uncorrected = estimate_position!(least_squares,
             workspace.residuals, sat_positions, pseudoranges, bias_columns, prev_ξ)
         if correct_atmosphere
-            user_position!(least_squares, workspace.residuals, sat_positions,
+            estimate_position!(least_squares, workspace.residuals, sat_positions,
                 corrected_ranges(ξ_uncorrected), bias_columns, ξ_uncorrected)
         else
             (ξ_uncorrected, residuals_uncorrected)
@@ -446,12 +446,12 @@ function _solve_pvt!(
         # Warm start: predict the delays from the previous (already metre-accurate)
         # position before solving, so ξ never needs a post-solve correction. With no
         # active correction, solve directly on the raw pseudoranges.
-        user_position!(least_squares, workspace.residuals, sat_positions,
+        estimate_position!(least_squares, workspace.residuals, sat_positions,
             correct_atmosphere ? corrected_ranges(prev_ξ) : pseudoranges, bias_columns,
             prev_ξ)
     end
     workspace.design_matrix = grown(workspace.design_matrix, num_observations, num_params)
-    H = calc_H!(view(workspace.design_matrix, 1:num_observations, 1:num_params),
+    H = calc_design_matrix!(view(workspace.design_matrix, 1:num_observations, 1:num_params),
         sat_positions, ξ,
         bias_columns)
     position = ECEF(ξ[1], ξ[2], ξ[3])
@@ -464,16 +464,16 @@ function _solve_pvt!(
     # It also stands ahead of the velocity solve, whose design is this one's but for a few
     # 1e-6 relative; that solve tests its own design against the same tolerance as a
     # backstop and returns `NaN` should it fail, an unsolvable epoch as well (see
-    # `calc_user_velocity_and_clock_drift`).
+    # `estimate_velocity`).
     workspace.normal_matrix = grown(workspace.normal_matrix, num_params, num_params)
-    dop = calc_DOP!(view(workspace.normal_matrix, 1:num_params, 1:num_params), H, position,
+    dop = calc_dop!(view(workspace.normal_matrix, 1:num_params, 1:num_params), H, position,
         reference_clock_column)
 
     dop.GDOP < 0 && return (false, prev_pvt)
 
     # The velocity solve takes one Gauss–Newton step, which is the least-squares fit to
     # rounding from the previous epoch's velocity and clock drift, and to ~1e-8 m/s from
-    # rest (see `calc_user_velocity_and_clock_drift`). So it starts from the previous
+    # rest (see `estimate_velocity`). So it starts from the previous
     # solution whenever the position solve trusts that as its seed, and from rest
     # otherwise: on a cold start (the default `prev_pvt` is at rest anyway), after a
     # distrusted solution, or should the previous one carry a non-finite value.
@@ -483,7 +483,7 @@ function _solve_pvt!(
         !distrusted && all(isfinite, previous_velocity_and_drift) ?
         previous_velocity_and_drift : zero(SVector{4,Float64})
     user_velocity_and_clock_drift, rate_residuals =
-        calc_user_velocity_and_clock_drift!(workspace.rate_residuals,
+        estimate_velocity!(workspace.rate_residuals,
             workspace.velocity_design, prepared, position, velocity_start)
     all(isfinite, user_velocity_and_clock_drift) || return (false, prev_pvt)
     velocity = ECEF(
@@ -524,7 +524,7 @@ function _solve_pvt!(
     # Inter-system biases relative to the reference system's clock, in
     # meters. The reference is omitted (its bias is `time_correction`); for a
     # collapsed system this is the broadcast offset −c·Δt_systems, `hub_offsets` as
-    # `inter_system_bias` computed it, read at the system's first satellite (the
+    # `broadcast_inter_system_bias` computed it, read at the system's first satellite (the
     # per-satellite offsets differ only by the offset polynomial's drift term over the
     # transmit-time spread — sub-millimetre).
     inter_system_biases = empty!(solution.inter_system_biases)
@@ -532,7 +532,7 @@ function _solve_pvt!(
         sys === reference_system && continue
         j = something(findfirst(observation -> observation.time_system === sys, prepared))
         inter_system_biases[sys] =
-            (ξ[3+clock_bias_indices[j]] + hub_offsets[j] - time_correction) * m
+            (ξ[3+clock_columns[j]] + hub_offsets[j] - time_correction) * m
     end
 
     # Receiver inter-frequency biases relative to the reference band, in meters

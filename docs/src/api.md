@@ -72,7 +72,7 @@ PositionVelocityTime.empty_keeping_capacity!
 ## Position and Velocity
 
 ```@docs
-get_LLA
+get_lla
 calc_satellite_position
 calc_satellite_position_and_velocity
 get_sat_enu
@@ -134,7 +134,7 @@ type parameters, so a
 consumer's own estimator compiles once over it as well, however many constellations it
 mixes.
 
-Only [`calc_corrected_time`](@ref PositionVelocityTime.calc_corrected_time),
+Only [`calc_transmit_time`](@ref PositionVelocityTime.calc_transmit_time),
 [`calc_satellite_clock_drift`](@ref PositionVelocityTime.calc_satellite_clock_drift),
 [`get_week`](@ref PositionVelocityTime.get_week),
 [`broadcast_time_offset`](@ref PositionVelocityTime.broadcast_time_offset) and the
@@ -148,7 +148,7 @@ scale unless a function says otherwise.
 ```@docs
 PositionVelocityTime.SPEED_OF_LIGHT
 PositionVelocityTime.EARTH_ROTATION_RATE
-PositionVelocityTime.calc_corrected_time
+PositionVelocityTime.calc_transmit_time
 PositionVelocityTime.calc_satellite_clock_drift
 PositionVelocityTime.get_sat_position
 PositionVelocityTime.get_sat_velocity
@@ -159,20 +159,20 @@ PositionVelocityTime.decide_bias_layout!
 PositionVelocityTime.BiasLayoutWorkspace
 PositionVelocityTime.bias_layout
 PositionVelocityTime.BiasLayout
-PositionVelocityTime.select_primary_system
-PositionVelocityTime.calc_ρ_hat!
-PositionVelocityTime.calc_H
-PositionVelocityTime.calc_DOP
-PositionVelocityTime.calc_DOP!
+PositionVelocityTime.select_reference_system
+PositionVelocityTime.predict_pseudoranges!
+PositionVelocityTime.calc_design_matrix
+PositionVelocityTime.calc_dop
+PositionVelocityTime.calc_dop!
 PositionVelocityTime.calc_pseudorange_rate
-PositionVelocityTime.calc_user_velocity_and_clock_drift
-PositionVelocityTime.calc_user_velocity_and_clock_drift!
+PositionVelocityTime.estimate_velocity
+PositionVelocityTime.estimate_velocity!
 PositionVelocityTime.time_scale_offset_to_gpst
 PositionVelocityTime.calc_time_scale_offsets
 PositionVelocityTime.time_offset_available
 PositionVelocityTime.broadcast_time_offset
 PositionVelocityTime.calc_steering_offset
-PositionVelocityTime.inter_system_bias
+PositionVelocityTime.broadcast_inter_system_bias
 PositionVelocityTime.get_week
 PositionVelocityTime.system_start_epoch
 PositionVelocityTime.day_of_year
@@ -185,10 +185,10 @@ PositionVelocityTime.calc_course_over_ground
 The unexported internals the surface above links to, documented for reference:
 
 ```@docs
-PositionVelocityTime.calc_H!
-PositionVelocityTime.user_position
-PositionVelocityTime.user_position!
-PositionVelocityTime.num_lsq_params
+PositionVelocityTime.calc_design_matrix!
+PositionVelocityTime.estimate_position
+PositionVelocityTime.estimate_position!
+PositionVelocityTime.num_parameters
 PositionVelocityTime.calc_hub_range_offsets
 PositionVelocityTime.unique_time_systems
 PositionVelocityTime.time_system_index
@@ -212,8 +212,8 @@ The receiver inter-frequency biases and their reference bands (reported per
 [`InterFrequencyBias`](@ref)) are laid out from the constellation × band coverage graph:
 
 ```@docs
-PositionVelocityTime.band_ifb_layout
-PositionVelocityTime.band_ifb_layout!
+PositionVelocityTime.ifb_layout
+PositionVelocityTime.ifb_layout!
 ```
 
 ## Trimmed Executables

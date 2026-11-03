@@ -206,7 +206,7 @@
 
     @testset "time of week comes from the decoder, on every BeiDou signal" begin
         # GNSSDecoder answers this now, including B-CNAV1's reconstruction. Asserted
-        # here because `calc_uncorrected_time` reads it for every signal, so a
+        # here because `calc_uncorrected_transmit_time` reads it for every signal, so a
         # `nothing` would propagate silently into a transmit time.
         @test GNSSDecoder.get_time_of_week(d1) == d1.data.SOW
         @test GNSSDecoder.get_time_of_week(b2a) == b2a.data.SOW
@@ -589,7 +589,7 @@
     function ranging_state(decoder, system, user, t_rx)
         # Solve the light-time equation against the *same* range model the solver
         # uses, which rotates the satellite into the ECEF frame of the reception
-        # instant (`calc_ρ_hat!`). Omitting that Sagnac term would leave a ±30 m
+        # instant (`predict_pseudoranges!`). Omitting that Sagnac term would leave a ±30 m
         # per-satellite inconsistency and the recovered position tens of metres out —
         # a synthesis error that looks exactly like a decoder bug.
         t_tx = t_rx - 0.075                      # ~one light-time as a seed
@@ -685,7 +685,7 @@
         # the pilot path is the common case rather than an exotic one.
         #
         # Two things differ from the data-ranged fix and both are worth a number
-        # rather than a `hasmethod` check. `calc_uncorrected_time` divides the
+        # rather than a `hasmethod` check. `calc_uncorrected_transmit_time` divides the
         # pilot's code frequency by the *decoder's* data frequency to reduce the
         # shared code phase modulo one data symbol — for B1C that is 1.023 Mcps over
         # 100 Hz, 10230 chips per symbol — and `correct_by_group_delay` applies the

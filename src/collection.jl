@@ -251,7 +251,7 @@ compiles once for every mix.
 - `count_offset_to_gpst::Float64`: [`time_scale_offset_to_gpst`](@ref) of
   `time_system`, precomputed, so the solver reads a number rather than branching on
   the time system per satellite.
-- `transmit_time::Float64`: the corrected transmit time ([`calc_corrected_time`](@ref)) as a
+- `transmit_time::Float64`: the corrected transmit time ([`calc_transmit_time`](@ref)) as a
   seconds-of-week count **on this satellite's own system's scale**.
 - `position::SVector{3,Float64}`: satellite ECEF position at `transmit_time` (m).
 - `velocity::SVector{3,Float64}`: satellite ECEF velocity at `transmit_time` (m/s).
@@ -291,7 +291,7 @@ end
 function satellite_measurement(observation::SignalObservation, approximate_year::Integer)
     decoder = observation.decoder
     signal = observation.signal
-    transmit_time = calc_corrected_time(observation)
+    transmit_time = calc_transmit_time(observation)
     pos_and_vel = calc_satellite_position_and_velocity(decoder, transmit_time)
     time_system = get_time_system(signal)
     count_offset_to_gpst = time_scale_offset_to_gpst(time_system)

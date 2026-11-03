@@ -337,7 +337,7 @@ end
         @test PositionVelocityTime.unique_time_systems((GPST(), GST(), GPST(), BDT())) ==
               [GPST(), GST(), BDT()]
         mixed_rows = prepared_of((gps = l1ca, galileo = e1b))
-        select_reference(rows) = @allocated PositionVelocityTime.select_primary_system(
+        select_reference(rows) = @allocated PositionVelocityTime.select_reference_system(
             rows, nothing)
         select_reference(mixed_rows)
         @test select_reference(mixed_rows) == 0

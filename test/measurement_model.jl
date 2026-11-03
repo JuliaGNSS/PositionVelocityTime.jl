@@ -64,7 +64,7 @@ end
 
 @testset "calc_line_of_sight points receiver → satellite" begin
     # The textbook convention (Misra & Enge's 1ₖ, RTKLIB's `e`), pinned directly
-    # because every H-based assertion is insensitive to it: `calc_H!` negates the
+    # because every H-based assertion is insensitive to it: `calc_design_matrix!` negates the
     # vector into the pseudorange's position partial, so a flipped convention with a
     # matching flip there would pass the whole suite unnoticed.
     user = [3.9074e6, 3.0684e5, 5.0150e6]
@@ -74,7 +74,7 @@ end
     # Up to the ~30 m Sagnac rotation of the satellite position.
     @test dot(e, normalize(sat - user)) > 1 - 1e-10
     # And the design row carries its negative.
-    H = PositionVelocityTime.calc_H(reshape(sat, 3, 1), [user; 0.0],
+    H = PositionVelocityTime.calc_design_matrix(reshape(sat, 3, 1), [user; 0.0],
         PositionVelocityTime.BiasColumns([1], 1, [0], 0))
     @test H[1, 1:3] ≈ -e
 end

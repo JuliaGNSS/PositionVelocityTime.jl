@@ -17,7 +17,7 @@
     @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1183385390904732)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 9
     # The modelled range rate carries the light-time factor `1 − ρ̇/c` and the rate of
-    # the Earth-rotation angle (see `calc_user_velocity_and_clock_drift`), which moved this by ~3 mm/s
+    # the Earth-rotation angle (see `estimate_velocity`), which moved this by ~3 mm/s
     # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
     # with the Doppler, so the frequency offsets now differ by a few mHz.
     @test pvt.relative_clock_drift * get_center_frequency(galileo_e1b) ≈ -(1675.64Hz + freq_offset) atol = 0.01Hz
@@ -33,7 +33,7 @@
     # stops once its step is below `x_tol` relative to `‖ξ‖`, ~2 µm with the ~2e7 m of
     # clock bias in `ξ`, so which side of that the two land on depends on last-bit
     # rounding — 2 µm apart on one GitHub runner. Geodesy's `≈` on `LLA` defaults to 1 µm.
-    @test get_LLA(warm_pvt) ≈ get_LLA(pvt) atol = 1e-5
+    @test get_lla(warm_pvt) ≈ get_lla(pvt) atol = 1e-5
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
@@ -54,7 +54,7 @@ end
     @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.1491024351271335)
     @test pvt.velocity ≈ ECEF(0.0, 0.0, 0.0) atol = 2.5
     # The modelled range rate carries the light-time factor `1 − ρ̇/c` and the rate of
-    # the Earth-rotation angle (see `calc_user_velocity_and_clock_drift`), which moved this by ~3 mm/s
+    # the Earth-rotation angle (see `estimate_velocity`), which moved this by ~3 mm/s
     # (~0.01 Hz) from the value of the plain line-of-sight model; the factor also scales
     # with the Doppler, so the frequency offsets now differ by a few mHz.
     @test pvt.relative_clock_drift * get_center_frequency(gpsl1) ≈ -(1632.61Hz + freq_offset) atol = 0.01Hz
@@ -66,7 +66,7 @@ end
         enable_ionospheric_correction = false,
         enable_tropospheric_correction = false,
     )
-    @test get_LLA(warm_pvt) ≈ get_LLA(pvt) atol = 1e-5  # see the first testset
+    @test get_lla(warm_pvt) ≈ get_lla(pvt) atol = 1e-5  # see the first testset
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
@@ -152,7 +152,7 @@ end
     @test maximum(abs, rate_resids) < 10.0m/s
 
     warm_pvt = calc_pvt(groups, pvt; approximate_year = 2021, enable_ionospheric_correction = false, enable_tropospheric_correction = false)
-    @test get_LLA(warm_pvt) ≈ get_LLA(pvt) atol = 1e-5  # see the first testset
+    @test get_lla(warm_pvt) ≈ get_lla(pvt) atol = 1e-5  # see the first testset
     @test warm_pvt.time ≈ pvt.time
     @test warm_pvt.velocity ≈ pvt.velocity atol = 1e-6
 end
@@ -195,7 +195,7 @@ end
 # step is only a fraction of the distance to the optimum. A warm start a metre out
 # therefore took one ~10 cm step and reported convergence, returning a fix most of a
 # metre away from the one the very same observations give from cold. See the solver
-# settings in `user_position`.
+# settings in `estimate_position`.
 @testset "a warm start converges to the same fix as a cold start" begin
     kwargs = (; approximate_year = 2021, enable_ionospheric_correction = false,
         enable_tropospheric_correction = false)
@@ -271,7 +271,7 @@ end
 # `doppler` (Hz). Only the code phase and bit count move, as in `_precompile_states`;
 # the carrier phase, which also counts into the transmit time, is kept.
 function retimed_state(state, transmit_time, doppler)
-    uncorrected = PositionVelocityTime.calc_uncorrected_time(state)
+    uncorrected = PositionVelocityTime.calc_uncorrected_transmit_time(state)
     # `correct_clock` is a slowly varying offset, so a few fixed-point steps invert it.
     for _ in 1:5
         uncorrected += transmit_time -
@@ -281,7 +281,7 @@ function retimed_state(state, transmit_time, doppler)
     chips = ustrip(Hz, get_code_frequency(state.signal))
     offset = state.decoder.num_bits_after_valid_syncro_sequence / rate +
              mod(state.code_phase, chips / rate) / chips +
-             uncorrected - PositionVelocityTime.calc_uncorrected_time(state)
+             uncorrected - PositionVelocityTime.calc_uncorrected_transmit_time(state)
     num_bits = floor(Int, offset * rate)
     SignalObservation(;
         decoder = GNSSDecoder.GNSSDecoderState(state.decoder;
@@ -309,7 +309,7 @@ end
     # velocity here — ten times the bounds below, which the solve meets to ~1e-6 m/s.
     user_vel = SVector(150.0, -200.0, 50.0)
     clock_bias, clock_drift = 0.0, 30.0
-    reception = maximum(PositionVelocityTime.calc_corrected_time, states) + 0.075
+    reception = maximum(PositionVelocityTime.calc_transmit_time, states) + 0.075
 
     exact_states = map(states) do state
         orbit_at(t_t) = calc_satellite_position_and_velocity(state.decoder, t_t).position
