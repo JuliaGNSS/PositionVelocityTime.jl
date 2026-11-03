@@ -89,9 +89,6 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   direction of motion, not vehicle heading (which a single-antenna receiver cannot
   observe). The vertical (Up) velocity component is ignored. `0°` when the horizontal
   velocity is zero (stationary or purely vertical), where course is undefined.
-- `time_correction::typeof(1.0m)`: Estimated receiver clock bias of the reference GNSS
-  (meters). For a multi-GNSS solution this is the bias of `reference_system`;
-  other systems' biases are `time_correction + inter_system_biases[system]`.
 - `time::Union{TAITime, Nothing}`: Estimated time as a TAI epoch (GNSSSignals' `TAITime`;
   with AstroTime loaded, `TAIEpoch(time)` converts it)
 - `relative_clock_drift::Float64`: Relative receiver clock drift (dimensionless)
@@ -106,7 +103,7 @@ Complete Position, Velocity, and Time solution from GNSS measurements.
   entries sharing a PRN). Receiver-clock grouping is by time system, not signal —
   see `reference_system`.
 - `reference_system::Union{SupportedTimeSystem, Nothing}`: GNSS time system (e.g.
-  `GNSSSignals.GPST()`, `GST()`) that `time` and `time_correction` are referenced to.
+  `GNSSSignals.GPST()`, `GST()`) that `time` is referenced to.
 - `inter_system_biases::Dict{SupportedTimeSystem, typeof(1.0m)}`: For each GNSS time system
   other than `reference_system`, the offset of that system's time scale relative to the reference
   system's (meters) — the inter-system bias. This is a **system / space-segment** effect,
@@ -145,7 +142,6 @@ it reads.
     position::ECEF{Float64} = ECEF(0.0, 0.0, 0.0)
     velocity::ECEF{Float64} = ECEF(0.0, 0.0, 0.0)
     course_over_ground::typeof(1.0°) = 0.0°
-    time_correction::typeof(1.0m) = 0.0m
     time::Union{TAITime,Nothing} = nothing
     relative_clock_drift::Float64 = 0
     dop::Union{DOP,Nothing} = nothing
@@ -190,7 +186,6 @@ Base.copy(pvt::PVTSolution) = PVTSolution(
     pvt.position,
     pvt.velocity,
     pvt.course_over_ground,
-    pvt.time_correction,
     pvt.time,
     pvt.relative_clock_drift,
     pvt.dop,
@@ -215,7 +210,6 @@ function copy_into(solution::PVTSolution, source::PVTSolution)
         source.position,
         source.velocity,
         source.course_over_ground,
-        source.time_correction,
         source.time,
         source.relative_clock_drift,
         source.dop,

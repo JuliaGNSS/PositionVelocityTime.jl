@@ -143,8 +143,10 @@ function estimate_position!(
 
     # Two departures from LsqFit's defaults, both for this problem's scale:
     #
-    #  - `x_tol` is relative to `‖ξ‖`, which the clock bias dominates (~2e7 m), so the
-    #    1e-8 default stops at a ~0.2 m step — most of a metre short on a warm start.
+    #  - `x_tol` is relative to `‖ξ‖`, which the reference clock column dominates: the
+    #    pseudoranges count from the reference observation's transmit time, so it holds
+    #    minus that signal's travel time, ~−2e7 m. The 1e-8 default stops at a ~0.2 m
+    #    step — most of a metre short on a warm start.
     #    1e-13 stops at ~2 µm, still ~1e3 × the rounding of `ξ`.
     #  - `lambda = 10` damps the first steps well short of Gauss–Newton. The model is only
     #    mildly nonlinear, so 1e-8 makes it effectively Gauss–Newton: 2 to 5 iterations

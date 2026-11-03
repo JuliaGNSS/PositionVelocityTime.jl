@@ -26,7 +26,7 @@ first_satellites(group, n) =
 function same_solution(a::PVTSolution, b::PVTSolution)
     a.position == b.position && a.velocity == b.velocity &&
         a.course_over_ground == b.course_over_ground &&
-        a.time_correction == b.time_correction && a.time == b.time &&
+        a.time == b.time &&
         a.relative_clock_drift == b.relative_clock_drift && a.dop == b.dop &&
         collect(pairs(a.observations)) == collect(pairs(b.observations)) &&
         a.reference_system === b.reference_system &&

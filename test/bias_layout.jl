@@ -492,17 +492,19 @@ end
         enable_tropospheric_correction = false)
     @test big.inter_system_biases[GST()] ≈ -C * A_big * m rtol = 1e-6
 
-    # A warm start seeds each clock column with its own system's previous bias: the
-    # GPS reference's, and the Galileo one's — the reference's plus its −c·A_0G ≈ −300 m
-    # inter-system bias.
+    # A warm start seeds the GPS reference clock with minus the range from the previous
+    # position to the reference satellite, whose pseudorange is zero, and the Galileo
+    # one with that plus its previous −c·A_0G ≈ −300 m inter-system bias.
     big_groups = (signal_group(gps[1:3]), signal_group([with_ggto(gal[1]; A_0G = A_big)]))
     workspace = PVTWorkspace()
     calc_pvt!(PVTSolution(), workspace, big_groups, big; approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
     @test big.dop.PDOP < PositionVelocityTime.MAX_TRUSTED_WARM_START_PDOP
-    @test workspace.prev_ξ[4] == ustrip(m, big.time_correction)
-    @test workspace.prev_ξ[5] ==
-          ustrip(m, big.time_correction + big.inter_system_biases[GST()])
+    reference_satellite = workspace.prepared[1]
+    @test reference_satellite.time_system === GPST()
+    @test workspace.prev_ξ[4] == -norm(big.position - reference_satellite.position)
+    @test workspace.prev_ξ[5] - workspace.prev_ξ[4] ≈
+          ustrip(m, big.inter_system_biases[GST()]) rtol = 1e-12
     # The seed only sets the starting point: warm and cold starts reach the same fix.
     warm = calc_pvt(big_groups, big; approximate_year = 2021,
         enable_ionospheric_correction = false, enable_tropospheric_correction = false)
@@ -632,7 +634,7 @@ end
 
 @testset "PVT reference system is the most-populated GNSS" begin
     # Galileo-majority independent mix (2 GPS + 5 Galileo): no GGTO constraint, so
-    # the reference system — which sets the reported time scale and time_correction
+    # the reference system — which sets the reported time scale and the bias origin
     # — should be Galileo, the constellation with more satellites.
     gps = gps_l1_states(0.0Hz)
     gal = galileo_e1b_states(0.0Hz)

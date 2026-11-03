@@ -105,8 +105,8 @@ end
     @test pvt.velocity ≈ ECEF(-1.4427421149590258, 0.5397343562431747, -2.127408455072271) atol = 1e-3
     @test TAIEpoch(pvt.time) ≈ TAIEpoch(2021, 5, 31, 12, 53, 14.285)
 
-    # One clock bias per GNSS; the reference (GPS, most satellites) bias is
-    # reported as time_correction, with Galileo's offset relative to it.
+    # One clock bias per GNSS; the reference (GPS, most satellites) dates the time,
+    # and Galileo's bias is reported relative to it.
     @test pvt.reference_system == GPST()
     @test Set(keys(pvt.inter_system_biases)) == Set([GST()])
 
@@ -205,7 +205,6 @@ end
     for offset in ([1.0, -1.0, 1.0], [30.0, 0.0, -20.0], [1e5, 1e5, -1e5])
         stale = PVTSolution(;
             position = ECEF((Vector(cold.position) .+ offset)...),
-            time_correction = cold.time_correction,
             reference_system = cold.reference_system,
         )
         warm = calc_pvt(signal_group(states), stale; kwargs...)
@@ -239,7 +238,6 @@ end
     # as the next seed looks like.
     poisoned = PVTSolution(;
         position = ECEF((Vector(good.position) .+ [2.7e8, 0.0, 0.0])...),
-        time_correction = good.time_correction,
         reference_system = good.reference_system,
         dop = PositionVelocityTime.DOP(613.0, 587.0, 400.0, 430.0, 176.6),
     )
