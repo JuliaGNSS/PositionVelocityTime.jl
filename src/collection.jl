@@ -148,9 +148,8 @@ end
     PositionVelocityTime.CANDIDATE_HUB_SYSTEMS
 
 The GNSS time systems a clock collapse can be anchored on, in the fixed order
-[`decide_bias_layout`](@ref) tries them: `(GPST(), GST(), BDT())`. Each
-[`PreparedObservation`](@ref)'s `time_offsets` tuple is indexed by this order, so a
-hub's broadcast offset is a tuple index rather than a dictionary lookup.
+[`decide_bias_layout`](@ref) tries them: `(GPST(), GST(), BDT())`, and those
+[`BroadcastInterSystemTimeOffsets`](@ref) holds the broadcast offsets between.
 """
 const CANDIDATE_HUB_SYSTEMS = (GPST(), GST(), BDT())
 
@@ -163,66 +162,14 @@ The type of [`PreparedObservation`](@ref)'s `time_system` field, and of the keys
 the reference system of a [`PVTSolution`](@ref).
 
 A closed `Union` rather than the abstract `GNSSSignals.TimeSystem` so that every call on
-a time system — hashing it into `inter_system_biases`, `time_scale_offset_to_gpst`, a
-hub's offset index — is split into statically dispatched branches instead of being a
+a time system — hashing it into `inter_system_biases`, `get_time_system_offset`, a
+hub's broadcast offset — is split into statically dispatched branches instead of being a
 dynamic dispatch, which a `juliac --trim` build rejects. The observation it types stays one
 concrete type, so the solver still compiles once for every constellation mix. A time
-system GNSSSignals adds later has to be added to `CANDIDATE_HUB_SYSTEMS` anyway (the
-`time_offsets` tuple is indexed by it), and this follows.
+system GNSSSignals adds later has to be added to `CANDIDATE_HUB_SYSTEMS` anyway
+(`BroadcastInterSystemTimeOffsets` then grows a row and a column for it), and this follows.
 """
 const SupportedTimeSystem = Union{map(typeof, CANDIDATE_HUB_SYSTEMS)...}
-
-# Position of a time system in `CANDIDATE_HUB_SYSTEMS`, or `nothing` for a system no
-# broadcast offset can target. Every element is a distinct singleton, so this folds to
-# a constant whenever the argument type is known.
-hub_system_index(target::GNSSSignals.TimeSystem) =
-    findfirst(==(target), CANDIDATE_HUB_SYSTEMS)
-
-"""
-    BroadcastTimeOffset
-
-One constellation's broadcast offset toward one target GNSS time system, flattened out
-of the navigation message into an `isbits` record so that evaluating it costs no dispatch
-and no decoder field access. One per entry of [`CANDIDATE_HUB_SYSTEMS`](@ref) is
-carried by every [`PreparedObservation`](@ref).
-
-The polynomial *coefficients* are stored rather than an evaluated offset because
-[`calc_hub_range_offsets`](@ref) evaluates one system-wide offset at **each
-satellite's own transmit time**; an evaluated scalar per satellite would change that
-(negligibly in metres, but visibly against the tolerances the steering tests pin).
-
-# Fields
-- `available::Bool`: whether this satellite's message carries a usable offset toward
-  the target at all — the flattened [`time_offset_available`](@ref). Every other field
-  is meaningless when `false`, and the coefficients are then `NaN`, so that
-  [`calc_steering_offset`](@ref) of an unavailable offset is `NaN`.
-- `A_0`, `A_1`, `A_2::Float64`: the broadcast polynomial's constant, rate and
-  acceleration terms.
-- `t_0::Float64`: the offset's reference time of week, or `NaN` where the message
-  carries none (BeiDou D1/D2, whose two-term offset has no reference epoch — there the
-  polynomial argument is the time of week itself).
-- `week_term::Float64`: `SECONDS_PER_WEEK * (own week − WN_0)`, precomputed, so the
-  polynomial argument needs no week lookup. `0.0` where `t_0` is `NaN`.
-- `count_anchor::Float64`: `time_scale_offset_to_gpst(own) −
-  time_scale_offset_to_gpst(target)`, the *defined* whole-second part
-  `GNSSDecoder.GNSSTimeOffset.A_0` folds in and [`calc_steering_offset`](@ref) takes
-  back out (see there).
-"""
-struct BroadcastTimeOffset
-    available::Bool
-    A_0::Float64
-    A_1::Float64
-    A_2::Float64
-    t_0::Float64
-    week_term::Float64
-    count_anchor::Float64
-end
-
-# The "this satellite broadcasts nothing toward that system" entry. The coefficients and
-# the count anchor are NaN so that a misuse propagates a NaN rather than a plausible
-# zero. A NaN `t_0` alone would not: `calc_steering_offset` reads it as the BeiDou
-# D1/D2 "no reference epoch" marker and evaluates the polynomial on `t` instead.
-const NO_TIME_OFFSET = BroadcastTimeOffset(false, NaN, NaN, NaN, NaN, 0.0, NaN)
 
 """
     PreparedObservation
@@ -233,7 +180,7 @@ type parameters — what the whole PVT solver works on.
 Everything that depends on the navigation-message family, the decoder or the ranging
 signal has already been evaluated by [`collect_measurements`](@ref): the transmit
 time, the propagated orbit, the clock drift, the group-delay-corrected observables,
-the classification keys and the broadcast time offsets. What remains is plain data —
+and the classification keys. What remains is plain data —
 numbers, `Symbol`s and the `time_system` singleton — stored inline in a vector, so a
 mixed-constellation epoch is one `Vector{PreparedObservation}` and the solver
 compiles once for every mix.
@@ -248,9 +195,6 @@ compiles once for every mix.
   (`GPST()`, `GST()`, `BDT()`), the grouping key of the receiver clock biases. A small
   `Union` of singletons (see [`SupportedTimeSystem`](@ref)), so the observation stays concrete
   and every call on the field splits statically.
-- `count_offset_to_gpst::Float64`: [`time_scale_offset_to_gpst`](@ref) of
-  `time_system`, precomputed, so the solver reads a number rather than branching on
-  the time system per satellite.
 - `transmit_time::Float64`: the corrected transmit time ([`calc_transmit_time`](@ref)) as a
   seconds-of-week count **on this satellite's own system's scale**.
 - `position::SVector{3,Float64}`: satellite ECEF position at `transmit_time` (m).
@@ -260,20 +204,17 @@ compiles once for every mix.
   Doppler wavelength, and the `1/f²` of every ionospheric model.
 - `clock_drift::Float64`: [`calc_satellite_clock_drift`](@ref) at `transmit_time` (s/s).
 - `week::Int`: the absolute week number of `time_system`, with the GPS L1 C/A
-  1024-week rollover already resolved against `approximate_year`.
-- `system_start_epoch::TAITime`: the TAI epoch of that system's week 0,
-  which dates the reported fix.
-- `system_start_time::DateTime`: the same origin as a calendar date, for
-  [`day_of_year`](@ref).
-- `time_offsets::NTuple{3,BroadcastTimeOffset}`: this satellite's broadcast offsets
-  toward [`CANDIDATE_HUB_SYSTEMS`](@ref), in that order.
+  1024-week rollover already resolved against `approximate_year`; its start is
+  GNSSSignals' `get_week_start_epoch(observation.time_system, observation.week)`.
+
+The broadcast time offsets a satellite carries belong to a pair of time systems, not to
+it; [`collect_measurements`](@ref) gathers them into one [`BroadcastInterSystemTimeOffsets`](@ref).
 """
 struct PreparedObservation
     prn::Int
     signal_id::Symbol
     band_id::Symbol
     time_system::SupportedTimeSystem
-    count_offset_to_gpst::Float64
     transmit_time::Float64
     position::SVector{3,Float64}
     velocity::SVector{3,Float64}
@@ -281,9 +222,6 @@ struct PreparedObservation
     center_frequency::Float64
     clock_drift::Float64
     week::Int
-    system_start_epoch::TAITime
-    system_start_time::DateTime
-    time_offsets::NTuple{3,BroadcastTimeOffset}
 end
 
 # One satellite state → one observation. Every decoder- and signal-typed call of the
@@ -291,38 +229,34 @@ end
 function satellite_measurement(observation::SignalObservation, approximate_year::Integer)
     decoder = observation.decoder
     signal = observation.signal
-    transmit_time = calc_transmit_time(observation)
-    pos_and_vel = calc_satellite_position_and_velocity(decoder, transmit_time)
-    time_system = get_time_system(signal)
-    count_offset_to_gpst = time_scale_offset_to_gpst(time_system)
-    week = get_week(decoder; approximate_year)
+    ephemeris = something(get_broadcast_ephemeris(decoder))
+    transmit_time = correct_clock(ephemeris, group_delay(decoder, signal),
+        calc_uncorrected_transmit_time(observation))
+    pos_and_vel = calc_satellite_position_and_velocity(ephemeris, transmit_time)
     PreparedObservation(
         decoder.prn,
         get_signal_id(signal),
         get_band_id(signal),
-        time_system,
-        count_offset_to_gpst,
+        get_time_system(signal),
         transmit_time,
         pos_and_vel.position,
         pos_and_vel.velocity,
         ustrip(Hz, observation.carrier_doppler),
         ustrip(Hz, get_center_frequency(signal)),
-        calc_satellite_clock_drift(decoder, transmit_time),
-        week,
-        system_start_epoch(signal),
-        get_system_start_time(signal),
-        broadcast_time_offsets(decoder, week, count_offset_to_gpst),
+        calc_satellite_clock_drift(ephemeris, transmit_time),
+        something(get_broadcast_week(decoder; approximate_year)),
     )
 end
 
 """
     collect_measurements(groups; approximate_year = year(now(UTC)))
-        -> (Vector{PreparedObservation}, ionospheric_parameters)
+        -> (Vector{PreparedObservation}, ionospheric_parameters, inter_system_time_offsets)
 
 Flatten the [`SignalGroups`](@ref) of one epoch into the solver's input: the
-per-satellite [`PreparedObservation`](@ref)s, and the single constellation-wide
-ionospheric model [`select_ionospheric_correction`](@ref) would pick for them (folded
-into the same pass — both need exactly the satellites that survive the health gate).
+per-satellite [`PreparedObservation`](@ref)s, the single constellation-wide
+ionospheric model [`select_ionospheric_correction`](@ref) would pick for them, and the
+[`BroadcastInterSystemTimeOffsets`](@ref) between their time systems (folded into the same pass —
+all need exactly the satellites that survive the health gate).
 
 A satellite is kept only if its full navigation-data set is decoded and it reports
 healthy; completeness is checked first, which is what guarantees the health bit has
@@ -340,7 +274,7 @@ The order of the observations is group order × within-group order, and it is si
 function collect_measurements(groups; approximate_year::Integer = year(now(UTC)))
     prepared = PreparedObservation[]
     # An epoch's satellite count is known before a single observation is built, and one is
-    # ~320 bytes, so reserving the whole vector up front saves the geometric regrowth
+    # ~120 bytes, so reserving the whole vector up front saves the geometric regrowth
     # (five reallocations and copies for a dozen satellites). The reservation is the
     # unfiltered count — an unhealthy satellite leaves a little slack, never a regrowth.
     sizehint!(prepared, sum(group -> length(group.satellites),
@@ -351,33 +285,38 @@ end
 """
     collect_measurements!(prepared::Vector{PreparedObservation}, groups;
                           approximate_year = year(now(UTC)))
-        -> (prepared, ionospheric_parameters)
+        -> (prepared, ionospheric_parameters, inter_system_time_offsets)
 
 [`collect_measurements`](@ref) into an existing vector: `prepared` is emptied and
 refilled with this epoch's observations. What it held is overwritten.
 
 The returned tuple pairs the (non-`isbits`) vector with a `Union` of coefficient sets,
 which Julia returns boxed: one small allocation per call. A consumer that must not
-allocate calls [`collect_measurement_rows!`](@ref), which returns the ionospheric
-correction alone.
+allocate calls [`collect_measurement_rows!`](@ref).
 """
-collect_measurements!(
+function collect_measurements!(
     prepared::Vector{PreparedObservation},
     groups;
     approximate_year::Integer = year(now(UTC)),
-) = prepared, collect_measurement_rows!(prepared, groups; approximate_year)
+)
+    (; ionospheric_model, inter_system_time_offsets) =
+        collect_measurement_rows!(prepared, groups; approximate_year)
+    prepared, ionospheric_model.parameters, inter_system_time_offsets
+end
 
 """
     collect_measurement_rows!(prepared::Vector{PreparedObservation}, groups;
                               approximate_year = year(now(UTC)))
-        -> ionospheric_parameters
+        -> (; ionospheric_model::IonosphericModel,
+              inter_system_time_offsets::BroadcastInterSystemTimeOffsets)
 
 [`collect_measurements!`](@ref) without the vector in the result: `prepared` is
-emptied and refilled with this epoch's observations, and only the ionospheric parameters are
-returned. That is a `Union` of `isbits` coefficient sets, which Julia returns unboxed, so
-once `prepared` has held as many observations before, this allocates nothing. It is the
-collection pass [`calc_pvt!`](@ref) runs, for a consumer that runs its own estimator over
-the same observations in a loop that must not allocate.
+emptied and refilled with this epoch's observations, and the ionospheric parameters,
+wrapped in a concrete [`IonosphericModel`](@ref), and the [`BroadcastInterSystemTimeOffsets`](@ref)
+are returned. Both are concrete, so Julia returns them unboxed, and once `prepared` has
+held as many observations before, this allocates nothing. It is the collection pass
+[`calc_pvt!`](@ref) runs, for a consumer that runs its own estimator over the same
+observations in a loop that must not allocate.
 """
 collect_measurement_rows!(
     prepared::Vector{PreparedObservation},
@@ -393,23 +332,33 @@ function _collect_measurements!(prepared, groups, approximate_year::Integer)
     # group order × within-group order. Over their `Tuple` rather than the `NamedTuple`
     # itself: `map(f, ::NamedTuple)` only passes `f` on, so Julia does not specialise it
     # on the closure, and every group's call would be a dynamic dispatch.
-    candidates = map(values(normalized)) do group
+    per_group = map(values(normalized)) do group
         collect_group!(prepared, group, approximate_year)
     end
-    select_from_ionospheric_candidates(merge_all_ionospheric_candidates(candidates))
+    parameters = select_from_ionospheric_candidates(
+        merge_all_ionospheric_candidates(map(first, per_group)))
+    # Group by group, so a tie keeps the first observation's offset.
+    inter_system_time_offsets =
+        foldl(merge_inter_system_time_offsets, map(last, per_group); init = BroadcastInterSystemTimeOffsets())
+    (; ionospheric_model = IonosphericModel(parameters), inter_system_time_offsets)
 end
 
 # One group's satellites, appended to `prepared`; returns the group's ionospheric
-# candidates. Specialises on the group's concrete `SignalObservation` type, so every call
-# in the loop — the health gate, the propagator, the clock polynomial, the coefficient
-# accessors — is statically dispatched.
+# candidates and broadcast time offsets. Specialises on the group's concrete
+# `SignalObservation` type, so every call in the loop — the health gate, the propagator,
+# the clock polynomial, the coefficient accessors — is statically dispatched.
 function collect_group!(prepared, group::SignalGroup, approximate_year::Integer)
     candidates = NO_IONOSPHERIC_CANDIDATES
+    inter_system_time_offsets = BroadcastInterSystemTimeOffsets()
     for observation in group.satellites
-        is_decoding_completed_for_positioning(observation.decoder) || continue
+        has_positioning_data(observation.decoder) || continue
         is_sat_healthy(observation.decoder) || continue
-        push!(prepared, satellite_measurement(observation, approximate_year))
+        prepared_observation = satellite_measurement(observation, approximate_year)
+        push!(prepared, prepared_observation)
         candidates = update_ionospheric_candidates(candidates, observation.decoder)
+        inter_system_time_offsets = update_inter_system_time_offsets(
+            inter_system_time_offsets, observation.decoder,
+            get_time_system(observation.signal), prepared_observation.transmit_time)
     end
-    candidates
+    candidates, inter_system_time_offsets
 end

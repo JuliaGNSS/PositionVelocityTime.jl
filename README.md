@@ -79,8 +79,8 @@ pvt = PVTSolution()
 workspace = PVTWorkspace()
 pvt = calc_pvt!(pvt, workspace, groups, pvt)  # reuses only `pvt`; seeded from itself
 ```
-The estimated time `pvt.time` is a `TAITime` — whole TAI seconds since J2000 plus a
-fraction. With AstroTime loaded, `TAIEpoch(pvt.time)` converts it exactly.
+The estimated time `pvt.time` is GNSSSignals' `TAITime` — whole TAI seconds since J2000
+plus a fraction. With AstroTime loaded, `TAIEpoch(pvt.time)` converts it exactly.
 
 ### Trimmed executables
 The solver compiles into a standalone executable with

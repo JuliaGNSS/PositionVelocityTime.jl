@@ -11,17 +11,13 @@ using CoordinateTransformations,
 using Unitful: s, Hz, m, °, ustrip
 using Dictionaries: Dictionary, IndexError, set!
 
-include("tai_time.jl")
-using .TAITimes: TAITime
-# Unexported but documented decoder vocabulary this package shares: the week
-# length, and the two message-family supertypes the propagator dispatches on.
-using GNSSDecoder: SECONDS_PER_WEEK, AbstractGPSCNAVData, AbstractBeiDouCNAVData
+# GNSSSignals' week arithmetic, documented but unexported there.
+using GNSSSignals: fold_week_crossover
 
 export calc_pvt,
     calc_pvt!,
     PVTWorkspace,
     PVTSolution,
-    TAITime,
     ObservationResiduals,
     InterFrequencyBias,
     SignalObservation,
@@ -48,7 +44,9 @@ export calc_pvt,
 # `pos`, `vel`, `ifb`, `mjd`). `get_` reads
 # or converts what its argument holds (`get_lla`), `calc_` computes, and
 # physical models and named quantities keep noun names (`ionospheric_delay`,
-# `day_of_year`). `ξ` and `H` are the textbook least-squares state and design matrix.
+# `tropospheric_delay`). `ξ` and `H` are the textbook least-squares state and design
+# matrix. A `SignalObservation` is an observation; a `PreparedObservation` is a prepared
+# observation, and a vector of them `prepared`.
 
 """
     SPEED_OF_LIGHT

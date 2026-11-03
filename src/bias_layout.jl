@@ -204,15 +204,16 @@ const BiasLayout = @NamedTuple{
 }
 
 """
-    decide_bias_layout(prepared) -> Union{BiasLayout,Nothing}
+    decide_bias_layout(prepared, inter_system_time_offsets::BroadcastInterSystemTimeOffsets)
+        -> Union{BiasLayout,Nothing}
 
 Decide the full least-squares bias layout — one clock column per GNSS time system plus
 the per-band inter-frequency-bias columns from [`ifb_layout`](@ref) — for the flat
 [`PreparedObservation`](@ref) rows of one epoch, and return it as
 a [`BiasLayout`](@ref),
 or `nothing` when the constellation cannot be solved. Every classification the decision
-needs — each satellite's `time_system`, `band_id`, `prn` and `time_offsets` — is a
-field of the row:
+needs — each satellite's `time_system`, `band_id` and `prn` — is a field of the row, and
+the broadcast offsets between the systems are the epoch's `inter_system_time_offsets`:
 
 - `bias_columns::BiasColumns`: the per-satellite column assignment (see
   [`BiasColumns`](@ref)).
@@ -227,17 +228,15 @@ field of the row:
 - `hub_system::Union{Nothing,SupportedTimeSystem}`: the system the collapsed
   clocks were merged onto, or `nothing` for a layout that estimates every clock bias
   independently, which is the common case.
-- `hub_rows::Vector{PreparedObservation}`: one row per collapsed time system — the
-  satellite whose broadcast offset to `hub_system` converts that whole system's
-  observations. Each row carries its own `time_system`, so it is its own key. The same
-  vocabulary as [`time_offset_available`](@ref), which decides membership, and
-  [`calc_steering_offset`](@ref), which evaluates one entry (see
-  [`calc_hub_range_offsets`](@ref)). Empty exactly when `hub_system` is `nothing`.
+- `hub_rows::Vector{PreparedObservation}`: one row per collapsed time system, the
+  first of its satellites; each row carries its own `time_system`, so it is its own key.
+  A system is collapsed where `inter_system_time_offsets` holds its offset toward `hub_system` (see
+  [`broadcast_inter_system_time_offset`](@ref)), which [`broadcast_inter_system_bias`](@ref)
+  evaluates (see [`calc_hub_range_offsets`](@ref)). Empty exactly when `hub_system` is
+  `nothing`.
 
 Only the *classification* fields of each row are read, never its transmit time: the
-counts, the coverage graph and the availability flags are all the decision needs. The
-offsets its `hub_rows` enable are evaluated afterwards, at each satellite's own
-transmit time.
+counts, the coverage graph and which offsets are broadcast are all the decision needs.
 
 The decision is observability-driven, not merely count-driven:
 
@@ -250,7 +249,7 @@ The decision is observability-driven, not merely count-driven:
   are already removed per satellite upstream, so the per-band column carries the receiver
   chain).
 - Otherwise merge every clock that can be merged onto a *hub* system, using a
-  broadcast offset to that hub (see [`time_offset_available`](@ref)). Hubs are tried
+  broadcast offset to that hub (see [`broadcast_inter_system_time_offset`](@ref)). Hubs are tried
   in the fixed order GPST, GST, BDT, and the first whose merged layout has enough
   satellites wins, so the choice is deterministic and a GPS-anchored collapse behaves
   exactly as it always did. Toward GPS Time the offsets on the air are Galileo's GGTO
@@ -280,9 +279,11 @@ too, and thus necessary but not sufficient: a returned layout can still have deg
 is left to the checks `calc_pvt` makes on the solved geometry — the DOP's positive-definite
 test and the velocity solve's own — rather than pre-screened.
 """
-function decide_bias_layout(prepared)::Union{Nothing,BiasLayout}
+function decide_bias_layout(prepared,
+    inter_system_time_offsets::BroadcastInterSystemTimeOffsets)::Union{Nothing,BiasLayout}
     workspace = BiasLayoutWorkspace()
-    decide_bias_layout!(workspace, prepared) ? bias_layout(workspace) : nothing
+    decide_bias_layout!(workspace, prepared, inter_system_time_offsets) ? bias_layout(workspace) :
+    nothing
 end
 
 """
@@ -330,13 +331,15 @@ bias_layout(workspace::BiasLayoutWorkspace) = BiasLayout((
 ))
 
 """
-    decide_bias_layout!(workspace::BiasLayoutWorkspace, prepared) -> Bool
+    decide_bias_layout!(workspace::BiasLayoutWorkspace, prepared,
+                        inter_system_time_offsets::BroadcastInterSystemTimeOffsets) -> Bool
 
 [`decide_bias_layout`](@ref) into `workspace`: `true` and the layout stored there (read it
 with [`bias_layout`](@ref)), or `false` when the constellation cannot be solved. The same
 decision, allocating nothing once the workspace has grown to the epoch.
 """
-function decide_bias_layout!(workspace::BiasLayoutWorkspace, prepared)
+function decide_bias_layout!(workspace::BiasLayoutWorkspace, prepared,
+    inter_system_time_offsets::BroadcastInterSystemTimeOffsets)
     num_observations = length(prepared)
     bands = resize!(workspace.bands, num_observations)
     for j in 1:num_observations
@@ -363,20 +366,21 @@ function decide_bias_layout!(workspace::BiasLayoutWorkspace, prepared)
     num_components = decide_bias_columns!(workspace, prepared, nothing)
     num_components == 1 && enough_satellites() && return true
 
-    # Connected-but-scarce or disconnected: try collapsing every other system that
-    # broadcasts an offset to a hub system onto that hub. The offset is one
-    # constellation-wide value whichever of its satellites reports it, so the first
-    # decoded copy per system converts all of that system's observations. Hubs are
-    # tried in a fixed order, so the choice is deterministic and GPS wins whenever it
-    # can; BDT closes the list only for completeness — no signal broadcasts an offset
-    # toward BDT today, so its loop finds nothing.
-    for (hub_index, hub_system) in enumerate(CANDIDATE_HUB_SYSTEMS)
+    # Connected-but-scarce or disconnected: try collapsing every other system whose
+    # offset to a hub system is broadcast onto that hub. Hubs are tried in a fixed
+    # order, so the choice is deterministic and GPS wins whenever it can; BDT closes the
+    # list only for completeness — no signal broadcasts an offset toward BDT today, so
+    # its loop finds nothing.
+    for hub_system in CANDIDATE_HUB_SYSTEMS
         any(observation -> observation.time_system === hub_system, prepared) || continue
         empty!(hub_rows)
         for observation in prepared
             observation.time_system === hub_system && continue
             is_collapsed(hub_rows, observation.time_system) && continue
-            observation.time_offsets[hub_index].available || continue
+            # By index: the two `SupportedTimeSystem`s would not union-split on Julia 1.10.
+            isnothing(broadcast_inter_system_time_offset_at(inter_system_time_offsets,
+                time_system_index(observation.time_system),
+                time_system_index(hub_system))) && continue
             push!(hub_rows, observation)
         end
         isempty(hub_rows) && continue
@@ -525,54 +529,59 @@ function select_reference_system(prepared, hub_system)
 end
 
 """
-    broadcast_inter_system_bias(observation, hub_system, t = observation.transmit_time) -> Float64
+    broadcast_inter_system_bias(inter_system_time_offsets::BroadcastInterSystemTimeOffsets,
+        system, target) -> Union{Nothing,Float64}
 
-The inter-system bias (metres) of `observation`'s time system against `hub_system` that
-the broadcast offset predicts, at the own-scale time of week `t`: `−c · Δt_systems`, with
-`Δt_systems` the broadcast steering offset `observation` carries toward `hub_system` (see
-[`calc_steering_offset`](@ref)). Added to a modeled range it puts an observation of that
-system on the hub's clock. A collapse reports it as that system's entry of
-`inter_system_biases`, evaluated at the transmit time of the system's first observation
-(other times differ by the offset's drift term). Zero when `observation` is of
-`hub_system` itself, `NaN` where it carries no usable offset toward it (see
-[`time_offset_available`](@ref)).
-
-Pass another observation's transmit time as `t` to convert that observation with this
-one's offset, as [`calc_hub_range_offsets`](@ref) does.
+The inter-system bias (metres) of time system `system` against `target` that the
+broadcast offset predicts: `−c · Δt`, with `Δt` the offset from `system` to `target`
+([`broadcast_inter_system_time_offset`](@ref)). Added to a modeled range it puts an observation of
+`system` on `target`'s clock, and a collapse onto the hub `target` reports it as
+`system`'s entry of `inter_system_biases`. Zero when `system` is `target`, `nothing`
+where no offset from `system` toward `target` is broadcast; the reverse direction is not
+substituted.
 """
 function broadcast_inter_system_bias(
-    observation::PreparedObservation,
-    hub_system::SupportedTimeSystem,
-    t = observation.transmit_time,
+    inter_system_time_offsets::BroadcastInterSystemTimeOffsets,
+    system::SupportedTimeSystem,
+    target::SupportedTimeSystem,
 )
-    observation.time_system === hub_system && return 0.0
-    -SPEED_OF_LIGHT *
-    calc_steering_offset(observation.time_offsets[hub_system_index(hub_system)], t)
+    broadcast_inter_system_bias_at(inter_system_time_offsets, time_system_index(system),
+        time_system_index(target))
+end
+
+# `broadcast_inter_system_bias` by `time_system_index` (see
+# `broadcast_inter_system_time_offset_at`).
+function broadcast_inter_system_bias_at(
+    inter_system_time_offsets::BroadcastInterSystemTimeOffsets, system::Int, target::Int)
+    system == target && return 0.0
+    offset =
+        broadcast_inter_system_time_offset_at(inter_system_time_offsets, system, target)
+    isnothing(offset) ? nothing : -SPEED_OF_LIGHT * offset
 end
 
 """
-    calc_hub_range_offsets(prepared, hub_rows, hub_system) -> Vector{Float64}
+    calc_hub_range_offsets(prepared, hub_rows, hub_system, inter_system_time_offsets) -> Vector{Float64}
 
 Per-satellite range offsets (metres) that carry a clock collapse into the observations,
 as decided by [`decide_bias_layout`](@ref): all-zero for the satellites of a system
 that keeps its own clock unknown — all of them when `hub_rows` is empty —
-and otherwise `−c · Δt_systems` for each satellite of a collapsed system, evaluated at
-its own transmit time.
+and otherwise `−c · Δt_systems` for each satellite of a collapsed system.
 
 The broadcast offset is `Δt_systems = (that system's time) − (the hub system's)` (see
-[`calc_steering_offset`](@ref): the GGTO for Galileo toward a GPS hub, the BGTO for
+[`broadcast_inter_system_time_offset`](@ref): the GGTO for Galileo toward a GPS hub, the BGTO for
 BeiDou toward either), so a transmit time becomes hub time by SUBTRACTING it; the
 modeled range therefore carries `−c·Δt_systems`, and the solve yields
-`inter_system_biases[sys] = −c·Δt_systems`. Which satellite of a system reported the
-offset does not matter — it is one constellation-wide value — so
-`decide_bias_layout` picks the first decoded copy per system (`hub_rows`) and it
-converts all of that system's observations.
+`inter_system_biases[sys] = −c·Δt_systems`. It is one constellation-wide value, taken
+from `inter_system_time_offsets` (see [`BroadcastInterSystemTimeOffsets`](@ref)), and it converts all of that
+system's observations: the offset drifts by ~1e-15 s/s, far below a millimetre across
+the spread of the transmit times.
 """
-calc_hub_range_offsets(prepared, hub_rows, hub_system) = calc_hub_range_offsets!(
-    Vector{Float64}(undef, length(prepared)), prepared, hub_rows, hub_system)
+calc_hub_range_offsets(prepared, hub_rows, hub_system, inter_system_time_offsets) =
+    calc_hub_range_offsets!(Vector{Float64}(undef, length(prepared)), prepared, hub_rows,
+        hub_system, inter_system_time_offsets)
 
 # `calc_hub_range_offsets` into `offsets`, resized to the satellite count.
-function calc_hub_range_offsets!(offsets, prepared, hub_rows, hub_system)
+function calc_hub_range_offsets!(offsets, prepared, hub_rows, hub_system, inter_system_time_offsets)
     offsets = resize!(offsets, length(prepared))
     fill!(offsets, 0.0)
     isnothing(hub_system) && return offsets
@@ -582,9 +591,10 @@ function calc_hub_range_offsets!(offsets, prepared, hub_rows, hub_system)
         row_index =
             findfirst(row -> row.time_system === observation.time_system, hub_rows)
         isnothing(row_index) && continue
-        offsets[j] =
-            broadcast_inter_system_bias(hub_rows[row_index], hub_system,
-                observation.transmit_time)
+        # `something`: a hub row's system has its offset toward the hub by construction.
+        # By index: the two `SupportedTimeSystem`s would not union-split on Julia 1.10.
+        offsets[j] = something(broadcast_inter_system_bias_at(inter_system_time_offsets,
+            time_system_index(observation.time_system), time_system_index(hub_system)))
     end
     offsets
 end

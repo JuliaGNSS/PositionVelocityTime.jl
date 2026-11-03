@@ -14,6 +14,11 @@ precompile_gps(system, make_data = identity) = PositionVelocityTime.SignalGroup(
 precompile_galileo(system, make_data = identity) = PositionVelocityTime.SignalGroup(
     system,
     _precompile_states(system, _PRECOMPILE_GALILEO_E1B_STATES, make_data, GalileoE1B()))
+precompile_gps_pilot(signal) = PositionVelocityTime.SignalGroup(signal,
+    map(precompile_gps(GPSL1C_D(), _precompile_cnav2).satellites) do state
+        SignalObservation(; decoder = state.decoder, signal, code_phase = state.code_phase,
+            carrier_doppler = state.carrier_doppler, carrier_phase = state.carrier_phase)
+    end)
 first_satellites(group, n) =
     PositionVelocityTime.SignalGroup(group.signal, group.satellites[1:n])
 
@@ -60,7 +65,10 @@ end
         "GPS L5" => precompile_gps(GPSL5I(), _precompile_cnav),
         "GPS L2C" => precompile_gps(GPSL2CM(), _precompile_cnav),
         "GPS L1C" => precompile_gps(GPSL1C_D(), _precompile_cnav2),
+        "GPS L1C pilot BOC" => precompile_gps_pilot(GPSL1C_P()),
+        "GPS L1C pilot TMBOC" => precompile_gps_pilot(GPSL1C_P(TMBOC)),
         "Galileo E1B" => e1b,
+        "Galileo E1B CBOC" => precompile_galileo(GalileoE1B(CBOC)),
         "Galileo E5a" => precompile_galileo(GalileoE5aI(), _precompile_fnav),
         "GPS + Galileo" => (gps = l1ca, galileo = e1b),
         # The same satellites on two bands: an inter-frequency-bias column.
@@ -219,40 +227,42 @@ end
         # None of the fixtures above carries broadcast coefficients, so each model is
         # driven directly: the in-place prediction must match the allocating one, and
         # a solve through each must allocate nothing.
-        models = (
-            PositionVelocityTime.KlobucharParams(
+        parameter_sets = (
+            GNSSDecoder.KlobucharParameters(
                 1.118e-8, 7.451e-9, -5.961e-8, -5.961e-8, 90112.0, 0.0, -196608.0,
                 -65536.0),
-            PositionVelocityTime.BeiDouKlobucharParams(
+            GNSSDecoder.BeiDouKlobucharParameters(
                 1.118e-8, 7.451e-9, -5.961e-8, -5.961e-8, 90112.0, 0.0, -196608.0,
                 -65536.0),
-            PositionVelocityTime.NTCMGParams(236.831641, -0.39362878, 0.00402826613, 1130),
-            PositionVelocityTime.BDGIMParams(
-                5.25, 3.0, -0.75, 1.5, -2.0, 0.5, 0.25, -0.125, 0.5, 800),
+            GNSSDecoder.NeQuickGParameters(236.831641, -0.39362878, 0.00402826613),
+            GNSSDecoder.BDGIMParameters(
+                5.25, 3.0, -0.75, 1.5, -2.0, 0.5, 0.25, -0.125, 0.5),
             nothing,
         )
-        rows = prepared_of((gps = l1ca, galileo = e1b))
+        prepared = prepared_of((gps = l1ca, galileo = e1b))
         ξ = [4.0186e6, 427035.0, 4.918e6, 0.0, 0.0]
         predict! = PositionVelocityTime.predict_atmospheric_delays!
+        epoch = get_week_start_epoch(GPST(), 2160) + 259200.0
         allocated_predict(delays, model) =
-            @allocated predict!(delays, ξ, rows, model, 259200.0, 151, true)
+            @allocated predict!(delays, ξ, prepared, model, epoch, true)
         workspace = PVTWorkspace()
         solution = PVTSolution()
         calc_pvt!(solution, workspace, (gps = l1ca, galileo = e1b), PVTSolution(); kw...)
         cold = PVTSolution()
-        solve!(model) = PositionVelocityTime._solve_pvt!(
-            solution, workspace, PositionVelocityTime.IonosphericModel(model), cold, true)
+        inter_system_time_offsets = inter_system_time_offsets_of((gps = l1ca, galileo = e1b))
+        solve!(model) = PositionVelocityTime._solve_pvt!(solution, workspace,
+            PositionVelocityTime.IonosphericModel(model), inter_system_time_offsets, cold, true)
         allocated_solve!(model) = @allocated solve!(model)
-        for correction in models
-            model = PositionVelocityTime.IonosphericModel(correction)
+        for parameters in parameter_sets
+            model = PositionVelocityTime.IonosphericModel(parameters)
             delays = Float64[]
-            predict!(delays, ξ, rows, model, 259200.0, 151, true)
+            predict!(delays, ξ, prepared, model, epoch, true)
             @test delays == PositionVelocityTime.predict_atmospheric_delays(
-                ξ, rows, correction, 259200.0, 151, true)
+                ξ, prepared, model, epoch, true)
             @test all(isfinite, delays)
             @test allocated_predict(delays, model) == 0
-            @test first(solve!(correction))
-            @test allocated_solve!(correction) == 0
+            @test first(solve!(parameters))
+            @test allocated_solve!(parameters) == 0
         end
     end
 
@@ -289,27 +299,29 @@ end
         @test !isempty(solution.observations)
         @test !isempty(solution.inter_system_biases)
         @test !isempty(solution.inter_frequency_biases)
-        satellites = solution.observations
+        sats = solution.observations
         @test PositionVelocityTime.empty_keeping_capacity!(solution) === solution
-        @test solution.observations === satellites
+        @test solution.observations === sats
         @test isempty(solution.observations)
         @test isempty(solution.inter_system_biases)
         @test isempty(solution.inter_frequency_biases)
     end
 
-    @testset "the rows are collected without allocating" begin
+    @testset "the observations are collected without allocating" begin
         groups = (gps = l1ca, galileo = e1b)
-        rows = PositionVelocityTime.PreparedObservation[]
-        correction = PositionVelocityTime.collect_measurement_rows!(
-            rows, groups; approximate_year = 2021)
-        expected_rows, expected_correction =
+        prepared = PositionVelocityTime.PreparedObservation[]
+        returned = PositionVelocityTime.collect_measurement_rows!(
+            prepared, groups; approximate_year = 2021)
+        expected_measurements, expected_parameters, expected_time_offsets =
             PositionVelocityTime.collect_measurements(groups; approximate_year = 2021)
-        @test rows == expected_rows
-        @test correction == expected_correction
-        collect_rows!(rows, groups) = @allocated PositionVelocityTime.collect_measurement_rows!(
-            rows, groups; approximate_year = 2021)
-        collect_rows!(rows, groups)
-        @test collect_rows!(rows, groups) == 0
+        @test prepared == expected_measurements
+        @test returned.ionospheric_model.parameters == expected_parameters
+        @test returned.inter_system_time_offsets == expected_time_offsets
+        collect_into!(prepared, groups) = @allocated(
+            PositionVelocityTime.collect_measurement_rows!(prepared, groups;
+                approximate_year = 2021))
+        collect_into!(prepared, groups)
+        @test collect_into!(prepared, groups) == 0
     end
 
     @testset "the allocating forms delegate to the in-place ones" begin
@@ -347,8 +359,6 @@ end
               calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
 
         # Anything but one of the four coefficient sets (or `nothing`) is refused.
-        rows = prepared_of(l1ca)
-        @test_throws ArgumentError PositionVelocityTime.predict_atmospheric_delays(
-            [4.0186e6, 427035.0, 4.918e6, 0.0], rows, 1.0, 259200.0, 151, true)
+        @test_throws MethodError PositionVelocityTime.IonosphericModel(1.0)
     end
 end

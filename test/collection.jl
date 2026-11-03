@@ -135,12 +135,12 @@
 
     @testset "an epoch with no usable satellite is not a special case" begin
         empty_group = PositionVelocityTime.SignalGroup(GPSL1CA(), SignalObservation[])
-        rows, correction =
+        rows, correction, inter_system_time_offsets =
             PositionVelocityTime.collect_measurements(empty_group; approximate_year = 2021)
         @test isempty(rows)
         @test isnothing(correction)
         # `decide_bias_layout` reports unsolvable, so `calc_pvt` hands `prev_pvt` back.
-        @test isnothing(PositionVelocityTime.decide_bias_layout(rows))
+        @test isnothing(PositionVelocityTime.decide_bias_layout(rows, inter_system_time_offsets))
         previous = calc_pvt(gps_group; kw...)
         @test calc_pvt(empty_group, previous; kw...) === previous
         @test calc_pvt((a = empty_group, b = gps_group); kw...).position ==

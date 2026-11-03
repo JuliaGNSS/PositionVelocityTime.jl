@@ -258,12 +258,13 @@ function _calc_pvt!(
     # The function barrier. `_collect_measurements!` specialises on the group shape and
     # reduces it to observations; `_solve_pvt!` below is one compiled body for every
     # constellation mix there is.
-    ionospheric_parameters =
+    (; ionospheric_model, inter_system_time_offsets) =
         _collect_measurements!(workspace.prepared, groups, approximate_year)
     _solve_pvt!(
         solution,
         workspace,
-        IonosphericModel(enable_ionospheric_correction ? ionospheric_parameters : nothing),
+        enable_ionospheric_correction ? ionospheric_model : IonosphericModel(nothing),
+        inter_system_time_offsets,
         prev_pvt,
         enable_tropospheric_correction,
     )
@@ -285,6 +286,7 @@ function _solve_pvt!(
     solution::PVTSolution,
     workspace::PVTWorkspace,
     ionospheric_model,
+    inter_system_time_offsets::BroadcastInterSystemTimeOffsets,
     prev_pvt::PVTSolution,
     enable_tropospheric_correction::Bool,
 )
@@ -313,7 +315,8 @@ function _solve_pvt!(
     # falls back to a hub collapse when the geometry is disconnected or
     # under-determined. A degenerate geometry, which no count can see, is caught after
     # the solve by the DOP.
-    decide_bias_layout!(workspace.layout, prepared) || return (false, prev_pvt)
+    decide_bias_layout!(workspace.layout, prepared, inter_system_time_offsets) ||
+        return (false, prev_pvt)
     (; bias_columns, clock_systems, extra_bands, reference_bands, hub_system, hub_rows) =
         bias_layout(workspace.layout)
     (; clock_columns, num_clock_biases) = bias_columns
@@ -340,18 +343,16 @@ function _solve_pvt!(
 
     # The common reference cancels out of the reported time (the reference clock
     # bias absorbs it), so any latest-transmit-time reference works — but the times
-    # must first be put on one count (`calc_time_scale_offsets!`).
-    # A BeiDou second-of-week reads 14 s below a GPS time of week for the same instant,
-    # so differencing them raw hands every BeiDou observation 4.2e9 m of structural
-    # offset: not merely a biased BeiDou clock column, but a parameter nine orders of
-    # magnitude above the others in the normal equations. Zero for GPS and Galileo, and
-    # for any single-constellation epoch.
-    # The offsets are written straight into the pseudorange buffer, and the transmit
-    # times added onto them, so no separate offset buffer is needed.
-    pseudoranges =
-        calc_time_scale_offsets!(workspace.pseudoranges, prepared, reference_system)
+    # must first be put on one count, the reference system's, which also dates the
+    # reported epoch (GNSSSignals' `get_time_system_offset`). A BeiDou second-of-week
+    # reads 14 s below a GPS time of week for the same instant, so differencing them raw
+    # hands every BeiDou observation 4.2e9 m of structural offset. Only the differenced
+    # times move: the satellite is propagated on its own system's scale, where the 14 s
+    # would put 55 km of along-track error into the ephemeris.
+    pseudoranges = resize!(workspace.pseudoranges, num_observations)
     for (j, observation) in enumerate(prepared)
-        pseudoranges[j] += observation.transmit_time
+        pseudoranges[j] = observation.transmit_time +
+            get_time_system_offset(observation.time_system, reference_system)
     end
     _, reference_time = calc_pseudoranges!(pseudoranges)
     # The known per-satellite broadcast steering offset (zero unless that system was
@@ -360,16 +361,16 @@ function _solve_pvt!(
     # term alone: the time-count difference already removed above is a convention, not
     # a bias, and belongs in neither the readout nor the solve.
     hub_offsets =
-        calc_hub_range_offsets!(workspace.hub_offsets, prepared, hub_rows, hub_system)
+        calc_hub_range_offsets!(workspace.hub_offsets, prepared, hub_rows, hub_system,
+            inter_system_time_offsets)
     pseudoranges .-= hub_offsets
 
-    # The reference system's week and start epoch date the epoch absolutely: the day of
-    # year feeds the tropospheric mapping's seasonal term here, and week/start epoch
-    # date the reported time after the solve.
+    # The reference week's start dates the epoch: the atmospheric delays' here, before the
+    # clock correction, and the reported time at the end.
     reference_observation = prepared[reference_index]
-    week = reference_observation.week
-    start_time = reference_observation.system_start_epoch
-    doy = day_of_year(reference_observation.system_start_time, week, reference_time)
+    week_start =
+        get_week_start_epoch(reference_observation.time_system, reference_observation.week)
+    epoch = week_start + reference_time
 
     # Seed each clock bias from the previous solution, reconstructing a system's
     # absolute bias from the reference bias plus its stored inter-system bias. A
@@ -422,7 +423,7 @@ function _solve_pvt!(
     function corrected_ranges(ξ_prediction)
         delays = predict_atmospheric_delays!(
             workspace.atmospheric_delays, ξ_prediction, prepared, ionospheric_model,
-            reference_time, doy, enable_tropospheric_correction)
+            epoch, enable_tropospheric_correction)
         resize!(workspace.corrected_ranges, num_observations) .= pseudoranges .- delays
     end
     least_squares = workspace.least_squares
@@ -549,13 +550,7 @@ function _solve_pvt!(
         velocity,
         calc_course_over_ground(position, velocity),
         time_correction * m,
-        # Assumes `start_time.fraction == 0` (true for GPS/Galileo: integer-second
-        # origins).
-        TAITime(
-            week * 7 * 24 * 60 * 60 + floor(Int, corrected_reference_time) +
-            start_time.second,
-            corrected_reference_time - floor(Int, corrected_reference_time),
-        ),
+        week_start + corrected_reference_time,
         user_velocity_and_clock_drift[4] / SPEED_OF_LIGHT,
         dop,
         observations,
