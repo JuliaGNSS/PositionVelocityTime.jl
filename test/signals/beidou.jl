@@ -9,7 +9,7 @@
 #   2. the B-CNAV quasi-Keplerian flavour — `A_REF` selected by `SatType`, and an
 #      outright `Ω̇` rather than GPS CNAV's delta off a reference rate;
 #   3. the GEO reference frame, which no GPS or Galileo satellite exercises;
-#   4. BDT as a fourth receiver-clock time system, with the BGTO collapse onto GPS.
+#   4. BDT as a fourth receiver-clock time system, with the BGTO constraint toward GPS.
 
 @testset "BeiDou (BDS) support" begin
     C = 299792458.0
@@ -403,7 +403,7 @@
         # value: GPST and GST are both TAI − 19 s and so count alike, BDT is TAI − 33 s.
         # Per satellite it is the seconds to add to reach the *reference* system's count,
         # GNSSSignals' `get_time_system_offset`, which the solve applies whether or not a
-        # clock collapsed. GPS-referenced: BeiDou needs +14 s.
+        # clock is constrained. GPS-referenced: BeiDou needs +14 s.
         offsets(systems, reference) =
             map(system -> ustrip(s, get_time_system_offset(system, reference)), systems)
         @test offsets([GPST(), BDT(), GST(), BDT()], GPST()) == [0.0, 14.0, 0.0, 14.0]
@@ -656,7 +656,7 @@
         @test norm(pvt.position - user) < 1e-2
     end
 
-    @testset "GPS + BeiDou: separate clocks, and the BGTO collapse when scarce" begin
+    @testset "GPS + BeiDou: separate clocks, and the BGTO constraint when scarce" begin
         # Synthesize both constellations against the same user position and the same
         # physical instant. Two things separate their reported times, and getting only
         # the small one right is how this test used to encode a bug rather than catch
@@ -673,8 +673,8 @@
         # So the BeiDou reception time is `t_rx - 14 + Δ`. Without
         # the time-scale offset the 14 s survives into the normal equations
         # as a parameter nine orders of magnitude above the others: the separate-clock
-        # solve reports a nonsense inter-system bias, and the collapsed solve — which
-        # has no BeiDou clock column left to hide it in — fails outright.
+        # solve reports a nonsense inter-system bias, and the constrained solve — which
+        # pins the BeiDou clock difference to the steering term — fails outright.
         Δ = 12.0e-9
         structural = -14.0
         gps = [
@@ -711,9 +711,9 @@
 
         # Scarce, and on a shared band. B1C rides on L1 with GPS L1 C/A, so the
         # coverage graph is connected and no inter-frequency-bias column is needed —
-        # which is what makes the collapse actually buy something. (On B1I it would
-        # not: reconnecting the disjoint bands creates an IFB unknown that costs back
-        # exactly the clock unknown the collapse saved.)
+        # which is what makes the BGTO constraint actually buy something. (On B1I it
+        # would not: reconnecting the disjoint bands creates an IFB unknown that costs
+        # back exactly the clock unknown the constraint pinned.)
         beidou_l1(prns; bgto = nothing) = [
             ranging_state(
                 b1c_decoder(
@@ -736,45 +736,46 @@
             ) for i in eachindex(prns)
         ]
         # Three GPS plus one BeiDou cannot pay for two independent clocks (3 + 2 = 5
-        # unknowns against 4 observations). With a broadcast BGTO the BeiDou clock
-        # collapses onto GPS and the epoch solves anyway — the BeiDou counterpart of
-        # the existing Galileo GGTO fallback, and the reason `decide_bias_layout` was
-        # generalised past GST.
+        # unknowns against 4 observations). With a broadcast BGTO the BeiDou clock is
+        # tied to GPS and the epoch solves anyway — the BeiDou counterpart of the
+        # Galileo GGTO constraint.
         scarce = (signal_group(gps[1:3]), signal_group(beidou_l1([21]; bgto = Δ)))
         # Pin the *shape*, not just the outcome: two time systems and four satellites,
-        # so the independent layout is arithmetically impossible and the collapse is
-        # the only route to a fix. That is what makes this the assertion that catches
-        # a structural time offset — with a BeiDou clock column of its own, a 14 s
-        # error is absorbed and only shows in the reported bias; with the column gone
-        # there is nowhere for 4.2e9 m to go and the position itself is wrong. Stated
-        # here because a suite whose every case has enough satellites for the
-        # independent layout can miss a defect that produces no fixes at all.
+        # so the independent layout is arithmetically impossible and the BGTO
+        # constraint is the only route to a fix. That is what makes this the assertion
+        # that catches a structural time offset — without the constraint, a 14 s error
+        # is absorbed by the BeiDou clock and only shows in the reported bias; with the
+        # clock difference pinned to the steering term there is nowhere for 4.2e9 m to
+        # go and the position itself is wrong. Stated here because a suite whose every
+        # case has enough satellites for the independent layout can miss a defect that
+        # produces no fixes at all.
         @test length(unique(get_time_system(group.signal) for group in scarce)) == 2
         @test sum(length(group.satellites) for group in scarce) == 4
-        @test layout_of(scarce).bias_columns.num_clock_biases == 1
+        scarce_layout = layout_of(scarce)
+        @test scarce_layout.clock_systems == [GPST(), BDT()]
+        @test length(scarce_layout.constraints) == 1
 
-        collapsed = calc_pvt(scarce; kw...)
-        @test collapsed.reference_system == GPST()
-        @test length(collapsed.observations) == 4
+        constrained = calc_pvt(scarce; kw...)
+        @test constrained.reference_system == GPST()
+        @test length(constrained.observations) == 4
         # A 4-satellite solve has no redundancy at all, so the millimetre-scale
         # time-of-week rounding noise described above is not averaged down here the
         # way it is in the 5-satellite fixes; a few centimetres is the honest bound.
-        @test norm(collapsed.position - user) < 5e-2
-        # The collapsed system keeps an inter-system bias, but now it is the broadcast
-        # offset carried into the observations rather than an estimated unknown. With
-        # no BeiDou clock column left, this is the case the structural offset breaks
-        # outright if it is not removed first — there is nowhere for 4.2e9 m to go.
-        @test ustrip(m, collapsed.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
+        @test norm(constrained.position - user) < 5e-2
+        # The constrained system's inter-system bias is the broadcast offset rather
+        # than an estimate from the geometry: four satellites leave exactly the clock
+        # difference unobservable, so the fit meets the constraint exactly.
+        @test ustrip(m, constrained.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
 
-        # Without the BGTO the same four satellites are unsolvable — no collapse is
+        # Without the BGTO the same four satellites are unsolvable — no constraint is
         # available and the independent layout cannot be paid for — and `calc_pvt`
         # says so by returning the previous solution rather than throwing.
         @test calc_pvt((signal_group(gps[1:3]), signal_group(beidou_l1([21]))); kw...).position ==
               PVTSolution().position
 
-        # A Galileo satellite carrying a GGTO and a BeiDou one carrying a BGTO collapse
-        # independently in the same epoch: the generalised layout is per time system,
-        # not a single Galileo special case.
+        # A Galileo satellite carrying a GGTO and a BeiDou one carrying a BGTO, in the
+        # same epoch: only as many offsets are used as the satellites leave clock
+        # differences unobservable.
         ggto_data = GNSSDecoder.GalileoINAVData(
             galileo[5].decoder.data;
             A_0G = 3.0e-9, A_1G = 0.0, t_0G = 0,
@@ -789,32 +790,88 @@
             carrier_phase = galileo[5].carrier_phase,
         )
         # Three GPS + one BeiDou + one Galileo, all on L1. Three independent clocks
-        # would need six satellites; collapsing both non-GPS systems onto GPS needs
-        # four, so the layout is decided by the two broadcast offsets together.
+        # would need six satellites, two clocks five — so one constraint is enough, and
+        # a second would only let a broadcast offset override what the geometry
+        # observes. BeiDou and Galileo tie on the satellite count; BeiDou appears first.
         mixed = (
             signal_group(gps[1:3]),
             signal_group(beidou_l1([21]; bgto = Δ)),
             signal_group([galileo_ggto]),
         )
         mixed_measurements = prepared_of(mixed)
+        mixed_offsets = time_offsets_of(mixed)
         @test map(observation -> observation.time_system, mixed_measurements) ==
               [GPST(), GPST(), GPST(), BDT(), GST()]
         @test all(observation -> observation.band_id == :L1, mixed_measurements)
-        layout = layout_of(mixed)
+        layout = PositionVelocityTime.decide_bias_layout(mixed_measurements, mixed_offsets)
         @test !isnothing(layout)
-        @test layout.hub_system == GPST()
-        @test Set(row.time_system for row in layout.hub_rows) == Set([BDT(), GST()])
-        @test layout.bias_columns.num_clock_biases == 1
-        @test layout.clock_systems == [GPST()]
+        @test layout.clock_systems == [GPST(), BDT(), GST()]
+        constraint = only(layout.constraints)
+        @test (constraint.column, constraint.target_column) == (2, 1)
+        @test constraint.value ≈ -C * Δ atol = 1e-2
+        @test layout.num_clock_groups == 2
+        mixed_pvt = calc_pvt(mixed; kw...)
+        @test norm(mixed_pvt.position - user) < 5e-2
+        @test ustrip(m, mixed_pvt.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
 
-        # The hub is not GPS-specific. A GPS-free scarce epoch collapses onto
+        # The constraint goes to the system with the fewest satellites, wherever it
+        # appears: with a second Galileo satellite, BeiDou's single one is the least
+        # observed clock even though Galileo comes first. (A relabelled copy of a
+        # observation stands in for the second Galileo satellite; only the decision is under
+        # test.)
+        with_prn(observation, prn) = PositionVelocityTime.PreparedObservation(
+            (f === :prn ? prn : getfield(observation, f)
+             for f in fieldnames(typeof(observation)))...)
+        gps_sats = mixed_measurements[1:3]
+        beidou_sat, galileo_sat = mixed_measurements[4], mixed_measurements[5]
+        fewest = PositionVelocityTime.decide_bias_layout([gps_sats[1:2];
+            [galileo_sat, with_prn(galileo_sat, galileo_sat.prn + 1), beidou_sat]],
+            mixed_offsets)
+        @test fewest.clock_systems == [GPST(), GST(), BDT()]
+        @test map(c -> (c.column, c.target_column), fewest.constraints) == [(3, 1)]
+
+        # Two GPS + one BeiDou + one Galileo: four satellites against 3 + 3 unknowns,
+        # so both offsets are needed, and both are used.
+        both = PositionVelocityTime.decide_bias_layout(
+            [gps_sats[1:2]; [beidou_sat, galileo_sat]], mixed_offsets)
+        @test map(c -> (c.column, c.target_column), both.constraints) ==
+              [(2, 1), (3, 1)]
+        @test both.num_clock_groups == 1
+        # One offset short of that — no GGTO broadcast, only the BGTO — the epoch cannot
+        # be solved.
+        plain_galileo_sat = only(prepared_of(signal_group([galileo[5]])))
+        bgto_offsets = time_offsets_of(signal_group(beidou_l1([21]; bgto = Δ)))
+        @test isnothing(PositionVelocityTime.decide_bias_layout(
+            [gps_sats[1:2]; [beidou_sat, plain_galileo_sat]], bgto_offsets))
+        # It still leaves the offsets it has, not those of the epoch before: BeiDou tied
+        # to GPS, Galileo on its own clock.
+        reused = PositionVelocityTime.decide_bias_layout(
+            [gps_sats[1:2]; [beidou_sat, galileo_sat]], mixed_offsets)
+        @test !PositionVelocityTime.decide_bias_layout!(reused,
+            [gps_sats[1:2]; [beidou_sat, plain_galileo_sat]], bgto_offsets)
+        @test map(c -> (c.column, c.target_column), reused.constraints) == [(2, 1)]
+        @test reused.clock_group_columns == [1, 1, 1, 2]
+        @test reused.num_clock_groups == 2
+        # With no offset between the systems present, none: the BGTO ties a system that
+        # is not there.
+        @test !PositionVelocityTime.decide_bias_layout!(reused,
+            [gps_sats[1:2]; [plain_galileo_sat]], bgto_offsets)
+        @test isempty(reused.constraints)
+        @test reused.num_clock_groups == 2
+        # One satellite per system, both offsets available: unsolvable even with every
+        # clock tied, but the layout ties all three, through both offsets.
+        @test !PositionVelocityTime.decide_bias_layout!(reused,
+            [gps_sats[1:1]; [beidou_sat, galileo_sat]], mixed_offsets)
+        @test sort(map(c -> (c.column, c.target_column), reused.constraints)) ==
+              [(2, 1), (3, 1)]
+        @test reused.clock_group_columns == [1, 1, 1]
+        @test reused.num_clock_groups == 1
+
+        # A constraint is not GPS-specific. A GPS-free scarce epoch ties BeiDou to
         # Galileo instead: the BGTO's GNSS_ID names Galileo (2) as well as GPS (1)
-        # — BDS-SIS-ICD-B1C-1.0 §7.13.1 — and `decide_bias_layout` tries GST as the
-        # hub once GPST is not in the epoch. Everything downstream follows the hub:
-        # the reference system, the reported time scale, and the inter-system-bias
-        # readout. (The defined BDT count offset against GST is the same 14 s as
-        # against GPST — both GPST and GST are TAI − 19 s — so the same `structural`
-        # and steering values apply.)
+        # — BDS-SIS-ICD-B1C-1.0 §7.13.1. (The time-scale offset of BDT against GST is
+        # the same 14 s as against GPST — both GPST and GST are TAI − 19 s — so the same
+        # `structural` and steering values apply.)
         beidou_gal_bgto = ranging_state(
             b1c_decoder(
                 galileo[4];
@@ -838,16 +895,35 @@
         ]
         gps_free = (signal_group(gal_states), signal_group([beidou_gal_bgto]))
         gst_layout = layout_of(gps_free)
+        # The BGTO is filed under the target its GNSS_ID names, so asked toward GPS Time
+        # there is none.
+        gps_free_offsets = time_offsets_of(gps_free)
+        @test PositionVelocityTime.broadcast_time_offset(gps_free_offsets, BDT(), GST()) ==
+              Δ
+        @test isnothing(
+            PositionVelocityTime.broadcast_time_offset(gps_free_offsets, BDT(), GPST()))
         @test !isnothing(gst_layout)
-        @test gst_layout.hub_system == GST()
-        @test map(row -> row.time_system, gst_layout.hub_rows) == [BDT()]
-        @test gst_layout.bias_columns.num_clock_biases == 1
-        @test gst_layout.clock_systems == [GST()]
+        @test gst_layout.clock_systems == [GST(), BDT()]
+        gst_constraint = only(gst_layout.constraints)
+        @test (gst_constraint.column, gst_constraint.target_column) == (2, 1)
 
-        gst_collapsed = calc_pvt(gps_free; kw...)
-        @test gst_collapsed.reference_system == GST()
-        @test length(gst_collapsed.observations) == 4
-        @test norm(gst_collapsed.position - user) < 5e-2
-        @test ustrip(m, gst_collapsed.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
+        gst_constrained = calc_pvt(gps_free; kw...)
+        @test gst_constrained.reference_system == GST()
+        @test length(gst_constrained.observations) == 4
+        @test norm(gst_constrained.position - user) < 5e-2
+        @test ustrip(m, gst_constrained.inter_system_biases[BDT()]) ≈ -C * Δ atol = 1e-2
+
+        # A D1 (B1I) BGTO carries no reference epoch, so a B-CNAV1 (B1C) one, which does,
+        # wins over it in either order; between two without, the first stays.
+        dnav_bgto = beidou([22]; bgto = 2Δ)
+        b1c_bgto = beidou_l1([21]; bgto = Δ)
+        @test isnothing(GNSSDecoder.get_broadcast_time_offset_epoch(
+            only(dnav_bgto).decoder, GPST()))
+        bgto_toward_gps(observations) = PositionVelocityTime.broadcast_time_offset(
+            time_offsets_of(observations), BDT(), GPST())
+        @test bgto_toward_gps((signal_group(dnav_bgto), signal_group(b1c_bgto))) == Δ
+        @test bgto_toward_gps((signal_group(b1c_bgto), signal_group(dnav_bgto))) == Δ
+        @test bgto_toward_gps(signal_group([dnav_bgto; beidou([23]; bgto = 3Δ)])) == 2Δ
+        @test bgto_toward_gps(signal_group([beidou([23]; bgto = 3Δ); dnav_bgto])) == 3Δ
     end
 end

@@ -145,31 +145,30 @@ function throw_not_signal_groups(what)
 end
 
 """
-    PositionVelocityTime.CANDIDATE_HUB_SYSTEMS
+    PositionVelocityTime.SUPPORTED_TIME_SYSTEMS
 
-The GNSS time systems a clock collapse can be anchored on, in the fixed order
-[`decide_bias_layout`](@ref) tries them: `(GPST(), GST(), BDT())`, and those
-[`BroadcastTimeOffsets`](@ref) holds the broadcast offsets between.
+The GNSS time systems this package solves with, `(GPST(), GST(), BDT())`: those a
+satellite can be on, and those [`BroadcastTimeOffsets`](@ref) holds the broadcast offsets
+between.
 """
-const CANDIDATE_HUB_SYSTEMS = (GPST(), GST(), BDT())
+const SUPPORTED_TIME_SYSTEMS = (GPST(), GST(), BDT())
 
 """
     PositionVelocityTime.SupportedTimeSystem
 
 `Union{GPST,GST,BDT}`: the GNSS time systems a satellite can be on, which are exactly
-[`CANDIDATE_HUB_SYSTEMS`](@ref) — every system GNSSSignals defines is a candidate hub.
-The type of [`PreparedObservation`](@ref)'s `time_system` field, and of the keys and
-the reference system of a [`PVTSolution`](@ref).
+[`SUPPORTED_TIME_SYSTEMS`](@ref). The type of [`PreparedObservation`](@ref)'s
+`time_system` field, and of the keys and the reference system of a [`PVTSolution`](@ref).
 
 A closed `Union` rather than the abstract `GNSSSignals.TimeSystem` so that every call on
-a time system — hashing it into `inter_system_biases`, `get_time_system_offset`, a
-hub's broadcast offset — is split into statically dispatched branches instead of being a
+a time system — hashing it into `inter_system_biases`, `get_time_system_offset`, an
+offset's index — is split into statically dispatched branches instead of being a
 dynamic dispatch, which a `juliac --trim` build rejects. The observation it types stays one
 concrete type, so the solver still compiles once for every constellation mix. A time
-system GNSSSignals adds later has to be added to `CANDIDATE_HUB_SYSTEMS` anyway
-(`BroadcastTimeOffsets` then grows a row and a column for it), and this follows.
+system added later joins `SUPPORTED_TIME_SYSTEMS`, and this follows; `BroadcastTimeOffsets`
+then grows a row and a column for it.
 """
-const SupportedTimeSystem = Union{map(typeof, CANDIDATE_HUB_SYSTEMS)...}
+const SupportedTimeSystem = Union{map(typeof, SUPPORTED_TIME_SYSTEMS)...}
 
 """
     PreparedObservation

@@ -7,8 +7,7 @@ The broadcast offsets between the GNSS time systems of one epoch, gathered by
 [`collect_measurements`](@ref) from all its observations and read with
 [`broadcast_time_offset`](@ref). Toward GPS Time that is Galileo's GGTO and BeiDou's BGTO;
 toward Galileo System Time, BeiDou's BGTO variant and the GGTO GPS broadcasts on
-CNAV/CNAV-2. An offset can put a constellation's observations on another system's clock
-(see [`decide_bias_layout`](@ref)).
+CNAV/CNAV-2. An offset can tie two receiver clocks (see [`decide_bias_layout`](@ref)).
 
 An offset belongs to a pair of time systems, not to the satellite that broadcasts it, so
 there is one per pair and direction: the steering residual `Δt = t_own − t_target` (s)
@@ -16,7 +15,8 @@ between the two atomic scales, as GNSSDecoder's `get_broadcast_time_offset` defi
 signs it, without the whole seconds between their counts, which GNSSSignals'
 `get_time_system_offset` applies to the transmit times. Each is evaluated at the
 broadcasting satellite's transmit time, on that satellite's own scale. Both directions of
-a pair are kept as broadcast, Galileo's GST → GPST beside GPS's GPST → GST.
+a pair are kept as broadcast, Galileo's GST → GPST beside GPS's GPST → GST: which to trust
+is the constraint's choice, not the table's.
 
 Where several satellites broadcast one direction, the one with the latest reference epoch
 (GNSSDecoder's `get_broadcast_time_offset_epoch`) wins, so the newer set wins while one is
@@ -35,7 +35,7 @@ BroadcastTimeOffsets() = BroadcastTimeOffsets(
     fill(NaN, SMatrix{3,3,Float64,9}), fill(-Inf, SMatrix{3,3,Float64,9}))
 
 # A time system's row and column in `BroadcastTimeOffsets`, in the order of
-# `CANDIDATE_HUB_SYSTEMS`. Identity tests rather than methods, so a call on the
+# `SUPPORTED_TIME_SYSTEMS`. Identity tests rather than methods, so a call on the
 # `SupportedTimeSystem` field of a prepared observation needs no dispatch.
 time_system_index(system::SupportedTimeSystem) =
     system === GPST() ? 1 : system === GST() ? 2 : 3
@@ -45,7 +45,7 @@ time_system_index(system::SupportedTimeSystem) =
 
 The broadcast offset `Δt = t_own − t_target` (s) from time system `own` to `target` (see
 [`BroadcastTimeOffsets`](@ref)), or `nothing` where none was broadcast, `own` is
-`target`, or either is outside [`CANDIDATE_HUB_SYSTEMS`](@ref), as GNSSDecoder's
+`target`, or either is outside [`SUPPORTED_TIME_SYSTEMS`](@ref), as GNSSDecoder's
 `get_broadcast_time_offset` answers. The reverse direction is not substituted.
 """
 function broadcast_time_offset(
