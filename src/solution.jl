@@ -7,12 +7,17 @@ Dilution of precision of the geometry a PVT solution was solved from, as
 [`PVTSolution`](@ref)'s `dop` (e.g. `pvt.dop.GDOP`). `NaN` throughout for a geometry that
 fails the rank test.
 
+Every DOP is taken from the full covariance, so the other systems' clocks and the
+inter-frequency biases dilute it. `GDOP` is the single-receiver-clock definition, the
+trace over `x, y, z` and the reference system's clock. RTKLIB's `dops` differs once there
+are several clocks: it shares one clock column among all systems.
+
 # Fields
-- `GDOP::Float64`: geometric DOP (all parameters)
+- `GDOP::Float64`: geometric DOP, `√(PDOP² + TDOP²)`
 - `PDOP::Float64`: position DOP
 - `HDOP::Float64`: horizontal DOP
 - `VDOP::Float64`: vertical DOP
-- `TDOP::Float64`: time DOP
+- `TDOP::Float64`: time DOP of the reference system's clock
 """
 struct DOP
     GDOP::Float64
