@@ -89,12 +89,14 @@ function calc_satellite_position_and_velocity(ephemeris::BroadcastEphemeris, t)
     corrected_inclination =
         ephemeris.i_0 + inclination_correction + ephemeris.i_dot * time_from_ephemeris_reference_epoch
 
+    # The harmonic corrections' rates, at the uncorrected argument of latitude as in
+    # IS-GPS-200 Table 20-IV.
     corrected_argument_of_latitude_dot =
         true_anomaly_dot +
         2 *
         (
-            ephemeris.C_us * cos(2 * corrected_argument_of_latitude) -
-            ephemeris.C_uc * sin(2 * corrected_argument_of_latitude)
+            ephemeris.C_us * cos(2 * argument_of_latitude) -
+            ephemeris.C_uc * sin(2 * argument_of_latitude)
         ) *
         true_anomaly_dot
     corrected_radius_dot =
@@ -103,15 +105,15 @@ function calc_satellite_position_and_velocity(ephemeris::BroadcastEphemeris, t)
         (1.0 - ephemeris.e * cos(eccentric_anomaly)) +
         2 *
         (
-            ephemeris.C_rs * cos(2 * corrected_argument_of_latitude) -
-            ephemeris.C_rc * sin(2 * corrected_argument_of_latitude)
+            ephemeris.C_rs * cos(2 * argument_of_latitude) -
+            ephemeris.C_rc * sin(2 * argument_of_latitude)
         ) *
         true_anomaly_dot
     corrected_inclination_dot =
         ephemeris.i_dot +
         (
-            ephemeris.C_is * cos(2 * corrected_argument_of_latitude) -
-            ephemeris.C_ic * sin(2 * corrected_argument_of_latitude)
+            ephemeris.C_is * cos(2 * argument_of_latitude) -
+            ephemeris.C_ic * sin(2 * argument_of_latitude)
         ) *
         2 *
         true_anomaly_dot
