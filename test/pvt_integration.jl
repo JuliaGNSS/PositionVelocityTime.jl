@@ -55,16 +55,11 @@ else
     using CodecZlib: DeflateDecompressorStream
     using Unitful: Hz, ustrip
     using GNSSSignals: GPSL1CA
-    using GNSSDecoder: GNSSDecoder, GPSL1CADecoderState, is_sat_healthy
+    using GNSSDecoder: GNSSDecoder, GPSL1CADecoderState, is_sat_healthy, decode!
     using Acquisition: acquire, is_detected
     using Tracking: TrackState, add_satellite!, track!, get_soft_bits, get_sat_state
     using Tracking: get_code_phase, get_carrier_doppler, get_carrier_phase
     using Geodesy: LLA, ECEF, ECEFfromLLA, wgs84, euclidean_distance
-
-    # GNSSDecoder 5 replaced `decode` with the in-place `decode!`. Both return the
-    # decoder state to carry on with, so either one is called the same way.
-    const decode_soft_bits =
-        isdefined(GNSSDecoder, :decode!) ? GNSSDecoder.decode! : GNSSDecoder.decode
 
     const L125_URL =
         "https://www2.iis.fraunhofer.de/flexiband/reference-data/" *
@@ -225,7 +220,7 @@ else
             ts = track!(window, ts, L125_FS; intermediate_frequency = L125_IF)
             for p in prns
                 s = get_soft_bits(ts, :gps, p)
-                isempty(s) || (decoders[p] = decode_soft_bits(decoders[p], s, length(s)))
+                isempty(s) || (decoders[p] = decode!(decoders[p], s, length(s)))
             end
         end
         close(stream)

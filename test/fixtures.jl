@@ -6,73 +6,6 @@
 # Needs only GNSSDecoder, GNSSSignals, PositionVelocityTime and Unitful's Hz — no
 # test-only dependencies, so the benchmark script can include it directly.
 
-# AirspeedVelocity runs the benchmark script against both the PR and the base
-# revision, which resolve different major versions of GNSSDecoder. v4 renamed
-# fields across the navigation-data containers (one name per quantity, raw
-# broadcast values where 3.x stored decoded strings/metres) and the Galileo
-# I/NAV container itself (`GalileoE1BData` -> `GalileoINAVData` when E5b-I
-# joined E1-B on the shared I/NAV core). The fixture data below is written in
-# the v4 spelling; these constructor shims feature-detect the resolved major
-# and route it onto the 3.x names and value encodings where needed. Drop them
-# once the base revision of the benchmark comparison resolves GNSSDecoder 4.
-const DECODER_HAS_V4_FIELDS = :WN in fieldnames(GNSSDecoder.GPSL1CAData)
-
-# 3.x stored LNAV's issue-of-data and health words as binary strings, and the
-# URA as the decoded metre value rather than the raw index (these fixtures all
-# broadcast index 2, which 3.x decoded as 2.0 m).
-_lnav_binary_word(x, pad) = string(x, base = 2, pad = pad)
-function _lnav_ura_metres(URA_index)
-    URA_index == 2 || error("fixture carries URA_index $URA_index; only 2 is mapped")
-    2.0
-end
-gps_l1ca_data(;
-    WN, code_on_L2, URA_index, sv_health, IODC, L2_P_data_flag,
-    IODE_Sub_2, IODE_Sub_3, kwargs...,
-) =
-    DECODER_HAS_V4_FIELDS ?
-    GNSSDecoder.GPSL1CAData(;
-        WN, code_on_L2, URA_index, sv_health, IODC, L2_P_data_flag,
-        IODE_Sub_2, IODE_Sub_3, kwargs...,
-    ) :
-    GNSSDecoder.GPSL1CAData(;
-        trans_week = WN,
-        codeonl2 = code_on_L2,
-        ura = _lnav_ura_metres(URA_index),
-        sv_health = _lnav_binary_word(sv_health, 6),
-        IODC = _lnav_binary_word(IODC, 10),
-        l2pcode = L2_P_data_flag,
-        IODE_Sub_2 = _lnav_binary_word(IODE_Sub_2, 8),
-        IODE_Sub_3 = _lnav_binary_word(IODE_Sub_3, 8),
-        kwargs...,
-    )
-
-const GalileoINAVData =
-    isdefined(GNSSDecoder, :GalileoINAVData) ? GNSSDecoder.GalileoINAVData :
-    GNSSDecoder.GalileoE1BData
-const GalileoINAVCache =
-    isdefined(GNSSDecoder, :GalileoINAVCache) ? GNSSDecoder.GalileoINAVCache :
-    GNSSDecoder.GalileoE1BCache
-
-# The health/validity flags and the broadcast group delays follow the signal
-# names on v4 (`E1B_SHS`, `BGD_E1_E5b`, ...) where 3.x spelled them out
-# (`signal_health_e1b`, `broadcast_group_delay_e1_e5b`, ...).
-galileo_inav_data(;
-    E1B_SHS, E5b_SHS, E1B_DVS, E5b_DVS, BGD_E1_E5a, BGD_E1_E5b, kwargs...,
-) =
-    isdefined(GNSSDecoder, :GalileoINAVData) ?
-    GNSSDecoder.GalileoINAVData(;
-        E1B_SHS, E5b_SHS, E1B_DVS, E5b_DVS, BGD_E1_E5a, BGD_E1_E5b, kwargs...,
-    ) :
-    GNSSDecoder.GalileoE1BData(;
-        signal_health_e1b = E1B_SHS,
-        signal_health_e5b = E5b_SHS,
-        data_validity_status_e1b = E1B_DVS,
-        data_validity_status_e5b = E5b_DVS,
-        broadcast_group_delay_e1_e5a = BGD_E1_E5a,
-        broadcast_group_delay_e1_e5b = BGD_E1_E5b,
-        kwargs...,
-    )
-
 "5 Galileo E1B satellites; `freq_offset` shifts every carrier Doppler."
 function galileo_e1b_states(freq_offset)
     galileo_e1b = GalileoE1B()
@@ -80,7 +13,7 @@ function galileo_e1b_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 2,
-                galileo_inav_data(;
+                GNSSDecoder.GalileoINAVData(;
                     WN = 1136,
                     TOW = 132769,
                     t_0e = 132000.0,
@@ -116,7 +49,7 @@ function galileo_e1b_states(freq_offset)
                     BGD_E1_E5a = -1.6298145055770874e-9,
                     BGD_E1_E5b = -2.0954757928848267e-9,
                 ),
-                galileo_inav_data(;
+                GNSSDecoder.GalileoINAVData(;
                     WN = 1136,
                     TOW = 132769,
                     t_0e = 132000.0,
@@ -162,7 +95,7 @@ function galileo_e1b_states(freq_offset)
                     3.986004418e14,
                     -4.442807309e-10,
                 ),
-                GalileoINAVCache(),
+                GNSSDecoder.GalileoINAVCache(),
                 1549,
                 false,
             ),
@@ -174,7 +107,7 @@ function galileo_e1b_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 4,
-                galileo_inav_data(;
+                GNSSDecoder.GalileoINAVData(;
                     WN = 1136,
                     TOW = 132769,
                     t_0e = 128400.0,
@@ -210,7 +143,7 @@ function galileo_e1b_states(freq_offset)
                     BGD_E1_E5a = -3.026798367500305e-9,
                     BGD_E1_E5b = -3.4924596548080444e-9,
                 ),
-                galileo_inav_data(;
+                GNSSDecoder.GalileoINAVData(;
                     WN = 1136,
                     TOW = 132769,
                     t_0e = 128400.0,
@@ -256,7 +189,7 @@ function galileo_e1b_states(freq_offset)
                     3.986004418e14,
                     -4.442807309e-10,
                 ),
-                GalileoINAVCache(),
+                GNSSDecoder.GalileoINAVCache(),
                 1546,
                 true,
             ),
@@ -268,7 +201,7 @@ function galileo_e1b_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 11,
-                galileo_inav_data(;
+                GNSSDecoder.GalileoINAVData(;
                     WN = 1136,
                     TOW = 132769,
                     t_0e = 132000.0,
@@ -304,7 +237,7 @@ function galileo_e1b_states(freq_offset)
                     BGD_E1_E5a = -1.3271346688270569e-8,
                     BGD_E1_E5b = -1.4435499906539917e-8,
                 ),
-                galileo_inav_data(;
+                GNSSDecoder.GalileoINAVData(;
                     WN = 1136,
                     TOW = 132769,
                     t_0e = 132000.0,
@@ -350,7 +283,7 @@ function galileo_e1b_states(freq_offset)
                     3.986004418e14,
                     -4.442807309e-10,
                 ),
-                GalileoINAVCache(),
+                GNSSDecoder.GalileoINAVCache(),
                 1551,
                 false,
             ),
@@ -362,7 +295,7 @@ function galileo_e1b_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 25,
-                galileo_inav_data(;
+                GNSSDecoder.GalileoINAVData(;
                     WN = 1136,
                     TOW = 132769,
                     t_0e = 132000.0,
@@ -398,7 +331,7 @@ function galileo_e1b_states(freq_offset)
                     BGD_E1_E5a = 3.4924596548080444e-9,
                     BGD_E1_E5b = 3.958120942115784e-9,
                 ),
-                galileo_inav_data(;
+                GNSSDecoder.GalileoINAVData(;
                     WN = 1136,
                     TOW = 132769,
                     t_0e = 132000.0,
@@ -444,7 +377,7 @@ function galileo_e1b_states(freq_offset)
                     3.986004418e14,
                     -4.442807309e-10,
                 ),
-                GalileoINAVCache(),
+                GNSSDecoder.GalileoINAVCache(),
                 1548,
                 true,
             ),
@@ -456,7 +389,7 @@ function galileo_e1b_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 30,
-                galileo_inav_data(;
+                GNSSDecoder.GalileoINAVData(;
                     WN = 1136,
                     TOW = 132769,
                     t_0e = 132000.0,
@@ -492,7 +425,7 @@ function galileo_e1b_states(freq_offset)
                     BGD_E1_E5a = 1.6298145055770874e-9,
                     BGD_E1_E5b = 1.6298145055770874e-9,
                 ),
-                galileo_inav_data(;
+                GNSSDecoder.GalileoINAVData(;
                     WN = 1136,
                     TOW = 132769,
                     t_0e = 132000.0,
@@ -538,7 +471,7 @@ function galileo_e1b_states(freq_offset)
                     3.986004418e14,
                     -4.442807309e-10,
                 ),
-                GalileoINAVCache(),
+                GNSSDecoder.GalileoINAVCache(),
                 1547,
                 true,
             ),
@@ -557,7 +490,7 @@ function gps_l1_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 7,
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -595,7 +528,7 @@ function gps_l1_states(freq_offset)
                     IODE_Sub_3 = 0b01000110,
                     i_dot = 1.657211886669833e-10,
                 ),
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -656,7 +589,7 @@ function gps_l1_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 8,
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -694,7 +627,7 @@ function gps_l1_states(freq_offset)
                     IODE_Sub_3 = 0b01100111,
                     i_dot = -1.353627812603161e-10,
                 ),
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -755,7 +688,7 @@ function gps_l1_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 10,
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -793,7 +726,7 @@ function gps_l1_states(freq_offset)
                     IODE_Sub_3 = 0b00101000,
                     i_dot = 3.893019302737323e-11,
                 ),
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -854,7 +787,7 @@ function gps_l1_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 15,
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -892,7 +825,7 @@ function gps_l1_states(freq_offset)
                     IODE_Sub_3 = 0b01011001,
                     i_dot = 3.010839699272994e-10,
                 ),
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -953,7 +886,7 @@ function gps_l1_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 16,
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -991,7 +924,7 @@ function gps_l1_states(freq_offset)
                     IODE_Sub_3 = 0b00100010,
                     i_dot = -2.95012288445966e-10,
                 ),
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -1052,7 +985,7 @@ function gps_l1_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 18,
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -1090,7 +1023,7 @@ function gps_l1_states(freq_offset)
                     IODE_Sub_3 = 0b11100001,
                     i_dot = -1.0071848104329588e-10,
                 ),
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -1151,7 +1084,7 @@ function gps_l1_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 23,
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -1189,7 +1122,7 @@ function gps_l1_states(freq_offset)
                     IODE_Sub_3 = 0b11101110,
                     i_dot = 3.107272287505937e-11,
                 ),
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -1250,7 +1183,7 @@ function gps_l1_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 26,
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -1288,7 +1221,7 @@ function gps_l1_states(freq_offset)
                     IODE_Sub_3 = 0b01101110,
                     i_dot = -3.328710082707509e-10,
                 ),
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
@@ -1349,7 +1282,7 @@ function gps_l1_states(freq_offset)
         SatelliteState(;
             decoder = GNSSDecoderState(
                 27,
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 4,
                     integrity_status_flag = false,
                     TOW = nothing,
@@ -1387,7 +1320,7 @@ function gps_l1_states(freq_offset)
                     IODE_Sub_3 = 0b01001110,
                     i_dot = -1.2286226056345314e-10,
                 ),
-                gps_l1ca_data(
+                GNSSDecoder.GPSL1CAData(
                     last_subframe_id = 3,
                     integrity_status_flag = false,
                     TOW = 132768,
