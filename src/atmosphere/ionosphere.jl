@@ -365,24 +365,6 @@ function select_ionospheric_correction(groups)
 end
 
 """
-    _elevation_azimuth(enu_from_ecef::ENUfromECEF, sat_position) -> (elevation, azimuth)
-
-Elevation and azimuth (radians) of `sat_position` (ECEF) in the local East-North-Up
-frame defined by `enu_from_ecef = ENUfromECEF(user_position, wgs84)`. Azimuth is
-measured clockwise from North. The transform is taken precomputed so it can be built
-once per user position and reused across satellites.
-"""
-function _elevation_azimuth(enu_from_ecef::ENUfromECEF, sat_position)
-    sat_enu = get_sat_enu(enu_from_ecef, ECEF(sat_position))
-    elevation = sat_enu.ϕ
-    # `SphericalFromCartesian` measures θ counter-clockwise from East (the ENU +x
-    # axis); the ionospheric models use azimuth measured clockwise from North, i.e.
-    # π/2 − θ. Only cos/sin of the azimuth are used downstream, so the wrap is moot.
-    azimuth = π / 2 - sat_enu.θ
-    return elevation, azimuth
-end
-
-"""
     ionospheric_delay(parameters, center_frequency, elevation, azimuth, lla, time_of_week)
         -> Float64
 
@@ -405,7 +387,7 @@ below any of the three models' own error. The geometry is taken precomputed — 
 shared across satellites and with [`tropospheric_delay`](@ref) — so a whole-epoch
 correction does the user geodetic conversion only once. Derive the geometry from
 ECEF with `LLAfromECEF(wgs84)(user)` and
-[`_elevation_azimuth`](@ref)`(ENUfromECEF(user, wgs84), sat)`.
+[`calc_elevation_and_azimuth`](@ref)`(ENUfromECEF(user, wgs84), sat)`.
 
 `center_frequency` is the ranging signal's carrier in Hz as a plain `Float64`
 (`ustrip(Hz, get_center_frequency(signal))`, precomputed on every

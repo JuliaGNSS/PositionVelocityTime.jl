@@ -157,7 +157,7 @@ end
         sat = ECEF(user[1] + 1.0e7, user[2] + 1.0e7, user[3] + 2.0e7)
         klob = PositionVelocityTime.KlobucharParams(α..., β...)
         # Line-of-sight geometry (same user/sat for every call below)
-        el, az = PositionVelocityTime._elevation_azimuth(ENUfromECEF(user, wgs84), sat)
+        el, az = calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
         lla = LLAfromECEF(wgs84)(user)
 
         # No correction → exactly zero for any system

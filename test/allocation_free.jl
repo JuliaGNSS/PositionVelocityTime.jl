@@ -343,7 +343,8 @@ end
         @test select_reference(mixed_rows) == 0
         user = ECEF(4.0186e6, 427035.0, 4.918e6)
         sat = ECEF(1.5e7, 1.0e7, 1.8e7)
-        @test get_sat_enu(user, sat) == get_sat_enu(ENUfromECEF(user, wgs84), sat)
+        @test calc_elevation_and_azimuth(user, sat) ==
+              calc_elevation_and_azimuth(ENUfromECEF(user, wgs84), sat)
 
         # Anything but one of the four coefficient sets (or `nothing`) is refused.
         rows = prepared_of(l1ca)

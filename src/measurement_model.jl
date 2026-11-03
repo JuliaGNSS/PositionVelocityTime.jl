@@ -246,26 +246,24 @@ function calc_pseudorange_curvature!(curvature, sat_positions, ξ, Δξ)
 end
 
 """
-    get_sat_enu(user_pos_ecef::ECEF, sat_pos_ecef::ECEF) -> Spherical
-    get_sat_enu(enu_from_ecef::ENUfromECEF, sat_pos_ecef::ECEF) -> Spherical
+    calc_elevation_and_azimuth(user_pos::ECEF, sat_pos)
+        -> (elevation, azimuth)
+    calc_elevation_and_azimuth(enu_from_ecef::ENUfromECEF, sat_pos)
+        -> (elevation, azimuth)
 
-Convert satellite position to East-North-Up (ENU) spherical coordinates (azimuth and
-elevation) relative to the user position.
-
-# Arguments
-- `user_pos_ecef::ECEF`: User position in ECEF coordinates
-- `enu_from_ecef::ENUfromECEF`: A precomputed `ENUfromECEF(user_pos_ecef, wgs84)`
-  transform. Pass this form to reuse one transform across all satellites that
-  share a user position (one geodetic conversion per epoch instead of per satellite).
-- `sat_pos_ecef::ECEF`: Satellite position in ECEF coordinates
-
-# Returns
-Spherical coordinates containing azimuth and elevation of the satellite as seen from
-the user position.
+Elevation and azimuth (radians) of the satellite at `sat_pos` (ECEF), seen
+from the user position in its local East-North-Up frame; the azimuth runs clockwise from
+North in `[0, 2π)`. Pass `enu_from_ecef = ENUfromECEF(user_pos, wgs84)` to share one
+geodetic conversion across the satellites of an epoch.
 """
-function get_sat_enu(enu_from_ecef::ENUfromECEF, sat_pos_ecef::ECEF)
-    SphericalFromCartesian()(enu_from_ecef(sat_pos_ecef))
+function calc_elevation_and_azimuth(enu_from_ecef::ENUfromECEF, sat_pos)
+    enu = SphericalFromCartesian()(enu_from_ecef(ECEF(sat_pos)))
+    elevation = enu.ϕ
+    # `SphericalFromCartesian` measures θ counter-clockwise from East (the ENU +x
+    # axis); azimuth is measured clockwise from North, i.e. π/2 − θ.
+    azimuth = mod2pi(π / 2 - enu.θ)
+    return elevation, azimuth
 end
 
-get_sat_enu(user_pos_ecef::ECEF, sat_pos_ecef::ECEF) =
-    get_sat_enu(ENUfromECEF(user_pos_ecef, wgs84), sat_pos_ecef)
+calc_elevation_and_azimuth(user_pos::ECEF, sat_pos) =
+    calc_elevation_and_azimuth(ENUfromECEF(user_pos, wgs84), sat_pos)

@@ -94,7 +94,7 @@ function _predict_atmospheric_delays!(
     user_lla = LLAfromECEF(wgs84)(user_ecef)
     enu_from_ecef = ENUfromECEF(user_ecef, wgs84)
     for (j, observation) in enumerate(prepared)
-        elevation, azimuth = _elevation_azimuth(enu_from_ecef, observation.position)
+        elevation, azimuth = calc_elevation_and_azimuth(enu_from_ecef, observation.position)
         iono = ionospheric_delay(
             parameters,
             observation.center_frequency,

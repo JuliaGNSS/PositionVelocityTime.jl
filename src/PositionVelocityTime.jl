@@ -30,7 +30,7 @@ export calc_pvt,
     get_sat_info,
     calc_satellite_position,
     calc_satellite_position_and_velocity,
-    get_sat_enu
+    calc_elevation_and_azimuth
 
 # The measurement-model surface. `calc_pvt` above is the whole scalar solver,
 # but a consumer running its own estimator over the same measurement model — a

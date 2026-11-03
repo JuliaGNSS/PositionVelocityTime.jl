@@ -75,7 +75,7 @@ PositionVelocityTime.empty_keeping_capacity!
 get_lla
 calc_satellite_position
 calc_satellite_position_and_velocity
-get_sat_enu
+calc_elevation_and_azimuth
 ```
 
 ## Atmospheric Corrections
@@ -98,7 +98,6 @@ PositionVelocityTime.BDGIMParams
 PositionVelocityTime.klobuchar_params
 PositionVelocityTime.ntcm_g_params
 PositionVelocityTime.bdgim_params
-PositionVelocityTime._elevation_azimuth
 ```
 
 ## Dilution of Precision
