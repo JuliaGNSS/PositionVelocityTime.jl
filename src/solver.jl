@@ -303,17 +303,25 @@ function _solve_pvt!(
     # `something` keeps the index an `Int`: every clock column has a satellite.
     reference_index = something(findfirst(==(reference_clock_column), clock_columns))
 
-    # The transmit times on the reference system's count (GNSSSignals'
-    # `get_time_system_offset`; raw, a BeiDou observation would carry 4.2e9 m), then
-    # differenced. Only the differenced times move: the satellite is propagated on its own
-    # system's scale, where the 14 s would put 55 km of along-track error into the
-    # ephemeris.
+    # The pseudoranges: how far each transmit time trails the reference observation's, on
+    # the reference system's count (GNSSSignals' `get_time_system_offset`; raw, a BeiDou
+    # observation would carry 4.2e9 m) and folded across a week crossover. A crossover can
+    # fall between the times: within the transmit-time spread, or, in a mixed solve,
+    # between BeiDou times on the GPS count (`SOW + 14`, past 604800 for the first 14 s of
+    # a GPS week) and GPS times already wrapped. The common reference cancels into the
+    # receiver clock biases, which then date `reference_time`, the reference observation's
+    # own transmit time, in its own week. Only the differenced times move: the satellite is
+    # propagated on its own system's scale, where the 14 s would put 55 km of along-track
+    # error into the ephemeris.
+    reference_time = prepared[reference_index].transmit_time
     pseudoranges = resize!(workspace.pseudoranges, num_observations)
     for (j, observation) in enumerate(prepared)
-        pseudoranges[j] = observation.transmit_time +
+        correction =
             get_time_system_offset(observation.time_system, reference_system)
+        pseudoranges[j] =
+            fold_week_crossover(reference_time - (correction + observation.transmit_time)) *
+            SPEED_OF_LIGHT
     end
-    _, reference_time = calc_pseudoranges!(pseudoranges)
     # The clock constraints' known values are observations too, after the satellites'.
     resize!(pseudoranges, num_observations + length(constraints))
     for (i, constraint) in enumerate(constraints)
