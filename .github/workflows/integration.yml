@@ -1,0 +1,30 @@
+# The real-data PVT fix (test/integration), in an environment of its own: it needs
+# Acquisition and Tracking, and Tracking builds on this package, so it cannot be part of
+# the test target that has to resolve when this package is released ahead of them. It
+# runs on demand and weekly rather than on every pull request.
+name: Integration
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
+jobs:
+  integration:
+    name: Integration (real-data PVT fix)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - name: Cache Flexiband L125 capture prefix
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/flexiband-l125
+          key: flexiband-l125-roof-210s-l1-prefix-v1
+      - name: Run the integration test
+        env:
+          PVT_TESTDATA_DIR: ${{ runner.temp }}/flexiband-l125
+        run: |
+          julia --project=test/integration -e 'using Pkg; Pkg.instantiate()'
+          julia --project=test/integration test/integration/runtests.jl
