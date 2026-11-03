@@ -4,8 +4,8 @@
 # collection pass that is statically dispatched when the groups are named.
 #
 # `SignalGroup` is written out fully qualified throughout, deliberately: `Tracking`
-# exports a type of the same name and `test/tracking_ext.jl` brings it into this very
-# session's `Main`.
+# exports a type of the same name and `test/pvt_integration.jl` loads Tracking into this
+# very session.
 
 @testset "signal groups" begin
     kw = (;

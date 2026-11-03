@@ -1,4 +1,4 @@
-# Real-world satellite-state fixtures shared by the test suite (test/pvt.jl and
+# Real-world satellite-state fixtures shared by the test suite (test/solver.jl and
 # friends) and the benchmarks (benchmark/fixtures.jl): decoder data captured over
 # Aachen, 2021-05-31, with observables that converge to a real position. Kept in one
 # place so the benchmark inputs cannot drift from the test fixtures.
