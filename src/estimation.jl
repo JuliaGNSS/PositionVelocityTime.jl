@@ -39,8 +39,11 @@ end
 
 The dilution of precision of the design matrix `H` ([`calc_design_matrix`](@ref)) at the
 user position. The position covariance is rotated from ECEF into the local ENU frame for
-`HDOP`/`VDOP`. `GDOP` spans all parameters; `TDOP` is the variance of the clock column
-`reference_clock_column`, the reference system's (see [`PVTSolution`](@ref)).
+`HDOP`/`VDOP`. `TDOP` is the variance of the clock column `reference_clock_column`, the
+reference system's (see [`PVTSolution`](@ref)), and `GDOP = √(PDOP² + TDOP²)`: the other
+systems' clocks and the inter-frequency biases stay out of it, so another system or band
+tracked does not add its own unknown to it. It can still change when the reference
+system or the IFB layout does.
 
 A rank-deficient geometry returns `NaN` for every DOP instead of throwing. It is told by
 the Cholesky factor of `HᵀH`: its smallest pivot falls below `cbrt(eps())` times its
@@ -57,7 +60,6 @@ calc_dop(H, user_pos::ECEF, reference_clock_column = 1) = calc_dop!(
 overwritten). Allocates nothing.
 """
 function calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_column = 1)
-    n = size(H, 2)
     calc_fit_covariance!(normal_matrix, H) || return DOP(NaN, NaN, NaN, NaN, NaN)
     # The inverse is in the upper triangle only; `D(i, j)` reads it symmetrically.
     D(i, j) = i <= j ? normal_matrix[i, j] : normal_matrix[j, i]
@@ -80,7 +82,7 @@ function calc_dop!(normal_matrix, H, user_pos::ECEF, reference_clock_column = 1)
     PDOP = sqrt(D(1, 1) + D(2, 2) + D(3, 3)) # position DOP (trace-invariant)
     # time DOP (reference system)
     TDOP = sqrt(D(3 + reference_clock_column, 3 + reference_clock_column))
-    GDOP = sqrt(sum(i -> D(i, i), 1:n))      # geometric DOP (all parameters)
+    GDOP = hypot(PDOP, TDOP)                 # geometric DOP (position + reference clock)
 
     return DOP(GDOP, PDOP, HDOP, VDOP, TDOP)
 end

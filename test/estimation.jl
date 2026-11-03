@@ -49,9 +49,10 @@
     @test all(isnan, (dop_singular.GDOP, dop_singular.PDOP, dop_singular.HDOP,
         dop_singular.VDOP, dop_singular.TDOP))
 
-    # Multi-GNSS: 3 position + 2 clock columns (3 satellites per system). GDOP/HDOP are
+    # Multi-GNSS: 3 position + 2 clock columns (3 satellites per system). HDOP/PDOP are
     # independent of which clock is the reference; TDOP reports the selected system's
-    # clock variance, so it changes with reference_clock_column.
+    # clock variance, so it and GDOP change with reference_clock_column, and GDOP leaves
+    # the other clock out.
     azels6 = [azels; (deg2rad(300), deg2rad(35))]
     sys = [1, 1, 1, 2, 2, 2]
     H_multi = reduce(
@@ -63,7 +64,11 @@
     )
     d1 = PositionVelocityTime.calc_dop(H_multi, user, 1)
     d2 = PositionVelocityTime.calc_dop(H_multi, user, 2)
-    @test d1.GDOP ≈ d2.GDOP
+    Q_multi = inv(H_multi' * H_multi)
+    @test d1.GDOP ≈ sqrt(Q_multi[1, 1] + Q_multi[2, 2] + Q_multi[3, 3] + Q_multi[4, 4])
+    @test d2.GDOP ≈ sqrt(Q_multi[1, 1] + Q_multi[2, 2] + Q_multi[3, 3] + Q_multi[5, 5])
+    @test d1.GDOP ≈ hypot(d1.PDOP, d1.TDOP)
+    @test d1.GDOP < sqrt(tr(Q_multi))
     @test d1.HDOP ≈ d2.HDOP
     @test d1.PDOP ≈ d2.PDOP
     @test !(d1.TDOP ≈ d2.TDOP)

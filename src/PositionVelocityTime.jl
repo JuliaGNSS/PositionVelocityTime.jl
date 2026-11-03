@@ -58,6 +58,11 @@ const SPEED_OF_LIGHT = 299792458.0
 
 The Earth's rotation rate ω_e (rad/s), the WGS-84 value GPS and Galileo (GTRF) both use,
 which turns the ECEF frame over a signal's travel time.
+
+It serves BeiDou too, although CGCS2000 defines 7.2921150e-5. The two differ by 2e-8
+relative, which moves even a GEO satellite's ~65 m Sagnac term by about a micrometre.
+Where the system's own value matters, in the ephemeris (tens of metres over a week), each
+satellite's `Ω_dot_e` is used instead (see `calc_satellite_position_and_velocity`).
 """
 const EARTH_ROTATION_RATE = 7.2921151467e-5
 

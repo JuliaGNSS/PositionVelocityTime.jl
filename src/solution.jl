@@ -8,11 +8,11 @@ Dilution of precision of the geometry a PVT solution was solved from, as
 fails the rank test.
 
 # Fields
-- `GDOP::Float64`: geometric DOP (all parameters)
+- `GDOP::Float64`: geometric DOP, `√(PDOP² + TDOP²)`
 - `PDOP::Float64`: position DOP
 - `HDOP::Float64`: horizontal DOP
 - `VDOP::Float64`: vertical DOP
-- `TDOP::Float64`: time DOP
+- `TDOP::Float64`: time DOP of the reference system's clock
 """
 struct DOP
     GDOP::Float64
