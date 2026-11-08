@@ -134,8 +134,9 @@ function estimate_position!(
     #  - `x_tol` is relative to `‖ξ‖`, which the reference clock column dominates: the
     #    pseudoranges count from the reference observation's transmit time, so it holds
     #    minus that signal's travel time, ~−2e7 m. The 1e-8 default stops at a ~0.2 m
-    #    step — most of a metre short on a warm start.
-    #    1e-13 stops at ~2 µm, still ~1e3 × the rounding of `ξ`.
+    #    step, most of a metre short on a warm start. 4e-13 stops at ~10 µm: above the
+    #    ~4 µm steps the fit keeps proposing at the optimum, which none improves on, and
+    #    far below any fix's precision.
     #  - `lambda = 10` damps the first steps well short of Gauss–Newton. The model is only
     #    mildly nonlinear, so 1e-8 makes it effectively Gauss–Newton: 2 to 5 iterations
     #    from 1 m, 100 km or a cold start, against 8 to 16, while a failing step still
@@ -150,14 +151,14 @@ function estimate_position!(
                 calc_pseudorange_curvature!(curvature, sat_positions, ξ, Δξ),
             lambda = 1e-8,
             min_step_quality = 0.0,
-            x_tol = 1e-13,
+            x_tol = 4e-13,
         )
     else
         curve_fit!(
             workspace, model!, jacobian!, sat_positions, pseudoranges, prev_ξ;
             inplace = true,
             lambda = 1e-8,
-            x_tol = 1e-13,
+            x_tol = 4e-13,
         )
     end
     # `curve_fit` reports `model − data`; negated into the caller's buffer, as `resid` is
