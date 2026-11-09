@@ -656,4 +656,18 @@ end
     @test isempty(layout.constraints)
     @test pvt.time ≈ gal_only.time
     @test norm(pvt.position - gal_only.position) < 10
+
+    # With the previous reference, it is kept.
+    select(observations; kw...) =
+        PositionVelocityTime.select_reference_system(layout_of(observations); kw...)
+    four_five = (collection_of(gps[1:4]), collection_of(gal))
+    @test select(four_five) == GST()
+    # Kept however far behind it falls.
+    @test select(four_five; prev_reference_system = GPST()) == GPST()
+    @test select(observations; prev_reference_system = GPST()) == GPST()
+    # Given up when absent, or tied by the GGTO to a better-observed system.
+    @test select(collection_of(gal); prev_reference_system = GPST()) == GST()
+    tied = (collection_of(gps[1:3]), collection_of([with_ggto(gal[1]; A_0G = 1.0e-9)]))
+    @test !isempty(layout_of(tied).constraints)
+    @test select(tied; prev_reference_system = GST()) == GPST()
 end

@@ -377,6 +377,11 @@ end
             @allocated PositionVelocityTime.select_reference_system(layout)
         select_reference(mixed_layout)
         @test select_reference(mixed_layout) == 0
+        select_kept_reference(layout) =
+            @allocated PositionVelocityTime.select_reference_system(layout;
+                prev_reference_system = GST())
+        select_kept_reference(mixed_layout)
+        @test select_kept_reference(mixed_layout) == 0
         # Columns without constraints share one empty vector rather than allocate one.
         # Stored, so the compiler cannot drop the unused columns and their vector.
         indices = [1, 1]

@@ -495,7 +495,7 @@ function is_new_sat(prepared, j)
 end
 
 """
-    select_reference_system(layout::BiasLayout) -> system
+    select_reference_system(layout::BiasLayout; prev_reference_system = nothing) -> system
 
 The reference time system of the epoch `layout` was decided for, solvable or not: the one
 that dates the reported time ([`PVTSolution`](@ref)'s `reference_system`). It is the
@@ -505,15 +505,44 @@ system with the most distinct satellites, ties going to the first. Throws an
 Distinct satellites, not observations: a satellite's extra bands mostly determine
 inter-frequency biases. It is also the count `decide_bias_layout!` constrains by, so the
 reference system is never one whose clock only a broadcast offset determines.
+
+With `prev_reference_system`, that system stays the reference while it is in `layout`
+and no broadcast offset ties it to a system with more satellites, however few satellites
+it has. [`calc_pvt`](@ref) selects without it, anew every epoch: its clocks come from one
+epoch's pseudoranges, so a reference on few satellites would date the fix poorly. An
+estimator that carries its clocks across epochs, such as a vector-tracking filter, passes
+its previous reference, so that a change in the satellite counts does not move the
+reported time onto another clock; its clock model keeps a sparsely observed clock
+determined.
 """
-function select_reference_system(layout::BiasLayout)
+function select_reference_system(layout::BiasLayout; prev_reference_system = nothing)
     isempty(layout.clock_systems) &&
         throw(ArgumentError("no time system to select a reference system from"))
-    layout.clock_systems[select_reference_clock_column(layout)]
+    layout.clock_systems[select_reference_clock_column(layout; prev_reference_system)]
 end
 
 # The clock column of `select_reference_system`; `argmax` takes the first maximum.
-select_reference_clock_column(layout::BiasLayout) = argmax(layout.satellites_per_clock)
+function select_reference_clock_column(layout::BiasLayout; prev_reference_system = nothing)
+    satellites_per_clock = layout.satellites_per_clock
+    best = argmax(satellites_per_clock)
+    isnothing(prev_reference_system) && return best
+    column = findfirst(system -> system === prev_reference_system, layout.clock_systems)
+    isnothing(column) && return best
+    # The clock group is per observation; an observation of a better-observed system in
+    # the same group means a broadcast offset ties the two.
+    group = 0
+    for j in eachindex(layout.clock_columns)
+        layout.clock_columns[j] == column || continue
+        group = layout.clock_group_columns[j]
+        break
+    end
+    for j in eachindex(layout.clock_columns)
+        layout.clock_group_columns[j] == group &&
+            satellites_per_clock[layout.clock_columns[j]] > satellites_per_clock[column] &&
+            return best
+    end
+    column
+end
 
 """
     broadcast_inter_system_bias(inter_system_time_offsets::BroadcastInterSystemTimeOffsets,
